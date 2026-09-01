@@ -460,7 +460,7 @@ class BoletoParcialTest(BaseSetup):
         self.login_admin()
         resp = self.client.get('/painel/')
         self.assertContains(resp, 'Boletos parciais do mês')
-        self.assertContains(resp, 'Parciais: R$ 500,00 de R$ 1500,00')
+        self.assertContains(resp, 'Parciais: R$ 500,00 de R$ 1.500,00')
 
 
 class ValeTest(BaseSetup):
