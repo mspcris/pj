@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import threading
+from datetime import date, datetime
 from decimal import Decimal
 
 from django.conf import settings
@@ -21,6 +22,7 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from ..models import AuditLog, Boleto
+from . import boletos as svc_boletos
 from . import emails, frases, ia, pdf
 
 log = logging.getLogger(__name__)
@@ -53,6 +55,27 @@ def _fatos(boleto):
     }
 
 
+def valor_da_linha(linha):
+    """Valor embutido no código de barras — conferência 100% determinística.
+
+    Linha digitável de boleto bancário (47 díg.): valor = últimos 10 dígitos,
+    em centavos. Guia de arrecadação (48 díg.): remove o DV de cada bloco de
+    12 e lê o valor nas posições 5-15 do código de barras resultante.
+    """
+    ld = re.sub(r'\D', '', linha or '')
+    try:
+        if len(ld) == 47:
+            v = Decimal(ld[-10:]) / 100
+        elif len(ld) == 48:
+            cb = ''.join(d for i, d in enumerate(ld) if (i + 1) % 12 != 0)
+            v = Decimal(cb[4:15]) / 100
+        else:
+            return None
+        return v.quantize(Decimal('0.01')) if v > 0 else None
+    except Exception:
+        return None
+
+
 def dados_pagamento(boleto, fatos):
     """Bloco determinístico com os dados de pagamento — anexado ao corpo do
     e-mail do pagador DEPOIS da redação (a IA nunca toca nesses dados)."""
@@ -60,11 +83,27 @@ def dados_pagamento(boleto, fatos):
               f'Prestador: {fatos["prestador"]} — {fatos["alvo"]}',
               f'Competência: {fatos["competencia"]}',
               f'Valor: R$ {fatos["valor"]}']
+    if boleto.vencimento:
+        partes.append(f'Vencimento: {boleto.vencimento:%d/%m/%Y}')
     if boleto.linha_digitavel:
         partes.append(f'Linha digitável: {boleto.linha_digitavel}')
     if boleto.chave_pix:
         partes.append(f'Chave PIX: {boleto.chave_pix}')
+    if (boleto.valor_esperado is not None
+            and boleto.valor_extraido is not None
+            and boleto.valor_esperado - boleto.valor_extraido > TOLERANCIA):
+        partes.append(f'Obs.: valor abaixo do combinado '
+                      f'(R$ {_moeda(boleto.valor_esperado)}) — acordo com o '
+                      'prestador.')
     return '\n'.join(partes)
+
+
+def _mes_seguinte_fim(competencia):
+    """Último dia do mês seguinte ao da competência."""
+    m = competencia.month + 2
+    ano = competencia.year + (m - 1) // 12
+    mes = (m - 1) % 12 + 1
+    return date(ano, mes, 1)  # exclusivo: vencimento < este dia
 
 
 def enviar_recebido(boleto):
@@ -119,48 +158,93 @@ def processar(boleto_pk):
 
     fatos = _fatos(boleto)
 
-    if not boleto.arquivo.name.lower().endswith('.pdf'):
-        _para_manual(boleto, 'arquivo não é PDF (imagem/foto)')
+    # 1) Valor do PDF (via IA) — quando há PDF.
+    valor_pdf = None
+    if boleto.arquivo:
+        if not boleto.arquivo.name.lower().endswith('.pdf'):
+            _para_manual(boleto, 'arquivo não é PDF (imagem/foto)')
+            return
+        texto = pdf.extrair_texto(boleto.arquivo.path)
+        if not texto:
+            _para_manual(boleto, 'PDF sem texto legível (escaneado?)')
+            return
+        try:
+            valor_pdf, bruto = ia.extrair_valor(texto)
+            boleto.ia_resposta = bruto[:4000]
+        except Exception as e:
+            log.error('IA falhou no boleto #%s: %s', boleto_pk, e)
+            if boleto.tentativas >= MAX_TENTATIVAS:
+                _para_manual(boleto, f'IA indisponível após '
+                                     f'{MAX_TENTATIVAS} tentativas: {e}')
+            else:
+                boleto.save()  # continua RECEBIDO; o cron tenta de novo
+            return
+        if valor_pdf is None:
+            _para_manual(boleto, 'IA não identificou o valor no PDF')
+            return
+        try:
+            dados = json.loads(bruto)
+        except Exception:
+            dados = {}
+        if not boleto.linha_digitavel:
+            ld = re.sub(r'\D', '', str(dados.get('linha_digitavel') or ''))
+            if 40 <= len(ld) <= 48:
+                boleto.linha_digitavel = ld
+        if boleto.vencimento is None:
+            try:
+                boleto.vencimento = datetime.strptime(
+                    str(dados.get('vencimento') or ''), '%d/%m/%Y').date()
+            except ValueError:
+                pass
+
+    # 2) Valor embutido no código de barras (determinístico, sem IA).
+    valor_linha = valor_da_linha(boleto.linha_digitavel)
+
+    if valor_pdf is None and valor_linha is None:
+        _para_manual(boleto, 'sem PDF legível e sem linha digitável com '
+                             'valor — nada para conferir')
         return
 
-    texto = pdf.extrair_texto(boleto.arquivo.path)
-    if not texto:
-        _para_manual(boleto, 'PDF sem texto legível (escaneado?)')
+    # 3) O CÓDIGO TEM DE BATER COM O VALOR: PDF × código de barras.
+    if (valor_pdf is not None and valor_linha is not None
+            and abs(valor_pdf - valor_linha) > TOLERANCIA):
+        _para_manual(boleto,
+                     f'código de barras diz R$ {_moeda(valor_linha)}, mas o '
+                     f'PDF diz R$ {_moeda(valor_pdf)} — documento '
+                     'inconsistente, NÃO enviado para pagamento')
         return
 
-    try:
-        valor, bruto = ia.extrair_valor(texto)
-        boleto.ia_resposta = bruto[:4000]
-    except Exception as e:
-        log.error('IA falhou no boleto #%s: %s', boleto_pk, e)
-        if boleto.tentativas >= MAX_TENTATIVAS:
-            _para_manual(boleto, f'IA indisponível após '
-                                 f'{MAX_TENTATIVAS} tentativas: {e}')
-        else:
-            boleto.save()  # continua RECEBIDO; o cron tenta de novo
-        return
-
-    if valor is None:
-        _para_manual(boleto, 'IA não identificou o valor no boleto')
-        return
-
+    valor = valor_pdf if valor_pdf is not None else valor_linha
     boleto.valor_extraido = valor
     fatos['valor'] = _moeda(valor)
 
-    if not boleto.linha_digitavel:
-        try:
-            ld = re.sub(r'\D', '', str(json.loads(bruto)
-                                       .get('linha_digitavel') or ''))
-            if 40 <= len(ld) <= 48:
-                boleto.linha_digitavel = ld
-        except Exception:
-            pass
+    # 4) NÃO DUPLICIDADE: nunca aprovar duas vezes a mesma competência.
+    dup = svc_boletos.duplicado_de(boleto)
+    if dup is not None:
+        _para_manual(boleto,
+                     f'possível DUPLICIDADE: o boleto #{dup.pk} desta mesma '
+                     f'competência já está "{dup.get_status_display()}" — '
+                     'nada foi enviado para pagamento')
+        return
 
-    if boleto.valor_esperado is None:
+    # 5) O MÊS TEM DE BATER: vencimento dentro da janela da competência
+    # (do dia 1 da competência até o fim do mês seguinte).
+    if (boleto.vencimento is not None
+            and not (boleto.competencia <= boleto.vencimento
+                     < _mes_seguinte_fim(boleto.competencia))):
+        _para_manual(boleto,
+                     f'vencimento {boleto.vencimento:%d/%m/%Y} não bate com '
+                     f'a competência {fatos["competencia"]}')
+        return
+
+    if boleto.valor_esperado is None and not boleto.valor_livre:
         _para_manual(boleto, 'sem valor acordado cadastrado no painel')
         return
 
-    if abs(valor - boleto.valor_esperado) <= TOLERANCIA:
+    # 6) Valor × combinado. Igual ou MENOR (pode haver acordo) → aprova.
+    # MAIOR: NUNCA aprova sozinho — só o admin, cadastrando direto na
+    # plataforma com "aceitar este valor" (valor_livre).
+    if boleto.valor_livre or (valor - boleto.valor_esperado) <= TOLERANCIA:
         _marcar(boleto, Boleto.Status.APROVADO)
         emails.enviar(
             settings.EMAIL_PAGADOR,
@@ -173,7 +257,9 @@ def processar(boleto_pk):
                               'o valor já foi conferido e que os dados de '
                               'pagamento seguem abaixo da assinatura.'))
             + dados_pagamento(boleto, fatos),
-            boleto=boleto, anexo_field=boleto.arquivo)
+            boleto=boleto,
+            anexo_field=boleto.arquivo if boleto.arquivo else None,
+            de=settings.EMAIL_FROM_PAGADOR)
         emails.enviar(
             boleto.enviado_por or settings.EMAIL_ADMIN,
             f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',

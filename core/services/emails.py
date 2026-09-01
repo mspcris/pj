@@ -13,8 +13,12 @@ from ..models import EmailLog
 log = logging.getLogger(__name__)
 
 
-def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None):
-    """Envia e registra. Retorna True/False — nunca levanta exceção."""
+def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
+           de=None):
+    """Envia e registra. Retorna True/False — nunca levanta exceção.
+
+    `de` troca o remetente (ex.: e-mail p/ o pagador sai do cristiano@;
+    o padrão pj@ fica para os e-mails aos PJs)."""
     dest_real = destinatario
     if settings.EMAIL_MODO_TESTE:
         assunto = f'[TESTE p/ {destinatario}] {assunto}'
@@ -24,7 +28,7 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None):
                         corpo=corpo, boleto=boleto)
     try:
         msg = EmailMessage(subject=assunto, body=corpo,
-                           from_email=settings.DEFAULT_FROM_EMAIL,
+                           from_email=de or settings.DEFAULT_FROM_EMAIL,
                            to=[dest_real])
         if anexo_field:
             anexo_field.open('rb')

@@ -11,17 +11,33 @@ do Cristiano — para nunca esquecer um boleto.
   Se emite um boleto por posto, escolhe o posto (pré-selecionado se só tem um).
 - **CONTRATOS** → escolhe o posto → lista de contratos com vigência + anexar.
 
-**Fluxo do boleto:**
-1. Upload → e-mail (do cristiano@) confirmando "recebemos, será verificado".
-2. IA (Groq `openai/gpt-oss-120b`) extrai o valor do PDF.
-3. Valor **bate** com o combinado → e-mail p/ `equipe@camim.com.br` com o
-   boleto anexo pedindo pagamento + e-mail ao PJ ("já foi p/ pagamento").
-   Status: **APROVADO**.
-4. Valor **não bate** → e-mail ao PJ pedindo para ligar. Status: **DIVERGENTE**.
-   Nada vai para pagamento.
-5. PDF ilegível/imagem → **MANUAL** + e-mail avisando o Cristiano.
-6. As frases dos e-mails são redigidas pela IA (sempre variadas); se a IA cair,
-   caem em modelos prontos sorteados — o fluxo nunca trava.
+**Como o boleto entra (3 caminhos, mesmo fluxo):**
+- Upload do PJ na plataforma;
+- E-mail do PJ para `pj@camim.com.br` (robô `importar_emails_pj`, leitura
+  SOMENTE-READ da caixa, dedupe por Message-ID) — PDF anexo, ou linha
+  digitável no corpo;
+- Cadastro direto pelo admin no painel (boleto que chegou pelo zap), com
+  linha digitável, chave PIX e PDF opcional.
+
+**Fluxo de verificação (a IA extrai; quem decide é código):**
+1. E-mail de "recebemos, verificando" (remetente `pj@camim.com.br`).
+2. IA (Groq `openai/gpt-oss-120b`) extrai valor, vencimento e linha
+   digitável do PDF. Sem PDF, o valor vem do próprio código de barras
+   (determinístico: centavos embutidos na linha digitável).
+3. **O código tem de bater com o valor**: linha digitável × PDF divergentes
+   → **MANUAL**, nunca paga.
+4. **Não duplicidade**: se já existe boleto APROVADO/PAGO da mesma
+   competência/posto → **MANUAL**, nunca paga. (Reenvio só substitui
+   pendências.)
+5. **O mês tem de bater**: vencimento fora da janela da competência →
+   **MANUAL**.
+6. Valor × combinado: **igual ou MENOR** (pode haver acordo) → **APROVADO**
+   → e-mail p/ `equipe@camim.com.br` saindo do `cristiano@` com anexo +
+   linha digitável/PIX + e-mail ao PJ. Valor **MAIOR NUNCA passa sozinho**
+   → **DIVERGENTE**, e-mail ao PJ pedindo para ligar. Valor maior só entra
+   pelo cadastro do admin com "aceitar este valor" marcado.
+7. As frases dos e-mails são redigidas pela IA (sempre variadas); se a IA
+   cair, caem em modelos prontos sorteados — o fluxo nunca trava.
 
 **Painel (`/painel/`):** régua mensal *quem deveria mandar boleto × o que
 chegou*, com pendências no topo; marcar **PAGO**; aprovar manualmente;

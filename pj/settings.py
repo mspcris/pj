@@ -137,10 +137,18 @@ EMAIL_PORT = int(os.getenv('EMAIL_PORT', '465'))
 EMAIL_USE_SSL = os.getenv('EMAIL_USE_SSL', 'true').lower() == 'true'
 EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'cristiano@camim.com.br')
 EMAIL_HOST_PASSWORD = (os.getenv('EMAIL_HOST_PASSWORD') or '').replace(' ', '')
+# Remetente padrão (e-mails para os PJs): o alias pj@camim.com.br.
 DEFAULT_FROM_EMAIL = os.getenv(
-    'DEFAULT_FROM_EMAIL', 'Cristiano Camim <cristiano@camim.com.br>')
+    'DEFAULT_FROM_EMAIL', 'Cristiano Camim <pj@camim.com.br>')
+# E-mail p/ o financeiro pagar sai do e-mail PESSOAL do Cristiano.
+EMAIL_FROM_PAGADOR = os.getenv(
+    'EMAIL_FROM_PAGADOR', 'Cristiano Camim <cristiano@camim.com.br>')
 
 EMAIL_PAGADOR = os.getenv('EMAIL_PAGADOR', 'equipe@camim.com.br')
+# Caixa que recebe boletos por e-mail (robô importar_emails_pj)
+EMAIL_INTAKE_ALIAS = os.getenv('EMAIL_INTAKE_ALIAS', 'pj@camim.com.br')
+IMAP_HOST = os.getenv('IMAP_HOST', 'imap.gmail.com')
+IMAP_DIAS = int(os.getenv('IMAP_DIAS', '10'))
 EMAIL_ADMIN = os.getenv('EMAIL_ADMIN', 'cristiano@camim.com.br')
 # Modo de teste: TODO e-mail sai só para EMAIL_ADMIN (nada chega no PJ/equipe).
 EMAIL_MODO_TESTE = os.getenv('EMAIL_MODO_TESTE', 'false').lower() == 'true'

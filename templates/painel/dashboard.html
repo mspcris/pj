@@ -35,8 +35,11 @@
       <td>R$ {{ l.valor|default:"—" }}</td>
       {% with b=l.boleto %}
       {% if b %}
-      <td><a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎
-        {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a></td>
+      <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎
+        {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>
+        {% elif b.valor_extraido %}🔢 R$ {{ b.valor_extraido }}
+          <span class="sub" style="font-size:.72rem">(linha digitável)</span>
+        {% else %}🔢 linha digitável{% endif %}</td>
       <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
       <td style="white-space:nowrap">
         {% if b.status == 'APROVADO' %}

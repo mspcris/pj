@@ -224,6 +224,27 @@ class VerComoTest(BaseSetup):
         self.client.get('/sair-ver-como/')
         self.assertEqual(self.client.get('/painel/').status_code, 200)
 
+    def test_ver_como_abre_o_prestador_certo(self):
+        caio = Prestador.objects.create(nome='Caio Augusto')
+        teste = Prestador.objects.create(nome='Empresa Teste LTDA')
+        self.login_admin()
+        self.client.post(f'/painel/ver-como/{caio.pk}/')
+        resp = self.client.get('/')
+        self.assertContains(resp, 'Caio Augusto')
+        self.assertNotContains(resp, 'Empresa Teste')
+        # trocar direto para outro prestador (SEM sair antes) tem que
+        # funcionar — era o bug do "cliquei no Caio, abriu a Empresa Teste"
+        self.client.post(f'/painel/ver-como/{teste.pk}/')
+        resp = self.client.get('/')
+        self.assertContains(resp, 'Empresa Teste LTDA')
+
+    def test_excluir_prestador(self):
+        alvo = Prestador.objects.create(nome='Vai Sumir LTDA')
+        self.login_admin()
+        resp = self.client.post(f'/painel/prestadores/{alvo.pk}/excluir/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse(Prestador.objects.filter(pk=alvo.pk).exists())
+
     def test_pj_nao_consegue_usar_ver_como(self):
         outro = Prestador.objects.create(nome='Outro PJ')
         self.login_pj()
@@ -250,6 +271,121 @@ class LinhaDigitavelIATest(BaseSetup):
         corpo_pagador = next(c.args[2] for c in m_mail.call_args_list
                              if c.args[0] == 'equipe@camim.com.br')
         self.assertIn('Linha digitável: 2379338', corpo_pagador)
+
+
+def _linha_47(valor_centavos):
+    """Linha digitável fictícia de 47 dígitos com o valor embutido no fim."""
+    return '2379338128600078271369500006330' + '9' + '843' \
+        + str(valor_centavos).rjust(12, '0')[-12:].rjust(12, '0')
+
+
+class RegrasNegocioTest(BaseSetup):
+    """Valor menor pode (acordo); MAIOR nunca sozinho; código bate com
+    valor; sem duplicidade; mês bate."""
+
+    def _boleto(self, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=date(2026, 9, 1), arquivo=_pdf(),
+                    enviado_por='pj@empresa.com.br',
+                    valor_esperado=Decimal('1500.00'))
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1400.00'), '{"valor":"1400.00"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_valor_menor_aprova(self, m_pdf, m_ia, m_mail):
+        b = self._boleto()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1600.00'), '{"valor":"1600.00"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_valor_maior_nunca_aprova_sozinho(self, m_pdf, m_ia, m_mail):
+        b = self._boleto()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.DIVERGENTE)
+        destinos = [c.args[0] for c in m_mail.call_args_list]
+        self.assertNotIn('equipe@camim.com.br', destinos)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1600.00'), '{"valor":"1600.00"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_valor_livre_do_admin_aprova_maior(self, m_pdf, m_ia, m_mail):
+        b = self._boleto(valor_livre=True)
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1500.00'), '{"valor":"1500.00"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_duplicidade_nunca_aprova_de_novo(self, m_pdf, m_ia, m_mail):
+        self._boleto(status=Boleto.Status.PAGO)
+        b2 = self._boleto()
+        verificacao.processar(b2.pk)
+        b2.refresh_from_db()
+        self.assertEqual(b2.status, Boleto.Status.MANUAL)
+        destinos = [c.args[0] for c in m_mail.call_args_list]
+        self.assertNotIn('equipe@camim.com.br', destinos)
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_reenvio_nao_substitui_aprovado(self, m_async):
+        aprovado = self._boleto(status=Boleto.Status.APROVADO)
+        self.login_pj()
+        self.client.post('/boleto/', {
+            'competencia': date(2026, 9, 1).isoformat(),
+            'posto': self.posto1.pk, 'arquivo': _pdf()})
+        aprovado.refresh_from_db()
+        self.assertEqual(aprovado.status, Boleto.Status.APROVADO)  # intacto
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor', return_value=(
+        Decimal('1500.00'),
+        '{"valor":"1500.00","vencimento":"10/12/2026"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_mes_nao_bate_vira_manual(self, m_pdf, m_ia, m_mail):
+        b = self._boleto()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor', return_value=(
+        Decimal('1500.00'),
+        '{"valor":"1500.00","linha_digitavel":"%s"}' % _linha_47(999900)))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_codigo_nao_bate_com_pdf_vira_manual(self, m_pdf, m_ia, m_mail):
+        b = self._boleto()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        destinos = [c.args[0] for c in m_mail.call_args_list]
+        self.assertNotIn('equipe@camim.com.br', destinos)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_sem_pdf_valor_vem_da_linha(self, m_mail):
+        b = self._boleto(arquivo=None,
+                         linha_digitavel=_linha_47(150000),
+                         valor_esperado=Decimal('1500.00'))
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertEqual(b.valor_extraido, Decimal('1500.00'))
+
+    def test_valor_da_linha(self):
+        self.assertEqual(
+            verificacao.valor_da_linha(_linha_47(123456)),
+            Decimal('1234.56'))
+        self.assertIsNone(verificacao.valor_da_linha('123'))
+        self.assertIsNone(verificacao.valor_da_linha(''))
 
 
 class PermissoesTest(BaseSetup):

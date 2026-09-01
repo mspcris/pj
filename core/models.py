@@ -170,7 +170,9 @@ class Boleto(models.Model):
     posto = models.ForeignKey(Posto, null=True, blank=True,
                               on_delete=models.SET_NULL, related_name='boletos')
     competencia = models.DateField(help_text='Sempre dia 1 do mês')
-    arquivo = models.FileField(upload_to=_upload_boleto)
+    # Pode não ter PDF (ex.: veio só a linha digitável pelo zap/e-mail) —
+    # nesse caso o valor é conferido pelo próprio código de barras.
+    arquivo = models.FileField(upload_to=_upload_boleto, null=True, blank=True)
     nome_original = models.CharField(max_length=255, blank=True)
     enviado_por = models.EmailField(blank=True)
 
@@ -178,6 +180,10 @@ class Boleto(models.Model):
     # zap) ou extraídos do PDF pela IA. Vão no e-mail para o pagador.
     linha_digitavel = models.CharField(max_length=60, blank=True)
     chave_pix = models.CharField(max_length=140, blank=True)
+    vencimento = models.DateField(null=True, blank=True)
+    # Só o admin liga isto (cadastro direto): aceita o valor do boleto mesmo
+    # diferente do combinado — único caminho para pagar valor MAIOR.
+    valor_livre = models.BooleanField(default=False)
 
     status = models.CharField(max_length=12, choices=Status.choices,
                               default=Status.RECEBIDO)
@@ -243,6 +249,29 @@ class AuditLog(models.Model):
                                detalhe=detalhe[:2000], ip=ip or None)
         except Exception:  # auditoria nunca derruba o fluxo principal
             pass
+
+
+class EmailRecebido(models.Model):
+    """Dedupe da caixa pj@camim.com.br — cada e-mail processado uma vez só
+    (Message-ID é UNIQUE, mesma regra do import_email_pjs do relatorio_h_t)."""
+
+    class Resultado(models.TextChoices):
+        BOLETO_CRIADO = 'BOLETO', 'Boleto(s) criado(s)'
+        SEM_PRESTADOR = 'SEM_PREST', 'Remetente sem cadastro'
+        SEM_CONTEUDO = 'SEM_CONT', 'Sem PDF e sem linha digitável'
+
+    message_id = models.CharField(max_length=255, unique=True)
+    remetente = models.CharField(max_length=255)
+    assunto = models.CharField(max_length=255, blank=True)
+    resultado = models.CharField(max_length=10, choices=Resultado.choices)
+    detalhe = models.TextField(blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        return f'{self.remetente} — {self.get_resultado_display()}'
 
 
 class EmailLog(models.Model):

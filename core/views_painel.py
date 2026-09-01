@@ -16,7 +16,9 @@ from .forms import (BoletoAdminForm, PostoForm, PrestadorForm, UsuarioForm,
                     ValorBRField)
 from .models import (AuditLog, Boleto, Contrato, EmailLog, Posto, Prestador,
                      PrestadorPosto, UsuarioPermitido)
-from .views import com_usuario
+from django.contrib.auth.decorators import login_required
+
+from .views import _usuario_real, com_usuario
 
 
 def admin_required(view):
@@ -24,6 +26,20 @@ def admin_required(view):
     @com_usuario
     def wrapper(request, up, *args, **kwargs):
         if not up.is_admin:
+            return redirect('home')
+        return view(request, up, *args, **kwargs)
+    return wrapper
+
+
+def admin_real_required(view):
+    """Como admin_required, mas ignora o modo 'ver como' — para as ações que
+    o admin precisa alcançar mesmo estando disfarçado de PJ (trocar de
+    prestador no 'ver como', por exemplo)."""
+    @wraps(view)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        up = _usuario_real(request)
+        if up is None or not up.is_admin:
             return redirect('home')
         return view(request, up, *args, **kwargs)
     return wrapper
@@ -131,7 +147,9 @@ def boleto_acao(request, up, pk, acao):
             f'{fatos["competencia"]} — R$ {fatos["valor"]}',
             frases.corpo('aprovado_pagador', fatos)
             + dados_pagamento(boleto, fatos),
-            boleto=boleto, anexo_field=boleto.arquivo)
+            boleto=boleto,
+            anexo_field=boleto.arquivo if boleto.arquivo else None,
+            de=settings.EMAIL_FROM_PAGADOR)
         messages.success(request, f'{boleto} aprovado e enviado p/ pagamento.')
     else:
         messages.error(request, 'Ação não permitida para este status.')
@@ -147,29 +165,16 @@ def boleto_novo(request, up):
     if request.method == 'POST':
         form = BoletoAdminForm(request.POST, request.FILES)
         if form.is_valid():
+            from .services import boletos as svc_boletos
             prestador = form.cleaned_data['prestador']
-            posto = form.cleaned_data['posto']
-            competencia = form.cleaned_data['competencia']
-            if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
-                valor_esperado = prestador.valor_esperado_unico()
-            else:
-                vinculo = prestador.vinculos_ativos().filter(
-                    posto=posto).first()
-                valor_esperado = vinculo.valor_mensal if vinculo else None
-
-            (Boleto.objects
-             .filter(prestador=prestador, posto=posto, competencia=competencia)
-             .exclude(status__in=[Boleto.Status.PAGO,
-                                  Boleto.Status.SUBSTITUIDO])
-             .update(status=Boleto.Status.SUBSTITUIDO))
-
             arq = form.cleaned_data['arquivo']
-            boleto = Boleto.objects.create(
-                prestador=prestador, posto=posto, competencia=competencia,
-                arquivo=arq, nome_original=arq.name[:255],
-                enviado_por=up.email, valor_esperado=valor_esperado,
+            boleto = svc_boletos.registrar(
+                prestador, form.cleaned_data['competencia'],
+                enviado_por=up.email, posto=form.cleaned_data['posto'],
+                arquivo=arq, nome_original=arq.name if arq else '',
                 linha_digitavel=form.cleaned_data['linha_digitavel'],
-                chave_pix=form.cleaned_data['chave_pix'].strip())
+                chave_pix=form.cleaned_data['chave_pix'],
+                valor_livre=form.cleaned_data['valor_livre'])
             AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                                detalhe=f'(admin) Boleto #{boleto.pk} {boleto}')
             from .services.verificacao import fluxo_completo_async
@@ -183,7 +188,7 @@ def boleto_novo(request, up):
     return render(request, 'painel/boleto_form.html', {'form': form, 'up': up})
 
 
-@admin_required
+@admin_real_required
 @require_POST
 def ver_como(request, up, pk):
     prestador = get_object_or_404(Prestador, pk=pk, ativo=True)
@@ -271,6 +276,24 @@ def prestador_detalhe(request, up, pk):
         'prestador': prestador, 'form': form, 'linhas_postos': linhas_postos,
         'contratos': contratos, 'usuarios': prestador.usuarios.all(),
         'up': up})
+
+
+@admin_required
+@require_POST
+def prestador_excluir(request, up, pk):
+    prestador = get_object_or_404(Prestador, pk=pk)
+    detalhe = (f'Prestador EXCLUÍDO: {prestador.nome} '
+               f'(boletos={prestador.boletos.count()}, '
+               f'contratos={prestador.contratos.count()}, '
+               f'usuários={prestador.usuarios.count()})')
+    nome = prestador.nome
+    prestador.delete()
+    if request.session.get('ver_como') == pk:
+        request.session.pop('ver_como', None)
+    AuditLog.registrar(AuditLog.Evento.CRUD, request, detalhe=detalhe)
+    messages.success(request, f'{nome} excluído com tudo que era dele '
+                              '(boletos, contratos, usuários).')
+    return redirect('painel_prestadores')
 
 
 @admin_required

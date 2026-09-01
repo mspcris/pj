@@ -11,12 +11,17 @@ from .forms import BoletoForm, ContratoForm
 from .models import AuditLog, Boleto, Contrato, Posto, Prestador, UsuarioPermitido
 
 
-def _usuario(request):
+def _usuario_real(request):
+    """Whitelist SEM o disfarce do modo 'ver como'."""
     if not request.user.is_authenticated:
         return None
-    up = (UsuarioPermitido.objects
-          .filter(email=request.user.email.lower(), ativo=True)
-          .select_related('prestador').first())
+    return (UsuarioPermitido.objects
+            .filter(email=request.user.email.lower(), ativo=True)
+            .select_related('prestador').first())
+
+
+def _usuario(request):
+    up = _usuario_real(request)
     # Modo "ver como": o admin enxerga o portal exatamente como o PJ vê.
     # Instância virtual (não salva), só para esta requisição.
     pk = request.session.get('ver_como')
@@ -79,29 +84,12 @@ def anexar_boleto(request, up):
     if request.method == 'POST':
         form = BoletoForm(prestador, request.POST, request.FILES)
         if form.is_valid():
-            competencia = form.cleaned_data['competencia']
-            posto = form.cleaned_data.get('posto')
-            if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
-                posto = None
-                valor_esperado = prestador.valor_esperado_unico()
-            else:
-                vinculo = prestador.vinculos_ativos().filter(
-                    posto=posto).first()
-                valor_esperado = vinculo.valor_mensal if vinculo else None
-
-            # Novo arquivo para a mesma competência substitui o anterior
-            # ainda não pago (o PJ pode reenviar corrigido).
-            (Boleto.objects
-             .filter(prestador=prestador, posto=posto, competencia=competencia)
-             .exclude(status__in=[Boleto.Status.PAGO,
-                                  Boleto.Status.SUBSTITUIDO])
-             .update(status=Boleto.Status.SUBSTITUIDO))
-
+            from .services import boletos as svc_boletos
             arq = form.cleaned_data['arquivo']
-            boleto = Boleto.objects.create(
-                prestador=prestador, posto=posto, competencia=competencia,
-                arquivo=arq, nome_original=arq.name[:255],
-                enviado_por=up.email, valor_esperado=valor_esperado)
+            boleto = svc_boletos.registrar(
+                prestador, form.cleaned_data['competencia'],
+                enviado_por=up.email, posto=form.cleaned_data.get('posto'),
+                arquivo=arq, nome_original=arq.name)
             AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                                detalhe=f'Boleto #{boleto.pk} {boleto}')
 
@@ -168,6 +156,8 @@ def baixar_arquivo(request, up, tipo, pk):
     if modelo is None:
         raise Http404
     obj = get_object_or_404(modelo, pk=pk)
+    if not obj.arquivo:
+        raise Http404
     if not _pode_ver(up, obj.prestador_id):
         AuditLog.registrar(AuditLog.Evento.DOWNLOAD_NEGADO, request,
                            detalhe=f'{tipo} #{pk}')

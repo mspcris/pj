@@ -85,12 +85,18 @@ class BoletoAdminForm(forms.Form):
                                    queryset=Posto.objects.none(),
                                    required=False)
     competencia = forms.ChoiceField(label='Mês do boleto')
-    arquivo = forms.FileField(label='Arquivo do boleto (PDF)')
+    arquivo = forms.FileField(
+        label='Arquivo do boleto (PDF — opcional se tiver linha digitável)',
+        required=False)
     linha_digitavel = forms.CharField(
-        label='Linha digitável (opcional)', required=False,
+        label='Linha digitável', required=False,
         widget=forms.TextInput(attrs={'inputmode': 'numeric',
                                       'placeholder': '47 ou 48 dígitos'}))
     chave_pix = forms.CharField(label='Chave PIX (opcional)', required=False)
+    valor_livre = forms.BooleanField(
+        label='Aceitar este valor mesmo diferente do combinado '
+              '(acordo/ajuste — único caminho para valor MAIOR)',
+        required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -104,7 +110,8 @@ class BoletoAdminForm(forms.Form):
         self.fields['competencia'].initial = hoje.isoformat()
 
     def clean_arquivo(self):
-        return _validar_arquivo(self.cleaned_data['arquivo'], _EXT_BOLETO)
+        arq = self.cleaned_data.get('arquivo')
+        return _validar_arquivo(arq, _EXT_BOLETO) if arq else None
 
     def clean_competencia(self):
         try:
@@ -123,6 +130,10 @@ class BoletoAdminForm(forms.Form):
 
     def clean(self):
         dados = super().clean()
+        if not dados.get('arquivo') and not dados.get('linha_digitavel'):
+            raise forms.ValidationError(
+                'Anexe o PDF ou informe a linha digitável — sem nenhum dos '
+                'dois não há o que conferir.')
         prestador, posto = dados.get('prestador'), dados.get('posto')
         if prestador:
             if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:

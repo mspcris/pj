@@ -25,6 +25,8 @@ urlpatterns = [
          name='painel_prestadores'),
     path('painel/prestadores/<int:pk>/', views_painel.prestador_detalhe,
          name='painel_prestador'),
+    path('painel/prestadores/<int:pk>/excluir/',
+         views_painel.prestador_excluir, name='painel_prestador_excluir'),
     path('painel/postos/', views_painel.postos, name='painel_postos'),
     path('painel/usuarios/', views_painel.usuarios, name='painel_usuarios'),
     path('painel/emails/', views_painel.emails_log, name='painel_emails'),

@@ -67,4 +67,16 @@
   </table></div>
   {% else %}<p class="sub">Nenhum contrato anexado.</p>{% endif %}
 </div>
+
+<div class="card" style="border-color:#f5c6c0">
+  <h2 style="font-size:1.05rem;color:var(--erro)">Zona de perigo</h2>
+  <p class="sub" style="font-size:.85rem">Excluir apaga o prestador e TUDO
+    que é dele: boletos (inclusive histórico de pagamentos), contratos e
+    usuários. Não tem volta. Para só pausar, desmarque "Ativo" nos dados.</p>
+  <form method="post" action="{% url 'painel_prestador_excluir' prestador.pk %}"
+        onsubmit="return confirm('EXCLUIR {{ prestador.nome|escapejs }} e todo o histórico? Não tem volta!')">
+    {% csrf_token %}
+    <button class="btn vermelho" type="submit">Excluir prestador</button>
+  </form>
+</div>
 {% endblock %}
