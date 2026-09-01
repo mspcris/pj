@@ -404,6 +404,22 @@ def prestador_restaurar(request, up, pk):
 def postos(request, up):
     if request.method == 'POST':
         pk = request.POST.get('pk')
+        if request.POST.get('acao') == 'excluir' and pk:
+            posto = get_object_or_404(Posto, pk=pk)
+            if posto.id_endereco_legado is not None:
+                messages.error(request,
+                               f'{posto.nome} é posto canônico do legado — '
+                               'não se exclui, no máximo desmarque "ativo".')
+            else:
+                posto.excluido_em = timezone.now()
+                posto.ativo = False
+                posto.save(update_fields=['excluido_em', 'ativo'])
+                posto.vinculos.update(ativo=False)
+                AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                                   detalhe=f'Posto excluído (soft): {posto}')
+                messages.success(request, f'{posto.nome} excluído (soft '
+                                          'delete — continua no banco).')
+            return redirect('painel_postos')
         instancia = get_object_or_404(Posto, pk=pk) if pk else None
         form = PostoForm(request.POST, instance=instancia)
         if form.is_valid():
@@ -415,7 +431,8 @@ def postos(request, up):
     else:
         form = PostoForm()
     return render(request, 'painel/postos.html',
-                  {'lista': Posto.objects.all(), 'form': form, 'up': up})
+                  {'lista': Posto.objects.filter(excluido_em__isnull=True),
+                   'form': form, 'up': up})
 
 
 @admin_required

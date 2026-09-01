@@ -32,6 +32,9 @@ class Posto(models.Model):
                               help_text='Letra do legado (A, B, C...)')
     id_endereco_legado = models.IntegerField(null=True, blank=True, unique=True)
     ativo = models.BooleanField(default=True)
+    # Soft delete — só para postos criados à mão; os 13 canônicos do legado
+    # (com id_endereco_legado) nunca são excluídos, no máximo inativados.
+    excluido_em = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['nome']

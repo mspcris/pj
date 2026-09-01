@@ -41,9 +41,36 @@
              oninput="if(this.value){document.getElementById('atende_{{ l.posto.pk }}').checked=true}"></td>
       </tr>
       {% endfor %}
+      <tr style="background:var(--verde-claro)">
+        <td></td>
+        <td style="text-align:right;font-weight:800">TOTAL MENSAL</td>
+        <td><strong id="total_valores" style="font-size:1.05rem">R$ 0,00</strong></td>
+      </tr>
     </table></div>
     <button class="btn" type="submit" style="margin-top:18px">Salvar valores</button>
   </form>
+  <script>
+  function somaValores(){
+    var t = 0;
+    document.querySelectorAll('input[name^="valor_"]').forEach(function(i){
+      var v = i.value.trim();
+      if(!v) return;
+      if(v.indexOf(',') >= 0) v = v.replace(/\./g,'').replace(',', '.');
+      var f = parseFloat(v);
+      if(!isNaN(f)) t += f;
+    });
+    document.getElementById('total_valores').textContent =
+      'R$ ' + t.toLocaleString('pt-BR',
+        {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  }
+  document.querySelectorAll('input[name^="valor_"]').forEach(function(i){
+    i.addEventListener('input', somaValores);
+  });
+  document.querySelectorAll('input[name^="atende_"]').forEach(function(i){
+    i.addEventListener('change', somaValores);
+  });
+  somaValores();
+  </script>
 </div>
 
 <div class="card">
