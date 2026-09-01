@@ -378,6 +378,17 @@ class BoletoExtraTest(BaseSetup):
         regular.refresh_from_db()
         self.assertEqual(regular.status, Boleto.Status.APROVADO)
 
+    def test_extra_tem_secao_propria_no_dashboard(self):
+        Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date.today().replace(day=1), arquivo=_pdf(),
+            extra=True, status=Boleto.Status.APROVADO,
+            observacao='ajuda de custo')
+        self.login_admin()
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'Cobranças extras do mês')
+        self.assertNotContains(resp, 'fora da régua')  # sem anomalias
+
     def test_registrar_extra_nao_substitui_o_regular(self):
         from core.services import boletos as svc
         regular = Boleto.objects.create(

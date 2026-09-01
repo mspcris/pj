@@ -106,6 +106,51 @@
   </table></div>
 </div>
 
+{% if extras %}
+<div class="card">
+  <h2 style="font-size:1rem;margin-bottom:10px">💥 Cobranças extras do mês
+    (avulsas — combinadas à parte da mensalidade)</h2>
+  <div class="rolagem"><table class="tabela-compacta">
+    {% for b in extras %}
+    <tr>
+      <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
+        {% if b.observacao %}<div class="sub" style="font-size:.75rem">📝 {{ b.observacao|truncatechars:50 }}</div>
+        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
+      <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
+          onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }}')">📎
+          {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>
+          {% elif b.valor_extraido %}🔢 R$ {{ b.valor_extraido }}{% else %}🔢 linha digitável{% endif %}
+        {% if b.nota_fiscal %}<a href="{% url 'baixar_arquivo' 'nf' b.pk %}" title="Nota fiscal"
+           onclick="return abrirPdf(this.href, 'NF — {{ b.prestador.nome|escapejs }}')">🧾</a>{% endif %}</td>
+      <td><span class="chip {{ b.status }}"
+            {% if b.status == 'MANUAL' and b.motivo_manual %}title="{{ b.motivo_manual }}"{% endif %}
+          >{{ b.get_status_display }}</span></td>
+      <td><div class="acoes">
+        <a class="btn mini claro" href="{% url 'painel_boleto_editar' b.pk %}">✏️ Editar</a>
+        {% if b.status == 'MANUAL' or b.status == 'DIVERGENTE' or b.status == 'RECEBIDO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'aprovar' %}"
+              onsubmit="return confirm('Conferiu no olho? Vai mandar p/ equipe@ pagar.')">
+          {% csrf_token %}<button class="btn mini dourado">Aprovar assim mesmo</button></form>
+        {% elif b.status == 'APROVADO' or b.status == 'FIN_RECEBIDO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'pagar' %}">
+          {% csrf_token %}<button class="btn mini">Marcar PAGO</button></form>
+        {% elif b.status == 'PAGO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'despagar' %}"
+              onsubmit="return confirm('Desfazer o PAGO?')">
+          {% csrf_token %}<button class="btn mini claro">Desfazer PAGO</button></form>
+        {% endif %}
+        {% if b.status != 'PAGO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'descartar' %}"
+              onsubmit="return confirm('{% if b.status == 'APROVADO' or b.status == 'FIN_RECEBIDO' %}ATENÇÃO: já foi ao financeiro — avise a equipe@ para NÃO pagar! {% endif %}Descartar? (soft delete)')">
+          {% csrf_token %}<button class="btn mini vermelho">Excluir</button></form>
+        {% endif %}
+      </div></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endif %}
+
 {% if fora_da_regua %}
 <div class="card">
   <h2 style="font-size:1rem;margin-bottom:10px">⚠️ Boletos fora da régua
@@ -113,8 +158,7 @@
   <div class="rolagem"><table class="tabela-compacta">
     {% for b in fora_da_regua %}
     <tr>
-      <td>{% if b.extra %}<span class="chip" style="background:var(--dourado);color:#3a2b05">EXTRA</span> {% endif %}
-        {{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
+      <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
         {% if b.observacao %}<div class="sub" style="font-size:.75rem">📝 {{ b.observacao|truncatechars:50 }}</div>
         {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
       <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"

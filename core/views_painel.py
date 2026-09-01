@@ -90,7 +90,11 @@ def dashboard(request, up):
             linhas.append({'prestador': prestador, 'posto': posto,
                            'valor': valor, 'boleto': achado})
 
-    fora_da_regua = [b for b in boletos_mes if b.pk not in casados]
+    sobras = [b for b in boletos_mes if b.pk not in casados]
+    # Extras são cobranças LEGÍTIMAS combinadas à parte — seção própria,
+    # sem tom de anomalia; "fora da régua" fica só para o que não casou.
+    extras = [b for b in sobras if b.extra]
+    fora_da_regua = [b for b in sobras if not b.extra]
 
     def peso(linha):  # pendências primeiro
         b = linha['boleto']
@@ -113,9 +117,14 @@ def dashboard(request, up):
         'pagos': sum(1 for l in linhas if l['boleto'] and
                      l['boleto'].status == Boleto.Status.PAGO),
     }
+    resumo['aguardando_pgto'] += sum(
+        1 for b in extras if b.status in (Boleto.Status.APROVADO,
+                                          Boleto.Status.FIN_RECEBIDO))
+    resumo['pagos'] += sum(1 for b in extras
+                           if b.status == Boleto.Status.PAGO)
     return render(request, 'painel/dashboard.html', {
         'mes': mes, 'mes_extenso': competencia_extenso(mes).capitalize(),
-        'ant': ant, 'prox': prox, 'linhas': linhas,
+        'ant': ant, 'prox': prox, 'linhas': linhas, 'extras': extras,
         'fora_da_regua': fora_da_regua, 'resumo': resumo, 'up': up})
 
 
