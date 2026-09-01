@@ -167,5 +167,7 @@ def baixar_arquivo(request, up, tipo, pk):
     AuditLog.registrar(AuditLog.Evento.DOWNLOAD, request,
                        detalhe=f'{tipo} #{pk}')
     nome = obj.nome_original or obj.arquivo.name.rsplit('/', 1)[-1]
+    # ?inline=1 → renderiza no navegador (modal); sem ele, baixa.
+    inline = request.GET.get('inline') == '1'
     return FileResponse(obj.arquivo.open('rb'),
-                        as_attachment=True, filename=nome)
+                        as_attachment=not inline, filename=nome)

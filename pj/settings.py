@@ -86,6 +86,9 @@ MEDIA_URL = '/media-interno/'  # não roteado publicamente
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# PDFs abrem em modal (iframe da própria página) — mesmo domínio apenas.
+X_FRAME_OPTIONS = 'SAMEORIGIN'
+
 # -----------------------------------------------------------------------------
 # Login IDCamim (OIDC) + whitelist — mesmo padrão do painel da intranet
 # -----------------------------------------------------------------------------

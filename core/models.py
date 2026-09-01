@@ -205,7 +205,7 @@ class Boleto(models.Model):
         RECEBIDO = 'RECEBIDO', 'Recebido — aguardando verificação'
         APROVADO = 'APROVADO', 'Valor confere — enviado p/ pagamento'
         DIVERGENTE = 'DIVERGENTE', 'Valor divergente — aguardando contato'
-        MANUAL = 'MANUAL', 'Verificar manualmente (IA não leu)'
+        MANUAL = 'MANUAL', 'Verificar manualmente'
         PAGO = 'PAGO', 'Pago'
         SUBSTITUIDO = 'SUBSTITUIDO', 'Substituído por novo arquivo'
         DUPLICADO = 'DUPLICADO', 'Duplicado — competência já aprovada/paga'
@@ -260,6 +260,14 @@ class Boleto(models.Model):
     @property
     def posto_efetivo(self):
         return self.posto or self.prestador.posto_cobranca
+
+    @property
+    def motivo_manual(self):
+        """Último motivo registrado de queda para MANUAL (para o tooltip)."""
+        for linha in reversed((self.ia_resposta or '').splitlines()):
+            if linha.startswith('[manual]'):
+                return linha[len('[manual]'):].strip()
+        return ''
 
 
 class Configuracao(models.Model):

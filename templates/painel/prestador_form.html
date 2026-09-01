@@ -137,7 +137,8 @@
     <tr><th>Posto</th><th>Arquivo</th><th>Vigência</th></tr>
     {% for c in contratos %}
     <tr><td>{{ c.posto|default:"— (geral)" }}</td>
-        <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}">📎 {{ c.nome_original|truncatechars:32 }}</a></td>
+        <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}"
+            onclick="return abrirPdf(this.href, '{{ c.nome_original|escapejs|truncatechars:60 }}')">📎 {{ c.nome_original|truncatechars:32 }}</a></td>
         <td>{{ c.vigencia_inicio|date:"d/m/Y" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td></tr>
     {% endfor %}
   </table></div>

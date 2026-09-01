@@ -141,5 +141,38 @@ tr:last-child td{border-bottom:0}
   {% block conteudo %}{% endblock %}
   <div class="rodape">Camim · pj.camim.com.br · acesso restrito e auditado</div>
 </main>
+
+<div id="modal-pdf" style="display:none;position:fixed;inset:0;z-index:60;
+     background:rgba(7,40,32,.6);align-items:center;justify-content:center;
+     padding:16px" onclick="if(event.target===this)fecharPdf()">
+  <div style="background:#fff;border-radius:16px;width:min(940px,96vw);
+       height:min(90vh,960px);display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;
+         border-bottom:1px solid var(--linha)">
+      <strong id="modal-pdf-titulo" style="flex:1;font-size:.95rem"></strong>
+      <a id="modal-pdf-baixar" class="btn mini claro" href="#">Baixar</a>
+      <button class="btn mini vermelho" type="button"
+              onclick="fecharPdf()">Fechar ✕</button>
+    </div>
+    <iframe id="modal-pdf-frame" title="Documento"
+            style="border:0;flex:1;width:100%"></iframe>
+  </div>
+</div>
+<script>
+function abrirPdf(url, titulo){
+  document.getElementById('modal-pdf-frame').src = url + '?inline=1';
+  document.getElementById('modal-pdf-baixar').href = url;
+  document.getElementById('modal-pdf-titulo').textContent = titulo || 'Documento';
+  document.getElementById('modal-pdf').style.display = 'flex';
+  return false;
+}
+function fecharPdf(){
+  document.getElementById('modal-pdf').style.display = 'none';
+  document.getElementById('modal-pdf-frame').src = '';
+}
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape') fecharPdf();
+});
+</script>
 </body>
 </html>

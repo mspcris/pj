@@ -35,12 +35,18 @@
       <td>R$ {{ l.valor|default:"—" }}</td>
       {% with b=l.boleto %}
       {% if b %}
-      <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎
+      <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
+          onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }} — {{ b.competencia|date:'m/Y' }}')">📎
         {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>
         {% elif b.valor_extraido %}🔢 R$ {{ b.valor_extraido }}
           <span class="sub" style="font-size:.72rem">(linha digitável)</span>
         {% else %}🔢 linha digitável{% endif %}</td>
-      <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span>
+      <td><span class="chip {{ b.status }}"
+            {% if b.status == 'MANUAL' and b.motivo_manual %}title="{{ b.motivo_manual }}"{% endif %}
+          >{{ b.get_status_display }}</span>
+        {% if b.status == 'MANUAL' and b.motivo_manual %}
+          <div class="sub" style="font-size:.72rem;max-width:230px">{{ b.motivo_manual|truncatechars:70 }}</div>
+        {% endif %}
         {% if b.observacao %}<span title="{{ b.observacao }}">📝</span>{% endif %}</td>
       <td style="white-space:nowrap">
         <a class="btn mini claro" title="Editar posto/mês/observação"
@@ -85,7 +91,8 @@
     <tr>
       <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
         {% if b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
-      <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎 arquivo</a>{% else %}🔢 linha digitável{% endif %}</td>
+      <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
+          onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }}')">📎 arquivo</a>{% else %}🔢 linha digitável{% endif %}</td>
       <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
       <td><a class="btn mini dourado" href="{% url 'painel_boleto_editar' b.pk %}">✏️ Destinar posto</a></td>
     </tr>
