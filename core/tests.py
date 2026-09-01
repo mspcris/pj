@@ -895,6 +895,29 @@ class ApiBoletosTest(BaseSetup):
         self.assertEqual(lista[0]['posto'], 'Bangu')
 
 
+class GerentesPainelTest(BaseSetup):
+    def test_lista_e_edita_posto_manual(self):
+        manual = Posto.objects.create(nome='Égide Teste')
+        self.posto1.gerente_nome = 'Elisangela'
+        self.posto1.gerente_email = 'elisangela.rodrigues@clinicacamim.com.br'
+        self.posto1.save()
+        self.login_admin()
+        resp = self.client.get('/painel/gerentes/')
+        self.assertContains(resp, 'Elisangela')
+        self.assertContains(resp, 'espelho do CRM')
+        # posto manual (sem id do legado) é editável aqui
+        self.client.post('/painel/gerentes/', {
+            'acao': 'salvar', 'pk': manual.pk,
+            'gerente_nome': 'Fulano', 'gerente_email': 'fulano@camim.com.br'})
+        manual.refresh_from_db()
+        self.assertEqual(manual.gerente_email, 'fulano@camim.com.br')
+        # posto do legado NÃO é editável por aqui
+        resp = self.client.post('/painel/gerentes/', {
+            'acao': 'salvar', 'pk': self.posto1.pk,
+            'gerente_nome': 'X', 'gerente_email': 'x@x.com'})
+        self.assertEqual(resp.status_code, 404)
+
+
 class CcGerenteTest(BaseSetup):
     @mock.patch('core.services.emails.enviar', return_value=True)
     @mock.patch('core.services.ia.extrair_valor',

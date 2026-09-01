@@ -559,6 +559,38 @@ def usuarios(request, up):
 
 
 @admin_required
+def gerentes(request, up):
+    """Posto × gerente. Fonte: CRM (espelho diário); aqui dá para forçar a
+    sincronização e editar só os postos que não existem no CRM."""
+    if request.method == 'POST':
+        if request.POST.get('acao') == 'sync':
+            import io
+            from django.core.management import call_command
+            saida = io.StringIO()
+            call_command('sync_gerentes', stdout=saida, stderr=saida)
+            messages.success(request,
+                             'Sincronização executada: '
+                             + saida.getvalue().strip().splitlines()[-1])
+        elif request.POST.get('acao') == 'salvar':
+            posto = get_object_or_404(Posto, pk=request.POST.get('pk'),
+                                      id_endereco_legado__isnull=True)
+            posto.gerente_nome = (request.POST.get('gerente_nome')
+                                  or '')[:120].strip()
+            posto.gerente_email = (request.POST.get('gerente_email')
+                                   or '').strip().lower()
+            posto.save(update_fields=['gerente_nome', 'gerente_email'])
+            AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                               detalhe=f'Gerente de {posto.nome}: '
+                                       f'{posto.gerente_nome} '
+                                       f'<{posto.gerente_email}>')
+            messages.success(request, f'Gerente de {posto.nome} salvo.')
+        return redirect('painel_gerentes')
+    lista = Posto.objects.filter(ativo=True, excluido_em__isnull=True)
+    return render(request, 'painel/gerentes.html',
+                  {'lista': lista, 'up': up})
+
+
+@admin_required
 def configuracoes(request, up):
     if request.method == 'POST':
         bruto = (request.POST.get('limiar_confianca') or '').strip()

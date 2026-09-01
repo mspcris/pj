@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Gerentes · Painel{% endblock %}
+{% block conteudo %}
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <h1 style="margin:0">Gerentes dos postos</h1>
+  <form method="post" style="margin:0">
+    {% csrf_token %}<input type="hidden" name="acao" value="sync">
+    <button class="btn mini dourado" type="submit">🔄 Sincronizar agora do CRM</button>
+  </form>
+</div>
+<p class="sub">Todo e-mail de boleto sai com o gerente do posto em CC.
+  A fonte é o <a href="https://crm.camim.com.br/admin" target="_blank">
+  cadastro de gestores do CRM</a> — mudou gerente, edite LÁ (o espelho
+  atualiza todo dia às 7h30, ou no botão acima). Só postos que não existem
+  no CRM são editáveis aqui.</p>
+
+<div class="card"><div class="rolagem"><table>
+  <tr><th>Posto</th><th>Gerente</th><th>E-mail (vai em CC)</th><th></th></tr>
+  {% for p in lista %}
+  <tr>
+    <td><strong>{{ p.nome }}</strong>
+      {% if p.codigo %}<span class="sub" style="font-size:.75rem"> ({{ p.codigo }})</span>{% endif %}</td>
+    {% if p.id_endereco_legado is None %}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="acao" value="salvar">
+      <input type="hidden" name="pk" value="{{ p.pk }}">
+      <td><input name="gerente_nome" value="{{ p.gerente_nome }}"
+                 placeholder="nome" style="max-width:180px"></td>
+      <td><input name="gerente_email" value="{{ p.gerente_email }}"
+                 placeholder="email@camim.com.br" style="max-width:240px"></td>
+      <td><button class="btn mini claro" type="submit">Salvar</button></td>
+    </form>
+    {% else %}
+    <td>{{ p.gerente_nome|default:"—" }}</td>
+    <td>{% if p.gerente_email %}{{ p.gerente_email }}
+        {% else %}<span class="chip FALTA">SEM GERENTE</span>{% endif %}</td>
+    <td><span class="sub" style="font-size:.72rem">espelho do CRM</span></td>
+    {% endif %}
+  </tr>
+  {% endfor %}
+</table></div></div>
+{% endblock %}
