@@ -129,7 +129,8 @@ def dados_pj(boleto, fatos):
             linha += f' — CNPJ {posto.cnpj}'
         partes.append(linha)
     partes.append(f'Competência: {fatos["competencia"]}')
-    partes.append(f'Valor: R$ {fatos["valor"]}')
+    if fatos.get('valor') and fatos['valor'] != '—':
+        partes.append(f'Valor: R$ {fatos["valor"]}')
     if boleto.vencimento:
         partes.append(f'Vencimento: {boleto.vencimento:%d/%m/%Y}')
     return '\n'.join(partes)
@@ -158,11 +159,13 @@ def enviar_recebido(boleto):
     fatos = _fatos(boleto)
     corpo = frases.corpo(
         'recebido', fatos,
-        instrucao_ia=('Escreva confirmando que recebemos o boleto do '
-                      'prestador e que ele será verificado em breve.'))
+        instrucao_ia=('Escreva em tom FORMAL confirmando que recebemos o '
+                      'boleto do prestador e que ele passará por '
+                      'conferência. Diga que os dados do documento seguem '
+                      'abaixo da assinatura. NÃO cite valores no texto.'))
     emails.enviar(destinatarios_pj(boleto),
                   f'Boleto recebido — {fatos["competencia"]}',
-                  corpo, boleto=boleto)
+                  corpo + dados_pj(boleto, fatos), boleto=boleto)
 
 
 def _marcar(boleto, status):
