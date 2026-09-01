@@ -46,10 +46,10 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
                 anexo_field.close()
         msg.send(fail_silently=False)
         registro.ok = True
-        log.info('E-mail enviado: %s — %s', dest_real, assunto)
+        log.info('E-mail enviado: %s — %s', ', '.join(dests), assunto)
     except Exception as e:
         registro.ok = False
         registro.erro = str(e)[:2000]
-        log.error('Falha ao enviar e-mail p/ %s: %s', dest_real, e)
+        log.error('Falha ao enviar e-mail p/ %s: %s', ', '.join(dests), e)
     registro.save()
     return registro.ok

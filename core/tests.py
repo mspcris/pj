@@ -397,6 +397,43 @@ class RegrasNegocioTest(BaseSetup):
         self.assertIsNone(verificacao.valor_da_linha(''))
 
 
+class EnviarEmailTest(BaseSetup):
+    """O serviço de envio real (sem mock do enviar): sucesso, lista de
+    destinatários e — principalmente — falha de SMTP sem estourar."""
+
+    def test_envia_para_lista(self):
+        from django.core import mail
+        from core.services import emails as svc
+        ok = svc.enviar(['a@x.com', 'b@x.com'], 'Assunto', 'Corpo')
+        self.assertTrue(ok)
+        self.assertEqual(mail.outbox[0].to, ['a@x.com', 'b@x.com'])
+
+    def test_envia_com_anexo_e_remetente_custom(self):
+        from django.core import mail
+        from core.services import emails as svc
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            nome_original='boleto.pdf')
+        ok = svc.enviar('equipe@camim.com.br', 'Pagamento', 'Corpo',
+                        boleto=b, anexo_field=b.arquivo,
+                        de='Cristiano <cristiano@camim.com.br>')
+        self.assertTrue(ok)
+        self.assertEqual(mail.outbox[0].from_email,
+                         'Cristiano <cristiano@camim.com.br>')
+        self.assertEqual(len(mail.outbox[0].attachments), 1)
+
+    @mock.patch('core.services.emails.EmailMessage.send',
+                side_effect=RuntimeError('smtp caiu'))
+    def test_falha_de_envio_nao_estoura_e_registra(self, m_send):
+        from core.models import EmailLog
+        from core.services import emails as svc
+        ok = svc.enviar(['a@x.com'], 'Assunto', 'Corpo')
+        self.assertFalse(ok)
+        registro = EmailLog.objects.latest('criado_em')
+        self.assertIn('smtp caiu', registro.erro)
+
+
 class PermissoesTest(BaseSetup):
     def test_pj_nao_baixa_boleto_de_outro(self):
         outro = Prestador.objects.create(nome='Outra Empresa')
