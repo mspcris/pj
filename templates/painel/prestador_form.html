@@ -159,6 +159,16 @@
     {% endfor %}
   </table></div>
   {% else %}<p class="sub">Nenhum contrato anexado.</p>{% endif %}
+  <details style="margin-top:10px">
+    <summary style="cursor:pointer;font-weight:700">Anexar contrato</summary>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}<input type="hidden" name="qual" value="contrato">
+      {% for campo in contrato_form %}
+        <label>{{ campo.label }}</label>{{ campo }}
+      {% endfor %}
+      <button class="btn" type="submit" style="margin-top:16px">Anexar contrato</button>
+    </form>
+  </details>
 </div>
 
 {% if prestador.excluido_em %}

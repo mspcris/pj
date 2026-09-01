@@ -12,8 +12,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import (BoletoAdminForm, PostoForm, PrestadorForm, UsuarioForm,
-                    ValeForm, ValorBRField)
+from .forms import (BoletoAdminForm, ContratoAdminForm, PostoForm,
+                    PrestadorForm, UsuarioForm, ValeForm, ValorBRField)
 from .models import (AuditLog, Boleto, Configuracao, Contrato, EmailLog,
                      Posto, Prestador, PrestadorPosto, UsuarioPermitido, Vale)
 from django.contrib.auth.decorators import login_required
@@ -395,6 +395,23 @@ def prestador_detalhe(request, up, pk):
             else:
                 messages.error(request, f'Vale inválido: {vale_form.errors}')
             return redirect('painel_prestador', pk=pk)
+        elif qual == 'contrato':
+            cform = ContratoAdminForm(request.POST, request.FILES)
+            if cform.is_valid():
+                arq = cform.cleaned_data['arquivo']
+                Contrato.objects.create(
+                    prestador=prestador, posto=cform.cleaned_data['posto'],
+                    arquivo=arq, nome_original=arq.name[:255],
+                    enviado_por=up.email,
+                    vigencia_inicio=cform.cleaned_data['vigencia_inicio'],
+                    vigencia_fim=cform.cleaned_data['vigencia_fim'])
+                AuditLog.registrar(AuditLog.Evento.UPLOAD_CONTRATO, request,
+                                   detalhe=f'(painel) {prestador} — '
+                                           f'{arq.name[:60]}')
+                messages.success(request, 'Contrato anexado.')
+            else:
+                messages.error(request, f'Contrato inválido: {cform.errors}')
+            return redirect('painel_prestador', pk=pk)
         elif qual == 'vale_toggle':
             v = get_object_or_404(Vale, pk=request.POST.get('vale_pk'),
                                   prestador=prestador)
@@ -425,7 +442,8 @@ def prestador_detalhe(request, up, pk):
     return render(request, 'painel/prestador_form.html', {
         'prestador': prestador, 'form': form, 'linhas_postos': linhas_postos,
         'contratos': contratos, 'usuarios': prestador.usuarios.all(),
-        'vales': vales, 'vale_form': ValeForm(), 'up': up})
+        'vales': vales, 'vale_form': ValeForm(),
+        'contrato_form': ContratoAdminForm(), 'up': up})
 
 
 @admin_required

@@ -274,6 +274,21 @@ class EditarBoletoTest(BaseSetup):
         self.assertIn('parcela 3/7 do notebook', corpo)
 
 
+class ContratoPainelTest(BaseSetup):
+    def test_admin_anexa_contrato_pelo_painel(self):
+        from core.models import Contrato
+        self.login_admin()
+        resp = self.client.post(
+            f'/painel/prestadores/{self.prestador.pk}/',
+            {'qual': 'contrato', 'posto': self.posto1.pk,
+             'arquivo': _pdf('contrato.pdf'),
+             'vigencia_inicio': '2026-09-01', 'vigencia_fim': '2027-09-01'})
+        self.assertEqual(resp.status_code, 302)
+        c = Contrato.objects.get(prestador=self.prestador)
+        self.assertEqual(c.posto, self.posto1)
+        self.assertEqual(c.enviado_por, 'cristiano@camim.com.br')
+
+
 class ValoresPostosTest(BaseSetup):
     def test_checkbox_atende_cria_e_remove_vinculo(self):
         self.login_admin()

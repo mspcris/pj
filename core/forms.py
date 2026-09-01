@@ -248,6 +248,20 @@ class ContratoForm(forms.Form):
         return dados
 
 
+class ContratoAdminForm(ContratoForm):
+    """Anexar contrato pelo painel: posto opcional e vigência flexível."""
+    posto = forms.ModelChoiceField(
+        label='Posto (vazio = contrato geral da empresa)', required=False,
+        queryset=Posto.objects.filter(ativo=True,
+                                      excluido_em__isnull=True))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['vigencia_inicio'].required = False
+        self.fields['vigencia_inicio'].label = \
+            'Início da vigência (opcional)'
+
+
 class ValorBRField(forms.Field):
     """Aceita '1.234,56', '1234,56' ou '1234.56'."""
     def to_python(self, value):
