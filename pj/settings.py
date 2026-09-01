@@ -145,8 +145,13 @@ EMAIL_FROM_PAGADOR = os.getenv(
     'EMAIL_FROM_PAGADOR', 'Cristiano Camim <cristiano@camim.com.br>')
 
 EMAIL_PAGADOR = os.getenv('EMAIL_PAGADOR', 'equipe@camim.com.br')
-# Caixa que recebe boletos por e-mail (robô importar_emails_pj)
-EMAIL_INTAKE_ALIAS = os.getenv('EMAIL_INTAKE_ALIAS', 'pj@camim.com.br')
+# Caixas que recebem boletos por e-mail (robô importar_emails_pj).
+# prestadores@ é o endereço comunicado oficialmente aos PJs em 21/08/2026;
+# pj@ fica junto porque também está em uso. Ambos caem na caixa do Cristiano.
+EMAIL_INTAKE_ALIASES = [
+    a.strip().lower() for a in os.getenv(
+        'EMAIL_INTAKE_ALIASES',
+        'prestadores@camim.com.br,pj@camim.com.br').split(',') if a.strip()]
 IMAP_HOST = os.getenv('IMAP_HOST', 'imap.gmail.com')
 IMAP_DIAS = int(os.getenv('IMAP_DIAS', '10'))
 EMAIL_ADMIN = os.getenv('EMAIL_ADMIN', 'cristiano@camim.com.br')

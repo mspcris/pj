@@ -1,11 +1,13 @@
-"""Robô da caixa pj@camim.com.br — quem não usar a plataforma vai mandar
-boleto por e-mail; este robô monitora e cadastra sozinho.
+"""Robô das caixas de boleto — prestadores@camim.com.br (endereço oficial
+comunicado aos PJs em 21/08/2026) e pj@camim.com.br. Quem não usar a
+plataforma manda boleto por e-mail; este robô monitora e cadastra sozinho.
 
 REGRAS DE OURO (mesmas do import_email_pjs.py do relatorio_h_t — a caixa é
 a PESSOAL do Cristiano, não é caixa de robô):
   * SOMENTE LEITURA: select(readonly=True) + BODY.PEEK — nunca marca como
     lido, nunca move, nunca aplica marcador.
-  * Seleção por X-GM-RAW deliveredto:pj@camim.com.br (últimos IMAP_DIAS).
+  * Seleção por X-GM-RAW deliveredto:<alias>, para cada alias em
+    EMAIL_INTAKE_ALIASES (últimos IMAP_DIAS).
   * Dedupe por Message-ID (EmailRecebido.message_id é UNIQUE) — reprocessar
     a caixa inteira é seguro por construção.
 
@@ -87,16 +89,20 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         probe = opts['probe']
-        alias = settings.EMAIL_INTAKE_ALIAS
         conn = imaplib.IMAP4_SSL(settings.IMAP_HOST)
         conn.login(settings.EMAIL_HOST_USER, settings.EMAIL_HOST_PASSWORD)
         try:
             conn.select('INBOX', readonly=True)
-            busca = f'deliveredto:{alias} newer_than:{settings.IMAP_DIAS}d'
-            ok, dados = conn.uid('SEARCH', 'X-GM-RAW', f'"{busca}"')
-            uids = dados[0].split() if ok == 'OK' and dados and dados[0] else []
-            self.stdout.write(f'{len(uids)} e-mail(s) na janela de busca.')
-            for uid in uids:
+            uids = set()
+            for alias in settings.EMAIL_INTAKE_ALIASES:
+                busca = (f'deliveredto:{alias} '
+                         f'newer_than:{settings.IMAP_DIAS}d')
+                ok, dados = conn.uid('SEARCH', 'X-GM-RAW', f'"{busca}"')
+                achados = (dados[0].split()
+                           if ok == 'OK' and dados and dados[0] else [])
+                self.stdout.write(f'{alias}: {len(achados)} e-mail(s).')
+                uids.update(achados)
+            for uid in sorted(uids, key=int):
                 ok, dados = conn.uid('FETCH', uid, '(BODY.PEEK[])')
                 if ok != 'OK' or not dados or dados[0] is None:
                     continue
@@ -133,7 +139,7 @@ class Command(BaseCommand):
             svc_emails.enviar(
                 settings.EMAIL_ADMIN,
                 f'⚠️ Boleto por e-mail de remetente NÃO cadastrado',
-                f'Chegou e-mail em {settings.EMAIL_INTAKE_ALIAS} de '
+                f'Chegou e-mail em {settings.EMAIL_INTAKE_ALIASES[0]} de '
                 f'{remetente} (assunto: "{assunto}"), mas esse endereço não '
                 'está na whitelist de nenhum prestador. Nada foi cadastrado.\n'
                 'Se for legítimo, cadastre o e-mail no painel e o robô pega '
@@ -169,7 +175,7 @@ class Command(BaseCommand):
                 settings.EMAIL_ADMIN,
                 f'⚠️ E-mail de {prestador.nome} sem boleto legível',
                 f'{remetente} mandou e-mail para '
-                f'{settings.EMAIL_INTAKE_ALIAS} (assunto: "{assunto}") sem '
+                f'{settings.EMAIL_INTAKE_ALIASES[0]} (assunto: "{assunto}") sem '
                 'PDF anexo e sem linha digitável no texto. Nada cadastrado.\n'
                 '\nhttps://pj.camim.com.br/painel/')
             self.stdout.write(f'  SEM_CONTEUDO: {remetente}')
