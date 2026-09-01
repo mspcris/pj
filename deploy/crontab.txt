@@ -1,0 +1,10 @@
+# Crontab do Controle dos PJs (crontab -e do usuário que roda o serviço)
+# O --run/comando fica visível na linha do cron — quem abre o crontab enxerga
+# o que escreve (mesma regra dos robôs do relatorio_h_t).
+
+# Rede de segurança: verifica boletos RECEBIDOS que a thread não concluiu
+*/10 * * * * cd /opt/pj && .venv/bin/python manage.py processar_boletos >> /var/log/pj/cron.log 2>&1
+
+# Lembrete diário 8h: quem falta mandar boleto, o que precisa de ação,
+# o que foi p/ pagamento e ainda não está marcado como PAGO
+0 8 * * * cd /opt/pj && .venv/bin/python manage.py lembrete_diario >> /var/log/pj/cron.log 2>&1

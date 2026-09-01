@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Auditoria · Painel{% endblock %}
+{% block conteudo %}
+<h1>Auditoria</h1>
+<p class="sub">Logins (inclusive negados), uploads, downloads e mudanças de status.</p>
+<div class="card"><div class="rolagem"><table>
+  <tr><th>Quando</th><th>Evento</th><th>Quem</th><th>Detalhe</th><th>IP</th></tr>
+  {% for a in lista %}
+  <tr>
+    <td style="white-space:nowrap">{{ a.criado_em|date:"d/m H:i" }}</td>
+    <td>{{ a.get_evento_display }}</td>
+    <td>{{ a.ator_email }}</td>
+    <td>{{ a.detalhe|truncatechars:80 }}</td>
+    <td>{{ a.ip|default:"" }}</td>
+  </tr>
+  {% empty %}<tr><td colspan="5">Nada registrado ainda.</td></tr>
+  {% endfor %}
+</table></div></div>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block conteudo %}
+<div class="card" style="text-align:center;padding:44px 24px">
+  <div style="font-size:3rem">🔒</div>
+  <h1>Acesso não liberado</h1>
+  <p class="sub" style="margin-top:8px">
+    Seu e-mail ainda não está cadastrado neste sistema.<br>
+    Fale com o Cristiano (cristiano@camim.com.br) para liberar o acesso.
+  </p>
+  <a class="btn" href="{% url 'oidc_authentication_init' %}">Tentar entrar de novo</a>
+</div>
+{% endblock %}

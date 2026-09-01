@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+{% block title %}Prestadores · Painel{% endblock %}
+{% block conteudo %}
+<h1>Prestadores PJ</h1>
+<p class="sub">Cada prestador tem seus postos, valores combinados e usuários.</p>
+
+<div class="card">
+  <div class="rolagem"><table>
+    <tr><th>Prestador</th><th>Modo</th><th>Postos</th><th>Usuários</th><th>Ativo</th></tr>
+    {% for p in lista %}
+    <tr>
+      <td><a href="{% url 'painel_prestador' p.pk %}"><strong>{{ p.nome }}</strong></a></td>
+      <td>{{ p.get_modo_boleto_display }}</td>
+      <td>{% for v in p.vinculos.all %}{% if v.ativo %}{{ v.posto.nome }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}</td>
+      <td>{{ p.usuarios.count }}</td>
+      <td>{% if p.ativo %}✅{% else %}⛔{% endif %}</td>
+    </tr>
+    {% empty %}<tr><td colspan="5">Nenhum prestador ainda.</td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+<div class="card">
+  <h2 style="font-size:1.05rem">Novo prestador</h2>
+  <form method="post">
+    {% csrf_token %}
+    {% for campo in form %}
+      <label>{{ campo.label }}</label>{{ campo }}
+      {% if campo.errors %}<ul class="errolista">{% for e in campo.errors %}<li>⚠️ {{ e }}</li>{% endfor %}</ul>{% endif %}
+    {% endfor %}
+    <button class="btn" type="submit" style="margin-top:18px">Criar prestador</button>
+  </form>
+</div>
+{% endblock %}

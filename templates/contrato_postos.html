@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Contratos · Camim PJs{% endblock %}
+{% block conteudo %}
+<h1>📄 Contratos</h1>
+<p class="sub">Escolha o posto para ver os contratos.</p>
+{% for p in postos %}
+<a class="btn-giant" href="{% url 'contratos_lista' p.pk %}">
+  <div class="icone">🏥</div>
+  <div><div class="titulo">{{ p.nome }}</div></div>
+</a>
+{% empty %}
+<div class="card">Nenhum posto vinculado ainda — fale com o Cristiano.</div>
+{% endfor %}
+<a class="btn claro" href="{% url 'home' %}">Voltar</a>
+{% endblock %}

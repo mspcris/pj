@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}E-mails · Painel{% endblock %}
+{% block conteudo %}
+<h1>E-mails enviados</h1>
+<p class="sub">Todo e-mail que o sistema mandou (ou tentou mandar).</p>
+<div class="card"><div class="rolagem"><table>
+  <tr><th>Quando</th><th>Para</th><th>Assunto</th><th>OK</th></tr>
+  {% for e in lista %}
+  <tr>
+    <td style="white-space:nowrap">{{ e.criado_em|date:"d/m H:i" }}</td>
+    <td>{{ e.destinatario }}</td>
+    <td>{{ e.assunto|truncatechars:60 }}
+      {% if e.erro %}<div class="errolista">{{ e.erro|truncatechars:100 }}</div>{% endif %}</td>
+    <td>{% if e.ok %}✅{% else %}❌{% endif %}</td>
+  </tr>
+  {% empty %}<tr><td colspan="4">Nenhum e-mail ainda.</td></tr>
+  {% endfor %}
+</table></div></div>
+{% endblock %}

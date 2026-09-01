@@ -1,0 +1,83 @@
+# Controle dos PJs — pj.camim.com.br
+
+Portal onde os prestadores PJ anexam **boletos mensais** e **contratos**, com
+verificação automática de valor por IA e controle rígido de pagamento no painel
+do Cristiano — para nunca esquecer um boleto.
+
+## Como funciona
+
+**Lado do PJ (idiota de tão simples):** dois botões.
+- **ANEXAR BOLETO** → escolhe o mês (atual pré-selecionado) → anexa o PDF.
+  Se emite um boleto por posto, escolhe o posto (pré-selecionado se só tem um).
+- **CONTRATOS** → escolhe o posto → lista de contratos com vigência + anexar.
+
+**Fluxo do boleto:**
+1. Upload → e-mail (do cristiano@) confirmando "recebemos, será verificado".
+2. IA (Groq `openai/gpt-oss-120b`) extrai o valor do PDF.
+3. Valor **bate** com o combinado → e-mail p/ `equipe@camim.com.br` com o
+   boleto anexo pedindo pagamento + e-mail ao PJ ("já foi p/ pagamento").
+   Status: **APROVADO**.
+4. Valor **não bate** → e-mail ao PJ pedindo para ligar. Status: **DIVERGENTE**.
+   Nada vai para pagamento.
+5. PDF ilegível/imagem → **MANUAL** + e-mail avisando o Cristiano.
+6. As frases dos e-mails são redigidas pela IA (sempre variadas); se a IA cair,
+   caem em modelos prontos sorteados — o fluxo nunca trava.
+
+**Painel (`/painel/`):** régua mensal *quem deveria mandar boleto × o que
+chegou*, com pendências no topo; marcar **PAGO**; aprovar manualmente;
+reverificar; CRUD de prestadores, postos (13 canônicos já no seed), valores
+combinados e usuários; log de e-mails e auditoria.
+
+**Redes de segurança contra esquecer pagamento:**
+- Dashboard ordena pendências primeiro + KPIs (sem boleto / precisa de você /
+  enviados p/ pagamento / pagos).
+- Cron diário 8h manda resumo de pendências por e-mail (`lembrete_diario`).
+- Cron a cada 10 min reprocessa verificações travadas (`processar_boletos`).
+
+## Segurança (leia antes de mexer)
+
+- **Login**: idCamim (OIDC, ES256) + **whitelist** `UsuarioPermitido` — quem
+  não está cadastrado e ativo NÃO entra, mesmo com senha certa no idCamim.
+  `cristiano@camim.com.br` é superadmin protegido (nunca fica trancado fora).
+- **Arquivos**: boletos/contratos NUNCA são servidos pelo nginx. Só saem pela
+  view `/arquivo/...`, que checa se o arquivo é do prestador logado (admin vê
+  tudo). O nginx dá 404 em `/media`.
+- **Upload**: só PDF (assinatura `%PDF-` conferida), máx. 15 MB, nome trocado
+  por UUID.
+- **IA e prompt injection**: o texto do PDF entra SÓ no prompt de extração de
+  valor (que devolve número). O prompt que redige e-mails recebe apenas fatos
+  nossos (nomes, valores, mês) — texto de boleto jamais vira frase de e-mail.
+  A decisão de pagar é 100% código (Decimal, tolerância de 1 centavo) — a IA
+  não decide nada.
+- **Auditoria**: logins (ok e negados), uploads, downloads (e negados) e
+  mudanças de status em `/painel/auditoria/`; e-mails em `/painel/emails/`.
+- **Segredos**: tudo no `.env` (chmod 600, gitignored). Nunca comitar.
+- **`EMAIL_MODO_TESTE=true`** (padrão inicial): todo e-mail sai só para o
+  Cristiano, com o destinatário real no assunto. Troque para `false` quando
+  validar o fluxo.
+
+## Rodar local
+
+```bash
+cd pj
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py runserver
+.venv/bin/python manage.py test                # 18 testes
+.venv/bin/python manage.py testar_integracoes  # Groq + SMTP de verdade
+```
+
+## Deploy (VPS)
+
+```bash
+sudo rsync -a --exclude .venv --exclude db.sqlite3 ./ /opt/pj/
+cd /opt/pj && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python manage.py migrate && .venv/bin/python manage.py collectstatic --noinput
+sudo cp deploy/pj.service /etc/systemd/system/ && sudo systemctl enable --now pj
+sudo cp deploy/nginx-pj.conf /etc/nginx/sites-available/pj
+sudo ln -s /etc/nginx/sites-available/pj /etc/nginx/sites-enabled/
+sudo certbot --nginx -d pj.camim.com.br && sudo systemctl reload nginx
+crontab -e   # colar deploy/crontab.txt
+```
+
+DNS: `pj.camim.com.br` → IP da VPS. O redirect_uri registrado no idCamim já é
+`https://pj.camim.com.br/auth/callback`.

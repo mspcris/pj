@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Contratos · {{ posto.nome }}{% endblock %}
+{% block conteudo %}
+<h1>📄 Contratos — {{ posto.nome }}</h1>
+<p class="sub">Arquivos e período de validade de cada contrato.</p>
+
+<div class="card">
+  {% if contratos %}
+  <div class="rolagem"><table>
+    <tr><th>Arquivo</th><th>Vigência</th><th>Situação</th></tr>
+    {% for c in contratos %}
+    <tr>
+      <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}">
+        📎 {{ c.nome_original|default:"contrato.pdf"|truncatechars:36 }}</a></td>
+      <td>{{ c.vigencia_inicio|date:"d/m/Y" }} —
+          {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td>
+      <td>{% if c.vigente %}<span class="chip APROVADO">Vigente</span>
+          {% else %}<span class="chip SUBSTITUIDO">Fora de vigência</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% else %}
+  <p class="sub">Nenhum contrato anexado ainda para este posto.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2 style="font-size:1.05rem">Anexar novo contrato</h2>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {% for campo in form %}
+      <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+      {{ campo }}
+      {% if campo.errors %}<ul class="errolista">
+        {% for e in campo.errors %}<li>⚠️ {{ e }}</li>{% endfor %}
+      </ul>{% endif %}
+    {% endfor %}
+    {% if form.non_field_errors %}<ul class="errolista">
+      {% for e in form.non_field_errors %}<li>⚠️ {{ e }}</li>{% endfor %}
+    </ul>{% endif %}
+    <div style="margin-top:20px;display:flex;gap:10px">
+      <button class="btn" type="submit" style="flex:1">ANEXAR CONTRATO</button>
+      <a class="btn claro" href="{% url 'contratos_postos' %}">Voltar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

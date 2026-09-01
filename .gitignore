@@ -1,0 +1,11 @@
+# NUNCA publicar segredos nem dados
+.env
+.env.*
+!.env.example
+db.sqlite3
+media/
+staticfiles/
+.venv/
+__pycache__/
+*.pyc
+*.log

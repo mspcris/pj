@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block conteudo %}
+<h1>Olá{% if up.nome %}, {{ up.nome|truncatewords:1 }}{% endif %}! 👋</h1>
+<p class="sub">{{ up.prestador.nome }} — o que você quer fazer?</p>
+
+<a class="btn-giant" href="{% url 'anexar_boleto' %}">
+  <div class="icone">📎</div>
+  <div>
+    <div class="titulo">ANEXAR BOLETO</div>
+    <div class="desc">Enviar o boleto do mês para pagamento</div>
+  </div>
+</a>
+
+<a class="btn-giant" href="{% url 'contratos_postos' %}">
+  <div class="icone">📄</div>
+  <div>
+    <div class="titulo">CONTRATOS</div>
+    <div class="desc">Ver e anexar contratos por posto</div>
+  </div>
+</a>
+
+{% if boletos %}
+<div class="card">
+  <h2 style="font-size:1.05rem;margin-bottom:10px">Seus últimos boletos</h2>
+  <div class="rolagem"><table>
+    <tr><th>Mês</th><th>Posto</th><th>Situação</th></tr>
+    {% for b in boletos %}
+    <tr>
+      <td><strong>{{ b.competencia|date:"m/Y" }}</strong></td>
+      <td>{{ b.posto_efetivo|default:"—" }}</td>
+      <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endif %}
+{% endblock %}

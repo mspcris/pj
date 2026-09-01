@@ -1,0 +1,133 @@
+{% load static %}<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>{% block title %}Camim · PJs{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --verde:#0b7a5e; --verde-esc:#075845; --verde-claro:#e6f4ef;
+  --dourado:#d9a441; --tinta:#15221e; --cinza:#5c6b66; --linha:#dfe9e5;
+  --fundo:#f4f8f6; --branco:#fff; --erro:#c0392b; --alerta:#b9770e;
+  --azul:#2471a3; --raio:18px;
+  --sombra:0 10px 30px rgba(11,122,94,.12);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Plus Jakarta Sans',system-ui,sans-serif;background:
+  radial-gradient(1200px 500px at 80% -10%, #d9efe7 0%, transparent 60%),
+  var(--fundo);
+  color:var(--tinta);min-height:100vh;font-size:16px}
+a{color:var(--verde);text-decoration:none}
+header{background:linear-gradient(120deg,var(--verde-esc),var(--verde) 70%,#149a77);
+  color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px;
+  box-shadow:0 4px 18px rgba(7,88,69,.25)}
+header .logo{font-weight:800;font-size:1.15rem;letter-spacing:.3px}
+header .logo small{display:block;font-weight:600;font-size:.72rem;opacity:.85}
+header nav{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+header nav a{color:#fff;background:rgba(255,255,255,.14);padding:7px 13px;
+  border-radius:999px;font-size:.82rem;font-weight:700}
+header nav a:hover,header nav a.ativo{background:rgba(255,255,255,.3)}
+main{max-width:980px;margin:0 auto;padding:22px 16px 60px}
+.msgs{margin-bottom:16px}
+.msg{padding:13px 16px;border-radius:12px;margin-bottom:8px;font-weight:600}
+.msg.success{background:#e3f7ec;color:#0b6b45;border:1px solid #b7e6cd}
+.msg.error{background:#fdeceb;color:var(--erro);border:1px solid #f5c6c0}
+h1{font-size:1.5rem;font-weight:800;margin-bottom:6px}
+.sub{color:var(--cinza);margin-bottom:20px}
+.card{background:var(--branco);border:1px solid var(--linha);
+  border-radius:var(--raio);padding:20px;box-shadow:var(--sombra);
+  margin-bottom:18px}
+.btn-giant{display:flex;align-items:center;gap:16px;background:var(--branco);
+  border:2px solid var(--linha);border-radius:22px;padding:26px 22px;
+  margin-bottom:16px;box-shadow:var(--sombra);transition:.15s;color:var(--tinta)}
+.btn-giant:hover{transform:translateY(-2px);border-color:var(--verde)}
+.btn-giant .icone{font-size:2.4rem;width:64px;height:64px;display:grid;
+  place-items:center;background:var(--verde-claro);border-radius:18px;flex:none}
+.btn-giant .titulo{font-size:1.25rem;font-weight:800;color:var(--verde-esc)}
+.btn-giant .desc{color:var(--cinza);font-size:.92rem}
+.btn{display:inline-block;background:var(--verde);color:#fff;border:0;
+  padding:13px 22px;border-radius:12px;font-weight:800;font-size:1rem;
+  cursor:pointer;font-family:inherit}
+.btn:hover{background:var(--verde-esc)}
+.btn.mini{padding:6px 12px;font-size:.8rem;border-radius:9px}
+.btn.claro{background:var(--verde-claro);color:var(--verde-esc)}
+.btn.dourado{background:var(--dourado)}
+.btn.vermelho{background:var(--erro)}
+form label{display:block;font-weight:700;font-size:.9rem;margin:14px 0 6px}
+form input,form select,form textarea{width:100%;padding:12px 14px;
+  border:1.5px solid var(--linha);border-radius:12px;font-size:1rem;
+  font-family:inherit;background:#fff}
+form input:focus,form select:focus{outline:2px solid var(--verde);border-color:var(--verde)}
+input[type=file]{padding:10px;background:var(--verde-claro);border-style:dashed}
+input[type=checkbox]{width:auto;transform:scale(1.3);margin-right:6px}
+.errolista{color:var(--erro);font-size:.85rem;margin-top:4px;list-style:none}
+.chip{display:inline-block;padding:4px 11px;border-radius:999px;
+  font-size:.75rem;font-weight:800;white-space:nowrap}
+.chip.RECEBIDO{background:#eef3fb;color:var(--azul)}
+.chip.APROVADO{background:#e3f7ec;color:#0b6b45}
+.chip.DIVERGENTE{background:#fdeceb;color:var(--erro)}
+.chip.MANUAL{background:#fdf3e3;color:var(--alerta)}
+.chip.PAGO{background:var(--verde);color:#fff}
+.chip.SUBSTITUIDO{background:#eee;color:#888}
+.chip.FALTA{background:#fdeceb;color:var(--erro);border:1.5px dashed var(--erro)}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th{text-align:left;color:var(--cinza);font-size:.75rem;text-transform:uppercase;
+  letter-spacing:.5px;padding:8px 10px;border-bottom:2px solid var(--linha)}
+td{padding:11px 10px;border-bottom:1px solid var(--linha);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.rolagem{overflow-x:auto}
+.grade{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:18px}
+.kpi{background:var(--branco);border:1px solid var(--linha);border-radius:16px;
+  padding:14px 16px;box-shadow:var(--sombra)}
+.kpi .num{font-size:1.9rem;font-weight:800}
+.kpi .rot{color:var(--cinza);font-size:.8rem;font-weight:700}
+.kpi.ruim .num{color:var(--erro)}
+.kpi.medio .num{color:var(--alerta)}
+.kpi.bom .num{color:var(--verde)}
+.mesnav{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+.mesnav .mes{font-size:1.2rem;font-weight:800;min-width:180px;text-align:center}
+.mesnav a{background:var(--branco);border:1.5px solid var(--linha);
+  border-radius:10px;padding:6px 14px;font-weight:800}
+.rodape{color:var(--cinza);font-size:.78rem;text-align:center;margin-top:40px}
+@media(max-width:640px){
+  header{flex-wrap:wrap}
+  header nav{width:100%;margin-left:0}
+  main{padding:16px 12px 50px}
+  .btn-giant{padding:20px 16px}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">CAMIM<small>Controle dos PJs</small></div>
+  {% if usuario_pj %}
+  <nav>
+    {% if usuario_pj.is_admin %}
+      <a href="{% url 'painel_dashboard' %}">Painel</a>
+      <a href="{% url 'painel_prestadores' %}">Prestadores</a>
+      <a href="{% url 'painel_postos' %}">Postos</a>
+      <a href="{% url 'painel_usuarios' %}">Usuários</a>
+      <a href="{% url 'painel_emails' %}">E-mails</a>
+      <a href="{% url 'painel_auditoria' %}">Auditoria</a>
+    {% else %}
+      <a href="{% url 'home' %}">Início</a>
+    {% endif %}
+    <form method="post" action="{% url 'oidc_logout' %}" style="display:inline">
+      {% csrf_token %}
+      <button class="btn mini claro" type="submit">Sair</button>
+    </form>
+  </nav>
+  {% endif %}
+</header>
+<main>
+  {% if messages %}<div class="msgs">
+    {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
+  </div>{% endif %}
+  {% block conteudo %}{% endblock %}
+  <div class="rodape">Camim · pj.camim.com.br · acesso restrito e auditado</div>
+</main>
+</body>
+</html>

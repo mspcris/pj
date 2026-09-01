@@ -1,0 +1,24 @@
+# systemd — /etc/systemd/system/pj.service
+# sudo systemctl daemon-reload && sudo systemctl enable --now pj
+[Unit]
+Description=Controle dos PJs (pj.camim.com.br)
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/pj
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/pj/.venv/bin/gunicorn pj.wsgi:application \
+  --bind 127.0.0.1:8022 --workers 3 --timeout 120
+Restart=always
+RestartSec=5
+
+# Endurecimento
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/pj
+
+[Install]
+WantedBy=multi-user.target

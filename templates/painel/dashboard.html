@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}Painel · Camim PJs{% endblock %}
+{% block conteudo %}
+<h1>Controle de pagamentos</h1>
+<div class="mesnav">
+  <a href="?m={{ ant|date:'Y-m' }}">←</a>
+  <div class="mes">{{ mes_extenso }}</div>
+  <a href="?m={{ prox|date:'Y-m' }}">→</a>
+</div>
+
+<div class="grade">
+  <div class="kpi {% if resumo.faltando %}ruim{% else %}bom{% endif %}">
+    <div class="num">{{ resumo.faltando }}</div><div class="rot">sem boleto</div></div>
+  <div class="kpi {% if resumo.atencao %}medio{% else %}bom{% endif %}">
+    <div class="num">{{ resumo.atencao }}</div><div class="rot">precisam de você</div></div>
+  <div class="kpi"><div class="num">{{ resumo.aguardando_pgto }}</div>
+    <div class="rot">enviados p/ pagamento</div></div>
+  <div class="kpi bom"><div class="num">{{ resumo.pagos }}</div>
+    <div class="rot">pagos</div></div>
+</div>
+
+<div class="card">
+  <div class="rolagem"><table>
+    <tr><th>Prestador</th><th>Posto</th><th>Combinado</th><th>Boleto</th>
+        <th>Situação</th><th>Ações</th></tr>
+    {% for l in linhas %}
+    <tr>
+      <td><a href="{% url 'painel_prestador' l.prestador.pk %}">
+        <strong>{{ l.prestador.nome }}</strong></a></td>
+      <td>{{ l.posto|default:"(único)" }}</td>
+      <td>R$ {{ l.valor|default:"—" }}</td>
+      {% with b=l.boleto %}
+      {% if b %}
+      <td><a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎
+        {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a></td>
+      <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
+      <td style="white-space:nowrap">
+        {% if b.status == 'APROVADO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'pagar' %}" style="display:inline">
+          {% csrf_token %}<button class="btn mini">Marcar PAGO</button></form>
+        {% elif b.status == 'DIVERGENTE' or b.status == 'MANUAL' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'aprovar' %}" style="display:inline"
+              onsubmit="return confirm('Conferiu no olho? Vai mandar p/ equipe@ pagar.')">
+          {% csrf_token %}<button class="btn mini dourado">Aprovar assim mesmo</button></form>
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}" style="display:inline">
+          {% csrf_token %}<button class="btn mini claro">Reverificar</button></form>
+        {% elif b.status == 'RECEBIDO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}" style="display:inline">
+          {% csrf_token %}<button class="btn mini claro">Forçar verificação</button></form>
+        {% endif %}
+      </td>
+      {% else %}
+      <td>—</td>
+      <td><span class="chip FALTA">SEM BOLETO</span></td>
+      <td></td>
+      {% endif %}
+      {% endwith %}
+    </tr>
+    {% empty %}
+    <tr><td colspan="6">Nenhum prestador ativo. Comece cadastrando em
+      <a href="{% url 'painel_prestadores' %}">Prestadores</a>.</td></tr>
+    {% endfor %}
+  </table></div>
+</div>
+
+{% if fora_da_regua %}
+<div class="card">
+  <h2 style="font-size:1rem;margin-bottom:10px">⚠️ Boletos fora da régua
+    (chegaram, mas não batem com nenhum combinado do mês)</h2>
+  <div class="rolagem"><table>
+    {% for b in fora_da_regua %}
+    <tr>
+      <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"único" }}</td>
+      <td><a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎 arquivo</a></td>
+      <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
+    </tr>
+    {% endfor %}
+  </table></div>
+</div>
+{% endif %}
+{% endblock %}
