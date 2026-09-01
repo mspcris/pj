@@ -59,7 +59,7 @@ def _render_html(corpo):
 
 
 def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
-           de=None, anexos=None):
+           de=None, anexos=None, cc=None):
     """Envia e registra. Retorna True/False — nunca levanta exceção.
 
     `de` troca o remetente (ex.: e-mail p/ o pagador sai do cristiano@;
@@ -71,16 +71,21 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
         dests = [d for d in destinatario if d]
     if not dests:
         dests = [settings.EMAIL_ADMIN]
+    copias = [c for c in (cc or []) if c and c not in dests]
     if settings.EMAIL_MODO_TESTE:
         assunto = f'[TESTE p/ {", ".join(dests)}] {assunto}'
         dests = [settings.EMAIL_ADMIN]
+        copias = []
 
-    registro = EmailLog(destinatario=', '.join(dests)[:255], assunto=assunto,
+    rotulo = ', '.join(dests) + (f' +cc: {", ".join(copias)}' if copias
+                                 else '')
+    registro = EmailLog(destinatario=rotulo[:255], assunto=assunto,
                         corpo=corpo, boleto=boleto)
     try:
         msg = EmailMultiAlternatives(
             subject=assunto, body=corpo,
-            from_email=de or settings.DEFAULT_FROM_EMAIL, to=dests)
+            from_email=de or settings.DEFAULT_FROM_EMAIL, to=dests,
+            cc=copias or None)
         msg.attach_alternative(_render_html(corpo), 'text/html')
         lista = []
         if anexo_field:

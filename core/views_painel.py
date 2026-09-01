@@ -157,8 +157,9 @@ def boleto_acao(request, up, pk, acao):
         # aprovado cujo e-mail não chegou → envia p/ pagamento + avisa o PJ.
         from django.conf import settings
         from .services import emails, frases
-        from .services.verificacao import (_fatos, _moeda, dados_pagamento,
-                                           dados_pj, destinatarios_pj)
+        from .services.verificacao import (_fatos, _moeda, cc_gerente,
+                                           dados_pagamento, dados_pj,
+                                           destinatarios_pj)
         boleto.status = Boleto.Status.APROVADO
         boleto.verificado_em = timezone.now()
         boleto.save(update_fields=['status', 'verificado_em'])
@@ -175,12 +176,12 @@ def boleto_acao(request, up, pk, acao):
             anexos=([(boleto.nota_fiscal,
                       boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
                     if boleto.nota_fiscal else None),
-            de=settings.EMAIL_FROM_PAGADOR)
+            de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
         emails.enviar(
             destinatarios_pj(boleto),
             f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',
             frases.corpo('aprovado_pj', fatos) + dados_pj(boleto, fatos),
-            boleto=boleto)
+            boleto=boleto, cc=cc_gerente(boleto))
         messages.success(request, f'{boleto} enviado p/ pagamento '
                                   '(equipe e prestador avisados).')
     else:

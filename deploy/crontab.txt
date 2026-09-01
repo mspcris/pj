@@ -9,6 +9,9 @@
 # mesmo fluxo (leitura SOMENTE-READ da caixa do Cristiano, dedupe por Message-ID)
 */10 * * * * cd /opt/pj && .venv/bin/python manage.py importar_emails_pj >> /var/log/pj/cron.log 2>&1
 
+# Gerentes dos postos: espelho diário do cadastro de gestores do CRM
+30 7 * * * cd /opt/pj && .venv/bin/python manage.py sync_gerentes >> /var/log/pj/cron.log 2>&1
+
 # Lembrete diário 8h: quem falta mandar boleto, o que precisa de ação,
 # o que foi p/ pagamento e ainda não está marcado como PAGO
 0 8 * * * cd /opt/pj && .venv/bin/python manage.py lembrete_diario >> /var/log/pj/cron.log 2>&1

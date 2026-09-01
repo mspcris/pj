@@ -144,6 +144,15 @@ def _mes_seguinte_fim(competencia):
     return date(ano, mes, 1)  # exclusivo: vencimento < este dia
 
 
+def cc_gerente(boleto):
+    """CC obrigatório do gerente do posto (espelho do CRM) em todo e-mail
+    de boleto que tem posto identificado."""
+    posto = boleto.posto_efetivo
+    if posto is not None and posto.gerente_email:
+        return [posto.gerente_email]
+    return None
+
+
 def destinatarios_pj(boleto):
     """Para quem vão os avisos do prestador: TODOS os usuários ativos do PJ
     (não quem apertou o botão — se o admin cadastrar, o PJ é avisado do
@@ -165,7 +174,8 @@ def enviar_recebido(boleto):
                       'abaixo da assinatura. NÃO cite valores no texto.'))
     emails.enviar(destinatarios_pj(boleto),
                   f'Boleto recebido — {fatos["competencia"]}',
-                  corpo + dados_pj(boleto, fatos), boleto=boleto)
+                  corpo + dados_pj(boleto, fatos), boleto=boleto,
+                  cc=cc_gerente(boleto))
 
 
 def _marcar(boleto, status):
@@ -433,7 +443,7 @@ def processar(boleto_pk):
             anexos=([(boleto.nota_fiscal,
                       boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
                     if boleto.nota_fiscal else None),
-            de=settings.EMAIL_FROM_PAGADOR)
+            de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
         emails.enviar(
             destinatarios_pj(boleto),
             f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',
@@ -446,7 +456,7 @@ def processar(boleto_pk):
                               'financeiro para pagamento. Diga que os dados '
                               'da cobrança seguem abaixo da assinatura.'))
             + dados_pj(boleto, fatos),
-            boleto=boleto)
+            boleto=boleto, cc=cc_gerente(boleto))
     else:
         fatos['valor_esperado'] = _moeda(boleto.valor_esperado)
         _marcar(boleto, Boleto.Status.DIVERGENTE)
@@ -459,7 +469,7 @@ def processar(boleto_pk):
                               'combinado não consta no boleto enviado e peça '
                               'para ligar para o Cristiano para entenderem a '
                               'diferença. NÃO cite números.')),
-            boleto=boleto)
+            boleto=boleto, cc=cc_gerente(boleto))
 
 
 def processar_async(boleto_pk):

@@ -35,6 +35,10 @@ class Posto(models.Model):
     # sacado impresso no PDF (determinístico, sem IA).
     razao_social = models.CharField(max_length=200, blank=True)
     cnpj = models.CharField(max_length=20, blank=True)
+    # Gerente do posto — ESPELHO do cadastro de gestores do CRM (fonte
+    # única, decisão de 10/08/2026). Editar no CRM; o sync_gerentes espelha.
+    gerente_nome = models.CharField(max_length=120, blank=True)
+    gerente_email = models.EmailField(blank=True)
     ativo = models.BooleanField(default=True)
     # Soft delete — só para postos criados à mão; os 13 canônicos do legado
     # (com id_endereco_legado) nunca são excluídos, no máximo inativados.

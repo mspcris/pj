@@ -895,6 +895,35 @@ class ApiBoletosTest(BaseSetup):
         self.assertEqual(lista[0]['posto'], 'Bangu')
 
 
+class CcGerenteTest(BaseSetup):
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1500.00'),
+                              '{"valor":"1500.00","confianca":100}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_gerente_do_posto_vai_em_cc(self, m_pdf, m_ia, m_mail):
+        self.posto1.gerente_nome = 'Camilla Gaspar'
+        self.posto1.gerente_email = 'gerenciar@camim.com.br'
+        self.posto1.save()
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            enviado_por='pj@empresa.com.br',
+            valor_esperado=Decimal('1500.00'))
+        verificacao.processar(b.pk)
+        ccs = [c.kwargs.get('cc') for c in m_mail.call_args_list]
+        # pagador e aviso ao PJ, ambos com o gerente em cópia
+        self.assertTrue(all(cc == ['gerenciar@camim.com.br'] for cc in ccs),
+                        ccs)
+
+    def test_email_real_leva_cc(self):
+        from django.core import mail
+        from core.services import emails as svc
+        svc.enviar('a@x.com', 'Assunto', 'Corpo',
+                   cc=['gerente@camim.com.br'])
+        self.assertEqual(mail.outbox[0].cc, ['gerente@camim.com.br'])
+
+
 class EnviarEmailTest(BaseSetup):
     """O serviço de envio real (sem mock do enviar): sucesso, lista de
     destinatários e — principalmente — falha de SMTP sem estourar."""
