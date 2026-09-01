@@ -404,6 +404,65 @@ class BoletoExtraTest(BaseSetup):
         self.assertEqual(regular.status, Boleto.Status.RECEBIDO)  # intacto
 
 
+class BoletoParcialTest(BaseSetup):
+    """N boletos compondo UMA mensalidade (Elias mandou 2×500 por posto)."""
+
+    def _parcial(self, valor_linha, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=date(2026, 9, 1), arquivo=None,
+                    parcial=True, linha_digitavel=_linha_47(valor_linha),
+                    enviado_por='pj@empresa.com.br')
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_duas_parciais_somando_o_combinado_aprovam(self, m_mail):
+        b1 = self._parcial(50000)   # R$ 500,00 (combinado do posto: 1500)
+        verificacao.processar(b1.pk)
+        b1.refresh_from_db()
+        self.assertEqual(b1.status, Boleto.Status.APROVADO)
+        b2 = self._parcial(100000)  # R$ 1.000,00 → soma 1500 = combinado
+        verificacao.processar(b2.pk)
+        b2.refresh_from_db()
+        self.assertEqual(b2.status, Boleto.Status.APROVADO)
+        corpo = [c.args[2] for c in m_mail.call_args_list
+                 if c.args[0] == 'equipe@camim.com.br'][-1]
+        self.assertIn('PARCIAL', corpo)
+        self.assertIn('1.500,00', corpo)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_parcial_que_estoura_o_combinado_vira_manual(self, m_mail):
+        b1 = self._parcial(100000, status=Boleto.Status.APROVADO,
+                           valor_extraido=Decimal('1000.00'))
+        b2 = self._parcial(60000)  # 1000 + 600 > 1500
+        verificacao.processar(b2.pk)
+        b2.refresh_from_db()
+        self.assertEqual(b2.status, Boleto.Status.MANUAL)
+        self.assertIn('passam do combinado', b2.motivo_manual)
+
+    def test_parcial_nao_e_duplicidade(self):
+        from core.services.boletos import duplicado_de
+        self._parcial(50000, status=Boleto.Status.APROVADO,
+                      valor_extraido=Decimal('500.00'))
+        b2 = self._parcial(100000)
+        self.assertIsNone(duplicado_de(b2))
+        # e um boleto CHEIO também não é barrado por parciais
+        cheio = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf())
+        self.assertIsNone(duplicado_de(cheio))
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_dashboard_mostra_soma_das_parciais(self, m_async):
+        self._parcial(50000, status=Boleto.Status.APROVADO,
+                      valor_extraido=Decimal('500.00'),
+                      competencia=date.today().replace(day=1))
+        self.login_admin()
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'Boletos parciais do mês')
+        self.assertContains(resp, 'Parciais: R$ 500,00 de R$ 1500,00')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

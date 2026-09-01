@@ -89,7 +89,7 @@ def valor_esperado_para(prestador, posto, competencia=None):
 def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
               nome_original='', linha_digitavel='', chave_pix='',
               valor_livre=False, observacao='', nota_fiscal=None,
-              nota_fiscal_nome='', extra=False):
+              nota_fiscal_nome='', extra=False, parcial=False):
     """Cria o boleto. Substitui apenas pendências (RECEBIDO/DIVERGENTE/
     MANUAL) da mesma chave — um boleto já APROVADO ou PAGO NUNCA é
     substituído em silêncio: a duplicidade é barrada na verificação."""
@@ -99,8 +99,8 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
     # Substituição só quando a chave é definida. No modo POR_POSTO com posto
     # ainda indefinido (ex.: vários PDFs no mesmo e-mail esperando
     # destinação), cada boleto é uma cobrança distinta — NÃO substitui.
-    # Cobrança extra nunca substitui (convive com o boleto normal do mês).
-    if not extra and not (
+    # Cobrança extra/parcial nunca substitui (convivem entre si e com o mês).
+    if not extra and not parcial and not (
             prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO
             and posto is None):
         (Boleto.objects
@@ -119,7 +119,7 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
         valor_esperado=(None if extra else
                         valor_esperado_para(prestador, posto, competencia)),
         linha_digitavel=linha_digitavel, chave_pix=(chave_pix or '').strip(),
-        valor_livre=valor_livre, extra=extra,
+        valor_livre=valor_livre, extra=extra, parcial=parcial,
         observacao=(observacao or '').strip(),
         nota_fiscal=nota_fiscal,
         nota_fiscal_nome=(nota_fiscal_nome or '')[:255])
@@ -128,16 +128,32 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
 def duplicado_de(boleto):
     """Outro boleto da mesma chave já enviado p/ pagamento (ou pago)?
     Cobranças extras ficam fora da trava, nos dois sentidos."""
-    if boleto.extra:
+    if boleto.extra or boleto.parcial:
         return None
     return (Boleto.objects
             .filter(prestador=boleto.prestador, posto=boleto.posto,
                     competencia=boleto.competencia, extra=False,
+                    parcial=False,
                     status__in=[Boleto.Status.APROVADO,
                                 Boleto.Status.FIN_RECEBIDO,
                                 Boleto.Status.PAGO])
             .exclude(pk=boleto.pk)
             .first())
+
+
+def soma_parciais(boleto):
+    """Soma dos valores das OUTRAS parciais já aprovadas/pagas da mesma
+    chave (prestador, posto, competência)."""
+    from decimal import Decimal
+    outras = (Boleto.objects
+              .filter(prestador=boleto.prestador, posto=boleto.posto,
+                      competencia=boleto.competencia, parcial=True,
+                      status__in=[Boleto.Status.APROVADO,
+                                  Boleto.Status.FIN_RECEBIDO,
+                                  Boleto.Status.PAGO])
+              .exclude(pk=boleto.pk))
+    return sum((b.valor_extraido or Decimal('0') for b in outras),
+               Decimal('0'))
 
 
 _MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',

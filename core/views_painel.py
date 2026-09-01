@@ -4,6 +4,7 @@ O coração é o dashboard mensal: a RÉGUA (quem deveria mandar boleto e de
 quanto) × o que chegou — para NUNCA esquecer um pagamento.
 """
 from datetime import date
+from decimal import Decimal
 from functools import wraps
 
 from django.contrib import messages
@@ -76,8 +77,10 @@ def dashboard(request, up):
             for b in boletos_mes:
                 if b.prestador_id != prestador.pk:
                     continue
-                if b.status == Boleto.Status.DUPLICADO or b.extra:
-                    continue  # duplicado/extra nunca representam a régua
+                if b.status == Boleto.Status.DUPLICADO or b.extra \
+                        or b.parcial:
+                    continue  # duplicado/extra/parcial não representam
+                              # sozinhos a régua
                 if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
                     if b.posto_id is None:
                         achado = b
@@ -87,14 +90,29 @@ def dashboard(request, up):
                     break
             if achado:
                 casados.add(achado.pk)
+            # Parciais desta chave: a régua mostra a SOMA delas
+            parciais_linha = [
+                b for b in boletos_mes
+                if b.parcial and b.prestador_id == prestador.pk
+                and (b.posto_id is None
+                     if prestador.modo_boleto == Prestador.ModoBoleto.UNICO
+                     else (posto and b.posto_id == posto.pk))]
+            soma_parc = sum((b.valor_extraido or 0 for b in parciais_linha
+                             if b.status in (Boleto.Status.APROVADO,
+                                             Boleto.Status.FIN_RECEBIDO,
+                                             Boleto.Status.PAGO)),
+                            Decimal('0'))
             linhas.append({'prestador': prestador, 'posto': posto,
-                           'valor': valor, 'boleto': achado})
+                           'valor': valor, 'boleto': achado,
+                           'parciais': parciais_linha,
+                           'parciais_soma': soma_parc})
 
     sobras = [b for b in boletos_mes if b.pk not in casados]
-    # Extras são cobranças LEGÍTIMAS combinadas à parte — seção própria,
-    # sem tom de anomalia; "fora da régua" fica só para o que não casou.
+    # Extras e parciais são cobranças LEGÍTIMAS — seções próprias, sem tom
+    # de anomalia; "fora da régua" fica só para o que não casou mesmo.
     extras = [b for b in sobras if b.extra]
-    fora_da_regua = [b for b in sobras if not b.extra]
+    parciais_mes = [b for b in sobras if b.parcial and not b.extra]
+    fora_da_regua = [b for b in sobras if not b.extra and not b.parcial]
 
     def peso(linha):  # pendências primeiro
         b = linha['boleto']
@@ -107,7 +125,8 @@ def dashboard(request, up):
     linhas.sort(key=lambda l: (peso(l), l['prestador'].nome))
 
     resumo = {
-        'faltando': sum(1 for l in linhas if l['boleto'] is None),
+        'faltando': sum(1 for l in linhas
+                        if l['boleto'] is None and not l['parciais']),
         'atencao': sum(1 for l in linhas if l['boleto'] and l['boleto'].status
                        in (Boleto.Status.DIVERGENTE, Boleto.Status.MANUAL)),
         'aguardando_pgto': sum(1 for l in linhas if l['boleto'] and
@@ -118,13 +137,14 @@ def dashboard(request, up):
                      l['boleto'].status == Boleto.Status.PAGO),
     }
     resumo['aguardando_pgto'] += sum(
-        1 for b in extras if b.status in (Boleto.Status.APROVADO,
-                                          Boleto.Status.FIN_RECEBIDO))
-    resumo['pagos'] += sum(1 for b in extras
+        1 for b in (extras + parciais_mes)
+        if b.status in (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO))
+    resumo['pagos'] += sum(1 for b in (extras + parciais_mes)
                            if b.status == Boleto.Status.PAGO)
     return render(request, 'painel/dashboard.html', {
         'mes': mes, 'mes_extenso': competencia_extenso(mes).capitalize(),
         'ant': ant, 'prox': prox, 'linhas': linhas, 'extras': extras,
+        'parciais_mes': parciais_mes,
         'fora_da_regua': fora_da_regua, 'resumo': resumo, 'up': up})
 
 
@@ -222,6 +242,7 @@ def boleto_novo(request, up):
                 chave_pix=form.cleaned_data['chave_pix'],
                 valor_livre=form.cleaned_data['valor_livre'],
                 extra=form.cleaned_data['extra'],
+                parcial=form.cleaned_data['parcial'],
                 observacao=form.cleaned_data['observacao'])
             AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                                detalhe=f'(admin) Boleto #{boleto.pk} {boleto}')
@@ -258,13 +279,15 @@ def boleto_editar(request, up, pk):
                      or d['competencia'] != boleto.competencia
                      or d['linha_digitavel'] != boleto.linha_digitavel
                      or d['valor_livre'] != boleto.valor_livre
-                     or d['extra'] != boleto.extra)
+                     or d['extra'] != boleto.extra
+                     or d['parcial'] != boleto.parcial)
             boleto.posto = posto
             boleto.competencia = d['competencia']
             boleto.linha_digitavel = d['linha_digitavel']
             boleto.chave_pix = d['chave_pix'].strip()
             boleto.valor_livre = d['valor_livre']
             boleto.extra = d['extra']
+            boleto.parcial = d['parcial']
             boleto.observacao = d['observacao'].strip()
             boleto.valor_esperado = (
                 None if d['extra'] else svc_boletos.valor_esperado_para(
@@ -293,6 +316,7 @@ def boleto_editar(request, up, pk):
             'chave_pix': boleto.chave_pix,
             'valor_livre': boleto.valor_livre,
             'extra': boleto.extra,
+            'parcial': boleto.parcial,
             'observacao': boleto.observacao,
         })
     return render(request, 'painel/boleto_edit.html',

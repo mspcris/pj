@@ -92,7 +92,17 @@ def dados_pagamento(boleto, fatos):
     if boleto.extra:
         partes.append('Obs.: cobrança EXTRA/avulsa — não faz parte da '
                       'mensalidade do posto.')
-    if (not boleto.extra and boleto.valor_esperado is not None
+    if boleto.parcial:
+        soma = svc_boletos.soma_parciais(boleto) + (boleto.valor_extraido
+                                                    or 0)
+        partes.append(
+            f'Obs.: boleto PARCIAL — a mensalidade deste posto está sendo '
+            f'paga em mais de um boleto; soma das parciais até aqui: '
+            f'R$ {_moeda(soma)}'
+            + (f' de R$ {_moeda(boleto.valor_esperado)} contratados.'
+               if boleto.valor_esperado else '.'))
+    if (not boleto.extra and not boleto.parcial
+            and boleto.valor_esperado is not None
             and boleto.valor_extraido is not None
             and boleto.valor_esperado - boleto.valor_extraido > TOLERANCIA):
         if fatos.get('motivo_menor'):
@@ -366,6 +376,26 @@ def processar(boleto_pk):
                      f'a competência {fatos["competencia"]}')
         return
 
+    # PARCIAL: N boletos compõem a mensalidade — não compara um a um; a
+    # SOMA das parciais aprovadas não pode passar do combinado do posto.
+    if boleto.parcial:
+        combinado = svc_boletos.valor_esperado_para(
+            boleto.prestador, boleto.posto, boleto.competencia)
+        boleto.valor_esperado = combinado
+        if combinado is None:
+            _para_manual(boleto, 'boleto parcial sem valor combinado '
+                                 'cadastrado no posto')
+            return
+        soma = svc_boletos.soma_parciais(boleto) + valor
+        if soma - combinado > TOLERANCIA:
+            _para_manual(boleto,
+                         f'as parciais somariam R$ {_moeda(soma)} e passam '
+                         f'do combinado (R$ {_moeda(combinado)}) — nada '
+                         'enviado')
+            return
+        fatos['parcial_soma'] = _moeda(soma)
+        fatos['parcial_combinado'] = _moeda(combinado)
+
     # Valores podem ter sido cadastrados DEPOIS do boleto chegar — na
     # reverificação, recalcula o esperado em vez de reclamar à toa.
     # Cobrança EXTRA não tem combinado: nunca herda o valor do posto.
@@ -388,7 +418,8 @@ def processar(boleto_pk):
     # (ex.: "descontada parcela 3/7 do notebook — R$ 600"); obs que não
     # explica → MANUAL. Sem obs nenhuma, vale a regra do acordo: aprova.
     # MAIOR: NUNCA aprova sozinho — só o admin com "aceitar este valor".
-    menor = (not boleto.valor_livre and boleto.valor_esperado is not None
+    menor = (not boleto.valor_livre and not boleto.parcial
+             and boleto.valor_esperado is not None
              and (boleto.valor_esperado - valor) > TOLERANCIA)
     if menor:
         obs = ' | '.join(t.strip() for t in
@@ -417,7 +448,7 @@ def processar(boleto_pk):
     # 7) GATE DE CONVICÇÃO: só envia para pagamento sozinho se a confiança
     # for >= limiar (Configurações; padrão 99%). Abaixo disso, espera o
     # Cristiano liberar no painel ("Aprovar assim mesmo").
-    aprovaria = (boleto.valor_livre
+    aprovaria = (boleto.valor_livre or boleto.parcial
                  or (valor - boleto.valor_esperado) <= TOLERANCIA)
     limiar = Configuracao.get_int('limiar_confianca', 99)
     if (aprovaria and not boleto.valor_livre

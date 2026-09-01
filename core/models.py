@@ -280,6 +280,10 @@ class Boleto(models.Model):
     # Cobrança extra/avulsa (ex.: ajuda de custo): convive com o boleto
     # normal do mesmo posto/mês — fora da régua e da trava de duplicidade.
     extra = models.BooleanField(default=False)
+    # Boleto PARCIAL: N boletos compõem UM pagamento (a mensalidade do
+    # posto). A soma das parciais é conferida contra o combinado; nenhum
+    # substitui/duplica o outro.
+    parcial = models.BooleanField(default=False)
     # Anotações do mês (ex.: "descontada parcela 3/7 do notebook — R$ 600").
     # Vai no bloco de dados do e-mail p/ o financeiro.
     observacao = models.TextField(blank=True)

@@ -112,6 +112,10 @@ class BoletoAdminForm(forms.Form):
     extra = forms.BooleanField(
         label='Cobrança EXTRA/avulsa — convive com o boleto normal do mês '
               '(ex.: ajuda de custo, reembolso)', required=False)
+    parcial = forms.BooleanField(
+        label='Boleto PARCIAL — vários boletos compõem a mensalidade do '
+              'posto (a soma é conferida contra o combinado)',
+        required=False)
     observacao = forms.CharField(
         label='Observação do mês (vai no e-mail do financeiro)',
         required=False, widget=forms.Textarea(attrs={'rows': 2}))
@@ -197,6 +201,9 @@ class BoletoEditForm(forms.Form):
     extra = forms.BooleanField(
         label='Cobrança EXTRA/avulsa (convive com o boleto normal do mês)',
         required=False)
+    parcial = forms.BooleanField(
+        label='Boleto PARCIAL (vários compõem a mensalidade; soma conferida '
+              'contra o combinado)', required=False)
     observacao = forms.CharField(
         label='Observação do mês (vai no e-mail do financeiro)',
         required=False, widget=forms.Textarea(attrs={'rows': 3}))
