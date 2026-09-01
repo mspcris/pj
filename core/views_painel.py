@@ -416,8 +416,12 @@ def prestador_detalhe(request, up, pk):
     contratos = Contrato.objects.filter(prestador=prestador) \
         .select_related('posto')
     mes_atual = timezone.localdate().replace(day=1)
-    vales = [{'vale': v, 'parcela_atual': v.parcela_em(mes_atual)}
-             for v in prestador.vales.all().select_related('posto')]
+    vales = []
+    for v in prestador.vales.all().select_related('posto'):
+        pendentes = v.parcelas_pendentes() if v.ativo else []
+        vales.append({'vale': v, 'parcela_atual': v.parcela_em(mes_atual),
+                      'pendentes': pendentes,
+                      'descontadas': v.parcelas_total - len(pendentes)})
     return render(request, 'painel/prestador_form.html', {
         'prestador': prestador, 'form': form, 'linhas_postos': linhas_postos,
         'contratos': contratos, 'usuarios': prestador.usuarios.all(),

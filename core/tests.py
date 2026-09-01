@@ -407,6 +407,25 @@ class ValeTest(BaseSetup):
             valor_esperado_para(self.prestador, self.posto2, date(2026, 9, 1)),
             Decimal('2000.00'))
 
+    def test_parcelas_pendentes_somem_com_boleto_aprovado(self):
+        v = self._vale()  # 7x desde jul/2026 no posto1
+        # jul e ago já tiveram boletos aprovados com o desconto
+        for mes in (7, 8):
+            Boleto.objects.create(
+                prestador=self.prestador, posto=self.posto1,
+                competencia=date(2026, mes, 1), arquivo=_pdf(),
+                status=Boleto.Status.APROVADO)
+        pendentes = v.parcelas_pendentes()
+        self.assertEqual([p['n'] for p in pendentes], [3, 4, 5, 6, 7])
+        self.assertTrue(pendentes[0]['atual'])       # set/2026 é a atual
+        self.assertFalse(pendentes[0]['atrasada'])
+        # boleto de outro posto não consome parcela
+        Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto2,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO)
+        self.assertEqual(len(v.parcelas_pendentes()), 5)
+
     def test_vale_encerrado_nao_abate(self):
         v = self._vale(ativo=False)
         from core.services.boletos import valor_esperado_para

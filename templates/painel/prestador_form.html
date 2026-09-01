@@ -86,13 +86,24 @@
     financeiro.</p>
   {% if vales %}
   <div class="rolagem"><table>
-    <tr><th>Descrição</th><th>Posto</th><th>Parcela</th><th>Valor</th>
-        <th>1ª parcela</th><th></th></tr>
+    <tr><th>Descrição</th><th>Posto</th><th>Parcelas a descontar</th>
+        <th>Valor</th><th>1ª parcela</th><th></th></tr>
     {% for l in vales %}
     <tr {% if not l.vale.ativo %}style="opacity:.5"{% endif %}>
       <td><strong>{{ l.vale.descricao }}</strong></td>
       <td>{{ l.vale.posto|default:"(boleto único)" }}</td>
-      <td>{% if l.vale.ativo %}{% if l.parcela_atual %}{{ l.parcela_atual }}/{{ l.vale.parcelas_total }} este mês{% else %}fora do período{% endif %}{% else %}encerrado{% endif %}</td>
+      <td>{% if l.vale.ativo %}
+          {% if l.descontadas %}<div class="sub" style="font-size:.75rem">✅ {{ l.descontadas }} de {{ l.vale.parcelas_total }} já descontada{{ l.descontadas|pluralize }}</div>{% endif %}
+          {% for p in l.pendentes %}
+            <span style="display:inline-block;margin:1px 4px 1px 0;padding:2px 8px;border-radius:999px;font-size:.72rem;font-weight:700;
+              {% if p.atrasada %}background:#fdeceb;color:var(--erro);border:1px dashed var(--erro)
+              {% elif p.atual %}background:var(--dourado);color:#3a2b05
+              {% else %}background:var(--verde-claro);color:var(--verde-esc){% endif %}"
+              title="{% if p.atrasada %}Mês já passou e nenhum boleto com o desconto foi aprovado — confira!{% elif p.atual %}Parcela deste mês{% else %}Parcela futura{% endif %}">
+              {{ p.n }}/{{ l.vale.parcelas_total }} · {{ p.competencia|date:"m/Y" }}</span>
+          {% empty %}{% if l.vale.ativo %}<span class="sub" style="font-size:.75rem">todas descontadas 🎉</span>{% endif %}
+          {% endfor %}
+          {% else %}encerrado{% endif %}</td>
       <td>R$ {{ l.vale.valor_parcela }}</td>
       <td>{{ l.vale.primeira_competencia|date:"m/Y" }}</td>
       <td>

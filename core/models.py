@@ -148,6 +148,35 @@ class Vale(models.Model):
              + competencia.month - self.primeira_competencia.month + 1)
         return n if 1 <= n <= self.parcelas_total else None
 
+    def competencia_da(self, n):
+        """Competência (dia 1) da parcela nº n."""
+        from datetime import date
+        m = self.primeira_competencia.month - 1 + (n - 1)
+        return date(self.primeira_competencia.year + m // 12, m % 12 + 1, 1)
+
+    def parcelas_pendentes(self):
+        """Parcelas ainda NÃO consumidas por um boleto aprovado/pago da
+        competência — a parcela some daqui quando o boleto com o desconto
+        passa. Cada item: {n, competencia, atual, atrasada}."""
+        from django.utils import timezone
+        mes_atual = timezone.localdate().replace(day=1)
+        consumo = Boleto.objects.filter(
+            prestador=self.prestador, extra=False,
+            status__in=[Boleto.Status.APROVADO, Boleto.Status.PAGO])
+        if (self.prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO
+                and self.posto_id):
+            consumo = consumo.filter(posto_id=self.posto_id)
+        meses_pagos = set(consumo.values_list('competencia', flat=True))
+        pendentes = []
+        for n in range(1, self.parcelas_total + 1):
+            comp = self.competencia_da(n)
+            if comp in meses_pagos:
+                continue
+            pendentes.append({'n': n, 'competencia': comp,
+                              'atual': comp == mes_atual,
+                              'atrasada': comp < mes_atual})
+        return pendentes
+
 
 class UsuarioPermitido(models.Model):
     """Whitelist de login. Quem não tem linha aqui (ativo=True) NÃO entra."""
