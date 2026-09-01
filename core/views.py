@@ -86,10 +86,12 @@ def anexar_boleto(request, up):
         if form.is_valid():
             from .services import boletos as svc_boletos
             arq = form.cleaned_data['arquivo']
+            nf = form.cleaned_data.get('nota_fiscal')
             boleto = svc_boletos.registrar(
                 prestador, form.cleaned_data['competencia'],
                 enviado_por=up.email, posto=form.cleaned_data.get('posto'),
-                arquivo=arq, nome_original=arq.name)
+                arquivo=arq, nome_original=arq.name,
+                nota_fiscal=nf, nota_fiscal_nome=nf.name if nf else '')
             AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                                detalhe=f'Boleto #{boleto.pk} {boleto}')
 
@@ -154,11 +156,12 @@ def _pode_ver(up, prestador_id):
 
 @com_usuario
 def baixar_arquivo(request, up, tipo, pk):
-    modelo = {'boleto': Boleto, 'contrato': Contrato}.get(tipo)
+    modelo = {'boleto': Boleto, 'contrato': Contrato, 'nf': Boleto}.get(tipo)
     if modelo is None:
         raise Http404
     obj = get_object_or_404(modelo, pk=pk)
-    if not obj.arquivo:
+    campo = obj.nota_fiscal if tipo == 'nf' else obj.arquivo
+    if not campo:
         raise Http404
     if not _pode_ver(up, obj.prestador_id):
         AuditLog.registrar(AuditLog.Evento.DOWNLOAD_NEGADO, request,
@@ -166,8 +169,9 @@ def baixar_arquivo(request, up, tipo, pk):
         raise Http404
     AuditLog.registrar(AuditLog.Evento.DOWNLOAD, request,
                        detalhe=f'{tipo} #{pk}')
-    nome = obj.nome_original or obj.arquivo.name.rsplit('/', 1)[-1]
+    nome = ((obj.nota_fiscal_nome if tipo == 'nf' else obj.nome_original)
+            or campo.name.rsplit('/', 1)[-1])
     # ?inline=1 → renderiza no navegador (modal); sem ele, baixa.
     inline = request.GET.get('inline') == '1'
-    return FileResponse(obj.arquivo.open('rb'),
+    return FileResponse(campo.open('rb'),
                         as_attachment=not inline, filename=nome)

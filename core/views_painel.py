@@ -61,7 +61,8 @@ def dashboard(request, up):
 
     boletos_mes = list(
         Boleto.objects.filter(competencia=mes)
-        .exclude(status=Boleto.Status.SUBSTITUIDO)
+        .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
+                             Boleto.Status.DESCARTADO])
         .select_related('prestador', 'posto', 'prestador__posto_cobranca'))
 
     from .services import boletos as svc_boletos
@@ -127,6 +128,13 @@ def boleto_acao(request, up, pk, acao):
         boleto.pago_em = timezone.now()
         boleto.save(update_fields=['status', 'pago_em'])
         messages.success(request, f'{boleto} marcado como PAGO.')
+    elif acao == 'descartar' and boleto.status not in (Boleto.Status.APROVADO,
+                                                       Boleto.Status.PAGO):
+        # Soft delete do boleto: some das listas, fica no banco (auditável).
+        boleto.status = Boleto.Status.DESCARTADO
+        boleto.save(update_fields=['status'])
+        messages.success(request, f'{boleto} descartado (nada apagado — '
+                                  'fica na auditoria).')
     elif acao == 'despagar' and boleto.status == Boleto.Status.PAGO:
         # Clique errado no "Marcar PAGO": volta para APROVADO, sem e-mails.
         boleto.status = Boleto.Status.APROVADO
@@ -164,6 +172,9 @@ def boleto_acao(request, up, pk, acao):
             + dados_pagamento(boleto, fatos),
             boleto=boleto,
             anexo_field=boleto.arquivo if boleto.arquivo else None,
+            anexos=([(boleto.nota_fiscal,
+                      boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
+                    if boleto.nota_fiscal else None),
             de=settings.EMAIL_FROM_PAGADOR)
         emails.enviar(
             destinatarios_pj(boleto),
@@ -188,10 +199,12 @@ def boleto_novo(request, up):
             from .services import boletos as svc_boletos
             prestador = form.cleaned_data['prestador']
             arq = form.cleaned_data['arquivo']
+            nf = form.cleaned_data.get('nota_fiscal')
             boleto = svc_boletos.registrar(
                 prestador, form.cleaned_data['competencia'],
                 enviado_por=up.email, posto=form.cleaned_data['posto'],
                 arquivo=arq, nome_original=arq.name if arq else '',
+                nota_fiscal=nf, nota_fiscal_nome=nf.name if nf else '',
                 linha_digitavel=form.cleaned_data['linha_digitavel'],
                 chave_pix=form.cleaned_data['chave_pix'],
                 valor_livre=form.cleaned_data['valor_livre'],

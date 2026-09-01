@@ -45,6 +45,8 @@ class BoletoForm(forms.Form):
     posto = forms.ModelChoiceField(label='Posto', queryset=Posto.objects.none(),
                                    required=False, empty_label=None)
     arquivo = forms.FileField(label='Arquivo do boleto (PDF)')
+    nota_fiscal = forms.FileField(
+        label='Nota fiscal (PDF — opcional)', required=False)
 
     def __init__(self, prestador, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -55,6 +57,9 @@ class BoletoForm(forms.Form):
             (m.isoformat(), competencia_extenso(m).capitalize())
             for m in competencias_opcoes()]
         self.fields['competencia'].initial = hoje.isoformat()
+        if prestador.exige_nf:
+            self.fields['nota_fiscal'].required = True
+            self.fields['nota_fiscal'].label = 'Nota fiscal (PDF)'
         if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
             qs = Posto.objects.filter(
                 vinculos__prestador=prestador, vinculos__ativo=True,
@@ -68,6 +73,10 @@ class BoletoForm(forms.Form):
 
     def clean_arquivo(self):
         return _validar_arquivo(self.cleaned_data['arquivo'], _EXT_BOLETO)
+
+    def clean_nota_fiscal(self):
+        nf = self.cleaned_data.get('nota_fiscal')
+        return _validar_arquivo(nf, _EXT_CONTRATO) if nf else None
 
     def clean_competencia(self):
         try:
@@ -89,6 +98,8 @@ class BoletoAdminForm(forms.Form):
         label='Arquivo do boleto (PDF ou imagem — opcional se tiver linha '
               'digitável)',
         required=False)
+    nota_fiscal = forms.FileField(
+        label='Nota fiscal (PDF ou imagem — opcional)', required=False)
     linha_digitavel = forms.CharField(
         label='Linha digitável', required=False,
         widget=forms.TextInput(attrs={'inputmode': 'numeric',
@@ -119,6 +130,10 @@ class BoletoAdminForm(forms.Form):
         # sai pela linha digitável e a imagem vai de anexo p/ o financeiro.
         return _validar_arquivo(arq, _EXT_CONTRATO) if arq else None
 
+    def clean_nota_fiscal(self):
+        nf = self.cleaned_data.get('nota_fiscal')
+        return _validar_arquivo(nf, _EXT_CONTRATO) if nf else None
+
     def clean_competencia(self):
         try:
             return date.fromisoformat(
@@ -148,6 +163,10 @@ class BoletoAdminForm(forms.Form):
                 'digitável para a conferência sair pelo código de barras.')
         prestador, posto = dados.get('prestador'), dados.get('posto')
         if prestador:
+            if prestador.exige_nf and not dados.get('nota_fiscal'):
+                raise forms.ValidationError(
+                    f'{prestador.nome} exige nota fiscal anexa — anexe a '
+                    'NFS-e junto com o boleto.')
             if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
                 if not posto:
                     raise forms.ValidationError(
@@ -243,13 +262,29 @@ class PrestadorForm(forms.ModelForm):
     class Meta:
         model = Prestador
         fields = ['nome', 'cnpj', 'modo_boleto', 'posto_cobranca',
-                  'valor_unico', 'ativo', 'observacao']
+                  'valor_unico', 'exige_nf', 'ativo', 'observacao']
         widgets = {'observacao': forms.Textarea(attrs={'rows': 2})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['posto_cobranca'].queryset = Posto.objects.filter(ativo=True)
         self.fields['posto_cobranca'].required = False
+        self.fields['posto_cobranca'].label = \
+            'Posto cobrança (só no modo boleto ÚNICO)'
+        self.fields['valor_unico'].label = \
+            'Valor do boleto único (só no modo ÚNICO; vazio = soma dos postos)'
+
+    def clean(self):
+        dados = super().clean()
+        if (dados.get('modo_boleto') == Prestador.ModoBoleto.POR_POSTO
+                and (dados.get('valor_unico')
+                     or dados.get('posto_cobranca'))):
+            raise forms.ValidationError(
+                'Você preencheu "Posto cobrança"/"Valor do boleto único", '
+                'mas o modo está "Um boleto por posto" — nesses campos só '
+                'vale o modo ÚNICO. Ou troque o modo para "boleto único", '
+                'ou preencha os valores na tabela de postos abaixo.')
+        return dados
 
 
 class ValeForm(forms.Form):

@@ -23,7 +23,8 @@ class Command(BaseCommand):
         mes = timezone.localdate().replace(day=1)
         boletos = list(
             Boleto.objects.filter(competencia=mes)
-            .exclude(status=Boleto.Status.SUBSTITUIDO)
+            .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
+                                 Boleto.Status.DESCARTADO])
             .select_related('prestador', 'posto', 'prestador__posto_cobranca'))
 
         faltando, atencao, aguardando = [], [], []

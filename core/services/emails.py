@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 
 
 def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
-           de=None):
+           de=None, anexos=None):
     """Envia e registra. Retorna True/False — nunca levanta exceção.
 
     `de` troca o remetente (ex.: e-mail p/ o pagador sai do cristiano@;
@@ -37,16 +37,22 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
         msg = EmailMessage(subject=assunto, body=corpo,
                            from_email=de or settings.DEFAULT_FROM_EMAIL,
                            to=dests)
+        lista = []
         if anexo_field:
-            anexo_field.open('rb')
+            lista.append((anexo_field,
+                          getattr(boleto, 'nome_original', '') or ''))
+        lista.extend(anexos or [])
+        for campo, nome in lista:
+            if not campo:
+                continue
+            campo.open('rb')
             try:
-                nome = (getattr(boleto, 'nome_original', '') or
-                        anexo_field.name.rsplit('/', 1)[-1])
+                nome = nome or campo.name.rsplit('/', 1)[-1]
                 tipo = (mimetypes.guess_type(nome)[0]
                         or 'application/octet-stream')
-                msg.attach(nome, anexo_field.read(), tipo)
+                msg.attach(nome, campo.read(), tipo)
             finally:
-                anexo_field.close()
+                campo.close()
         msg.send(fail_silently=False)
         registro.ok = True
         log.info('E-mail enviado: %s — %s', ', '.join(dests), assunto)

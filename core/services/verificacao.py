@@ -182,6 +182,20 @@ def processar(boleto_pk):
 
     fatos = _fatos(boleto)
 
+    # 0) NOTA FISCAL: se o prestador exige, boleto sem NF não passa; e a
+    # NF anexa (PDF) precisa ser NFS-e emitida pelo CNPJ do prestador.
+    if boleto.prestador.exige_nf and not boleto.nota_fiscal:
+        _para_manual(boleto, 'o prestador exige nota fiscal anexa e o '
+                             'boleto veio sem NF')
+        return
+    if (boleto.nota_fiscal
+            and boleto.nota_fiscal.name.lower().endswith('.pdf')):
+        ok_nf, motivo_nf = svc_boletos.validar_nf(
+            pdf.extrair_texto(boleto.nota_fiscal.path), boleto.prestador)
+        if not ok_nf:
+            _para_manual(boleto, motivo_nf)
+            return
+
     # 1) Valor do PDF (via IA) — quando há PDF. Imagem/foto: a IA não lê,
     # mas com linha digitável a conferência sai pelo código de barras e a
     # imagem segue de anexo para o financeiro.
@@ -376,6 +390,9 @@ def processar(boleto_pk):
             + dados_pagamento(boleto, fatos),
             boleto=boleto,
             anexo_field=boleto.arquivo if boleto.arquivo else None,
+            anexos=([(boleto.nota_fiscal,
+                      boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
+                    if boleto.nota_fiscal else None),
             de=settings.EMAIL_FROM_PAGADOR)
         emails.enviar(
             destinatarios_pj(boleto),

@@ -13,6 +13,35 @@ def _norm(s):
     return re.sub(r'\s+', ' ', s.encode('ascii', 'ignore').decode().upper())
 
 
+def eh_nota_fiscal(texto):
+    """Distingue NF de boleto: menção a nota fiscal SEM linha digitável.
+    (Um PDF com linha digitável é boleto, mesmo que cite 'nota fiscal'.)
+    O DANFSe nacional extrai texto sem espaços — comparo sem espaços."""
+    t = _norm(texto).replace(' ', '')
+    if not any(k in t for k in ('NOTAFISCAL', 'NFS-E', 'NFSE', 'DANFE',
+                                'DANFSE')):
+        return False
+    for cand in re.findall(r'\d[\d .\-]{38,70}\d', texto or ''):
+        if len(re.sub(r'\D', '', cand)) in (47, 48):
+            return False
+    return True
+
+
+def validar_nf(texto_nf, prestador):
+    """Validação determinística da NFS-e nacional: precisa parecer uma NF
+    e o EMITENTE precisa ser o CNPJ do prestador (quando cadastrado).
+    Retorna (ok, motivo)."""
+    if not texto_nf:
+        return True, 'NF sem texto legível — não validada'
+    if not eh_nota_fiscal(texto_nf):
+        return False, 'o anexo de nota fiscal não parece uma NFS-e'
+    cnpj = re.sub(r'\D', '', prestador.cnpj or '')
+    if cnpj and cnpj not in re.sub(r'\D', '', texto_nf):
+        return False, ('a nota fiscal não é do prestador — o CNPJ '
+                       f'{prestador.cnpj} não consta como emitente')
+    return True, ''
+
+
 def identificar_posto(texto):
     """Descobre o posto pelo CNPJ do sacado impresso no texto do boleto
     (match exato de dígitos — determinístico); fallback: razão social."""
@@ -59,7 +88,8 @@ def valor_esperado_para(prestador, posto, competencia=None):
 
 def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
               nome_original='', linha_digitavel='', chave_pix='',
-              valor_livre=False, observacao=''):
+              valor_livre=False, observacao='', nota_fiscal=None,
+              nota_fiscal_nome=''):
     """Cria o boleto. Substitui apenas pendências (RECEBIDO/DIVERGENTE/
     MANUAL) da mesma chave — um boleto já APROVADO ou PAGO NUNCA é
     substituído em silêncio: a duplicidade é barrada na verificação."""
@@ -84,7 +114,9 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
         enviado_por=enviado_por,
         valor_esperado=valor_esperado_para(prestador, posto, competencia),
         linha_digitavel=linha_digitavel, chave_pix=(chave_pix or '').strip(),
-        valor_livre=valor_livre, observacao=(observacao or '').strip())
+        valor_livre=valor_livre, observacao=(observacao or '').strip(),
+        nota_fiscal=nota_fiscal,
+        nota_fiscal_nome=(nota_fiscal_nome or '')[:255])
 
 
 def duplicado_de(boleto):

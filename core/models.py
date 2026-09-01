@@ -65,6 +65,9 @@ class Prestador(models.Model):
                                        related_name='+')
     valor_unico = models.DecimalField(max_digits=12, decimal_places=2,
                                       null=True, blank=True)
+    # Só aceita boleto acompanhado de nota fiscal (modelo nacional NFS-e).
+    exige_nf = models.BooleanField(
+        default=False, verbose_name='Exigir nota fiscal anexa')
     ativo = models.BooleanField(default=True)
     observacao = models.TextField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -209,6 +212,7 @@ class Boleto(models.Model):
         PAGO = 'PAGO', 'Pago'
         SUBSTITUIDO = 'SUBSTITUIDO', 'Substituído por novo arquivo'
         DUPLICADO = 'DUPLICADO', 'Duplicado — competência já aprovada/paga'
+        DESCARTADO = 'DESCARTADO', 'Descartado pelo admin'
 
     prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
                                   related_name='boletos')
@@ -226,6 +230,10 @@ class Boleto(models.Model):
     # zap) ou extraídos do PDF pela IA. Vão no e-mail para o pagador.
     linha_digitavel = models.CharField(max_length=60, blank=True)
     chave_pix = models.CharField(max_length=140, blank=True)
+    # Nota fiscal que acompanha o boleto — vai junto no e-mail do financeiro.
+    nota_fiscal = models.FileField(upload_to=_upload_boleto, null=True,
+                                   blank=True)
+    nota_fiscal_nome = models.CharField(max_length=255, blank=True)
     vencimento = models.DateField(null=True, blank=True)
     # Só o admin liga isto (cadastro direto): aceita o valor do boleto mesmo
     # diferente do combinado — único caminho para pagar valor MAIOR.

@@ -37,6 +37,7 @@ from django.utils import timezone
 from core.models import EmailRecebido, UsuarioPermitido
 from core.services import boletos as svc_boletos
 from core.services import emails as svc_emails
+from core.services import pdf as svc_pdf
 from core.services.verificacao import enviar_recebido, processar
 
 RE_LINHA = re.compile(r'\d[\d .\-]{38,70}\d')
@@ -161,11 +162,40 @@ class Command(BaseCommand):
         competencia = timezone.localdate().replace(day=1)
         criados = []
 
+        # Separa boletos de notas fiscais (quem manda, manda os dois juntos)
+        pdfs_boleto, pdfs_nf = [], []
         for nome, conteudo in _pdfs(msg):
+            texto = svc_pdf.extrair_texto_bytes(conteudo)
+            if svc_boletos.eh_nota_fiscal(texto):
+                pdfs_nf.append((nome, conteudo, texto))
+            else:
+                pdfs_boleto.append((nome, conteudo))
+
+        for nome, conteudo in pdfs_boleto:
             b = svc_boletos.registrar(
                 prestador, competencia, enviado_por=remetente, posto=posto,
                 arquivo=ContentFile(conteudo, name=nome), nome_original=nome)
             criados.append(b)
+
+        # Casa cada NF com o boleto certo: pelo CNPJ do posto no texto da
+        # NF; senão, com o único boleto do e-mail; senão, com o 1º sem NF.
+        for nome, conteudo, texto in pdfs_nf:
+            alvo = None
+            p = svc_boletos.identificar_posto(texto)
+            if p is not None:
+                alvo = next((b for b in criados
+                             if b.posto_id == p.pk and not b.nota_fiscal),
+                            None)
+            if alvo is None:
+                alvo = next((b for b in criados if not b.nota_fiscal), None)
+            if alvo is not None:
+                alvo.nota_fiscal = ContentFile(conteudo, name=nome)
+                alvo.nota_fiscal_nome = nome[:255]
+                alvo.save()
+                self.stdout.write(f'  NF "{nome[:40]}" -> boleto #{alvo.pk}')
+            else:
+                self.stdout.write(f'  NF "{nome[:40]}" sem boleto para '
+                                  'casar — ignorada')
 
         if not criados:
             linha = _linha_do_texto(_corpo_texto(msg))
