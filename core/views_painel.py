@@ -131,16 +131,19 @@ def boleto_acao(request, up, pk, acao):
         messages.success(request, f'{boleto} voltou para verificação.')
     elif acao == 'aprovar' and boleto.status in (Boleto.Status.MANUAL,
                                                  Boleto.Status.DIVERGENTE,
-                                                 Boleto.Status.RECEBIDO):
-        # Aprovação manual: o Cristiano conferiu no olho → envia p/ pagamento.
+                                                 Boleto.Status.RECEBIDO,
+                                                 Boleto.Status.APROVADO):
+        # Aprovação manual (o Cristiano conferiu no olho) OU reenvio de um
+        # aprovado cujo e-mail não chegou → envia p/ pagamento + avisa o PJ.
         from django.conf import settings
         from .services import emails, frases
-        from .services.verificacao import _fatos, _moeda, dados_pagamento
+        from .services.verificacao import (_fatos, _moeda, dados_pagamento,
+                                           destinatarios_pj)
         boleto.status = Boleto.Status.APROVADO
         boleto.verificado_em = timezone.now()
         boleto.save(update_fields=['status', 'verificado_em'])
         fatos = _fatos(boleto)
-        fatos['valor'] = _moeda(boleto.valor_esperado or boleto.valor_extraido)
+        fatos['valor'] = _moeda(boleto.valor_extraido or boleto.valor_esperado)
         emails.enviar(
             settings.EMAIL_PAGADOR,
             f'Pagamento — {fatos["prestador"]} — {fatos["alvo"]} — '
@@ -150,7 +153,12 @@ def boleto_acao(request, up, pk, acao):
             boleto=boleto,
             anexo_field=boleto.arquivo if boleto.arquivo else None,
             de=settings.EMAIL_FROM_PAGADOR)
-        messages.success(request, f'{boleto} aprovado e enviado p/ pagamento.')
+        emails.enviar(
+            destinatarios_pj(boleto),
+            f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',
+            frases.corpo('aprovado_pj', fatos), boleto=boleto)
+        messages.success(request, f'{boleto} enviado p/ pagamento '
+                                  '(equipe e prestador avisados).')
     else:
         messages.error(request, 'Ação não permitida para este status.')
     AuditLog.registrar(AuditLog.Evento.STATUS, request,

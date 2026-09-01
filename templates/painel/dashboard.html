@@ -45,6 +45,9 @@
         {% if b.status == 'APROVADO' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'pagar' %}" style="display:inline">
           {% csrf_token %}<button class="btn mini">Marcar PAGO</button></form>
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'aprovar' %}" style="display:inline"
+              onsubmit="return confirm('Reenviar o e-mail de pagamento p/ a equipe e o aviso p/ o PJ?')">
+          {% csrf_token %}<button class="btn mini claro">Reenviar e-mails</button></form>
         {% elif b.status == 'DIVERGENTE' or b.status == 'MANUAL' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'aprovar' %}" style="display:inline"
               onsubmit="return confirm('Conferiu no olho? Vai mandar p/ equipe@ pagar.')">
