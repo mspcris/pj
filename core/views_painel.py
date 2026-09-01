@@ -14,8 +14,8 @@ from django.views.decorators.http import require_POST
 
 from .forms import (BoletoAdminForm, PostoForm, PrestadorForm, UsuarioForm,
                     ValorBRField)
-from .models import (AuditLog, Boleto, Contrato, EmailLog, Posto, Prestador,
-                     PrestadorPosto, UsuarioPermitido)
+from .models import (AuditLog, Boleto, Configuracao, Contrato, EmailLog,
+                     Posto, Prestador, PrestadorPosto, UsuarioPermitido)
 from django.contrib.auth.decorators import login_required
 
 from .views import _usuario_real, com_usuario
@@ -72,6 +72,8 @@ def dashboard(request, up):
             for b in boletos_mes:
                 if b.prestador_id != prestador.pk:
                     continue
+                if b.status == Boleto.Status.DUPLICADO:
+                    continue  # duplicado nunca representa a régua
                 if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
                     if b.posto_id is None:
                         achado = b
@@ -435,6 +437,26 @@ def usuarios(request, up):
     lista = UsuarioPermitido.objects.select_related('prestador')
     return render(request, 'painel/usuarios.html',
                   {'lista': lista, 'form': form, 'up': up})
+
+
+@admin_required
+def configuracoes(request, up):
+    if request.method == 'POST':
+        bruto = (request.POST.get('limiar_confianca') or '').strip()
+        try:
+            limiar = int(bruto)
+            if not 0 <= limiar <= 100:
+                raise ValueError
+        except ValueError:
+            messages.error(request, 'Limiar deve ser um número de 0 a 100.')
+            return redirect('painel_config')
+        Configuracao.definir('limiar_confianca', limiar)
+        AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                           detalhe=f'Config: limiar_confianca={limiar}%')
+        messages.success(request, f'Limiar de convicção salvo: {limiar}%.')
+        return redirect('painel_config')
+    return render(request, 'painel/config.html', {
+        'limiar': Configuracao.get_int('limiar_confianca', 99), 'up': up})
 
 
 @admin_required

@@ -31,7 +31,9 @@ class Command(BaseCommand):
                           .prefetch_related('vinculos__posto')):
             for posto, valor in prestador.boletos_esperados():
                 achado = next(
-                    (b for b in boletos if b.prestador_id == prestador.pk and
+                    (b for b in boletos
+                     if b.status != Boleto.Status.DUPLICADO and
+                     b.prestador_id == prestador.pk and
                      (b.posto_id is None
                       if prestador.modo_boleto == Prestador.ModoBoleto.UNICO
                       else (posto and b.posto_id == posto.pk))), None)

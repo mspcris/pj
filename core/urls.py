@@ -33,6 +33,7 @@ urlpatterns = [
          views_painel.prestador_restaurar, name='painel_prestador_restaurar'),
     path('painel/postos/', views_painel.postos, name='painel_postos'),
     path('painel/usuarios/', views_painel.usuarios, name='painel_usuarios'),
+    path('painel/config/', views_painel.configuracoes, name='painel_config'),
     path('painel/emails/', views_painel.emails_log, name='painel_emails'),
     path('painel/auditoria/', views_painel.auditoria, name='painel_auditoria'),
 ]

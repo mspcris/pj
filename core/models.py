@@ -169,6 +169,7 @@ class Boleto(models.Model):
         MANUAL = 'MANUAL', 'Verificar manualmente (IA não leu)'
         PAGO = 'PAGO', 'Pago'
         SUBSTITUIDO = 'SUBSTITUIDO', 'Substituído por novo arquivo'
+        DUPLICADO = 'DUPLICADO', 'Duplicado — competência já aprovada/paga'
 
     prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
                                   related_name='boletos')
@@ -201,6 +202,9 @@ class Boleto(models.Model):
     valor_extraido = models.DecimalField(max_digits=12, decimal_places=2,
                                          null=True, blank=True)
     ia_resposta = models.TextField(blank=True)
+    # Confiança (0-100) que a IA declarou na extração do valor. 100 quando a
+    # conferência é determinística (código de barras) ou dupla (PDF × linha).
+    ia_confianca = models.PositiveSmallIntegerField(null=True, blank=True)
     tentativas = models.PositiveSmallIntegerField(default=0)
 
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -217,6 +221,28 @@ class Boleto(models.Model):
     @property
     def posto_efetivo(self):
         return self.posto or self.prestador.posto_cobranca
+
+
+class Configuracao(models.Model):
+    """Configurações do sistema (menu Configurações do painel)."""
+    chave = models.CharField(max_length=60, unique=True)
+    valor = models.CharField(max_length=255)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.chave}={self.valor}'
+
+    @classmethod
+    def get_int(cls, chave, padrao):
+        try:
+            return int(cls.objects.get(chave=chave).valor)
+        except (cls.DoesNotExist, ValueError):
+            return padrao
+
+    @classmethod
+    def definir(cls, chave, valor):
+        cls.objects.update_or_create(chave=chave,
+                                     defaults={'valor': str(valor)})
 
 
 class AuditLog(models.Model):

@@ -146,7 +146,8 @@ class VerificacaoTest(BaseSetup):
 
     @mock.patch('core.services.emails.enviar', return_value=True)
     @mock.patch('core.services.ia.extrair_valor',
-                return_value=(Decimal('1500.00'), '{"valor":"1500.00"}'))
+                return_value=(Decimal('1500.00'),
+                              '{"valor":"1500.00","confianca":100}'))
     @mock.patch('core.services.pdf.extrair_texto', return_value='BOLETO 1500')
     def test_valor_bate_aprova_e_envia_pagador(self, m_pdf, m_ia, m_mail):
         b = self._boleto()
@@ -393,7 +394,8 @@ class RegrasNegocioTest(BaseSetup):
 
     @mock.patch('core.services.emails.enviar', return_value=True)
     @mock.patch('core.services.ia.extrair_valor',
-                return_value=(Decimal('1400.00'), '{"valor":"1400.00"}'))
+                return_value=(Decimal('1400.00'),
+                              '{"valor":"1400.00","confianca":100}'))
     @mock.patch('core.services.pdf.extrair_texto', return_value='x')
     def test_valor_menor_aprova(self, m_pdf, m_ia, m_mail):
         b = self._boleto()
@@ -405,7 +407,8 @@ class RegrasNegocioTest(BaseSetup):
                 return_value=(True, 'desconto da parcela 3/7 do notebook'))
     @mock.patch('core.services.emails.enviar', return_value=True)
     @mock.patch('core.services.ia.extrair_valor',
-                return_value=(Decimal('900.00'), '{"valor":"900.00"}'))
+                return_value=(Decimal('900.00'),
+                              '{"valor":"900.00","confianca":100}'))
     @mock.patch('core.services.pdf.extrair_texto', return_value='x')
     def test_menor_com_obs_que_explica_aprova_com_motivo(
             self, m_pdf, m_ia, m_mail, m_dif):
@@ -462,14 +465,29 @@ class RegrasNegocioTest(BaseSetup):
     @mock.patch('core.services.ia.extrair_valor',
                 return_value=(Decimal('1500.00'), '{"valor":"1500.00"}'))
     @mock.patch('core.services.pdf.extrair_texto', return_value='x')
-    def test_duplicidade_nunca_aprova_de_novo(self, m_pdf, m_ia, m_mail):
+    def test_duplicidade_marca_duplicado_sem_email(self, m_pdf, m_ia,
+                                                    m_mail):
         self._boleto(status=Boleto.Status.PAGO)
         b2 = self._boleto()
         verificacao.processar(b2.pk)
         b2.refresh_from_db()
-        self.assertEqual(b2.status, Boleto.Status.MANUAL)
+        self.assertEqual(b2.status, Boleto.Status.DUPLICADO)
+        m_mail.assert_not_called()  # duplicado fica só marcado no painel
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1500.00'),
+                              '{"valor":"1500.00","confianca":80}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_confianca_abaixo_do_limiar_espera_liberacao(self, m_pdf, m_ia,
+                                                         m_mail):
+        b = self._boleto()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        self.assertEqual(b.ia_confianca, 80)
         destinos = _destinos(m_mail)
-        self.assertNotIn('equipe@camim.com.br', destinos)
+        self.assertNotIn('equipe@camim.com.br', destinos)  # esperou liberar
 
     @mock.patch('core.services.verificacao.fluxo_completo_async')
     def test_reenvio_nao_substitui_aprovado(self, m_async):

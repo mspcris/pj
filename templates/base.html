@@ -73,6 +73,7 @@ input[type=checkbox]{width:auto;transform:scale(1.3);margin-right:6px}
 .chip.MANUAL{background:#fdf3e3;color:var(--alerta)}
 .chip.PAGO{background:var(--verde);color:#fff}
 .chip.SUBSTITUIDO{background:#eee;color:#888}
+.chip.DUPLICADO{background:#f3f0e8;color:#8a7a4d;border:1.5px dashed #c9b77f}
 .chip.FALTA{background:#fdeceb;color:var(--erro);border:1.5px dashed var(--erro)}
 table{width:100%;border-collapse:collapse;font-size:.92rem}
 th{text-align:left;color:var(--cinza);font-size:.75rem;text-transform:uppercase;
@@ -113,6 +114,7 @@ tr:last-child td{border-bottom:0}
       <a href="{% url 'painel_usuarios' %}">Usuários</a>
       <a href="{% url 'painel_emails' %}">E-mails</a>
       <a href="{% url 'painel_auditoria' %}">Auditoria</a>
+      <a href="{% url 'painel_config' %}">⚙️</a>
     {% else %}
       <a href="{% url 'home' %}">Início</a>
     {% endif %}

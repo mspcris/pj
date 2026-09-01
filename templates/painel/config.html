@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Configurações · Painel{% endblock %}
+{% block conteudo %}
+<h1>⚙️ Configurações</h1>
+<p class="sub">Ajustes de como o sistema decide sozinho.</p>
+
+<div class="card">
+  <h2 style="font-size:1.05rem">Convicção mínima para enviar ao pagamento</h2>
+  <p class="sub" style="font-size:.85rem">
+    A IA declara a confiança (0–100%) na leitura do valor de cada boleto.
+    Só vai e-mail automático para a equipe de pagamento quando a confiança
+    for <strong>igual ou maior</strong> que este limiar — abaixo disso o
+    boleto para em "verificar manualmente" e espera você liberar.
+    Conferências determinísticas (código de barras, ou PDF × código de
+    barras batendo) contam como 100%. Comece alto e vá baixando conforme
+    ela acertar.</p>
+  <form method="post">
+    {% csrf_token %}
+    <label for="id_limiar">Limiar (%)</label>
+    <input id="id_limiar" name="limiar_confianca" inputmode="numeric"
+           value="{{ limiar }}" style="max-width:140px">
+    <button class="btn" type="submit" style="margin-top:18px">Salvar</button>
+  </form>
+</div>
+{% endblock %}

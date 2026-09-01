@@ -21,7 +21,7 @@ from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
 
-from ..models import AuditLog, Boleto
+from ..models import AuditLog, Boleto, Configuracao
 from . import boletos as svc_boletos
 from . import emails, frases, ia, pdf
 
@@ -178,6 +178,7 @@ def processar(boleto_pk):
 
     # 1) Valor do PDF (via IA) — quando há PDF.
     valor_pdf = None
+    confianca_pdf = None
     if boleto.arquivo:
         if not boleto.arquivo.name.lower().endswith('.pdf'):
             _para_manual(boleto, 'arquivo não é PDF (imagem/foto)')
@@ -214,6 +215,10 @@ def processar(boleto_pk):
                     str(dados.get('vencimento') or ''), '%d/%m/%Y').date()
             except ValueError:
                 pass
+        try:
+            confianca_pdf = max(0, min(100, int(dados.get('confianca'))))
+        except (TypeError, ValueError):
+            confianca_pdf = 50  # IA não declarou — trata como incerto
 
     # 2) Valor embutido no código de barras (determinístico, sem IA).
     valor_linha = valor_da_linha(boleto.linha_digitavel)
@@ -236,13 +241,24 @@ def processar(boleto_pk):
     boleto.valor_extraido = valor
     fatos['valor'] = _moeda(valor)
 
+    # Confiança final: 100 quando o valor é determinístico (código de
+    # barras) ou dupla checagem (PDF × linha batendo); senão, a que a
+    # própria IA declarou na extração do PDF.
+    if valor_pdf is None or valor_linha is not None:
+        boleto.ia_confianca = 100
+    else:
+        boleto.ia_confianca = confianca_pdf if confianca_pdf is not None else 50
+
     # 4) NÃO DUPLICIDADE: nunca aprovar duas vezes a mesma competência.
+    # Vira DUPLICADO e fica só marcado no painel — sem e-mail, sem drama
+    # (o normal é o PJ mandar por e-mail algo que o admin já cadastrou).
     dup = svc_boletos.duplicado_de(boleto)
     if dup is not None:
-        _para_manual(boleto,
-                     f'possível DUPLICIDADE: o boleto #{dup.pk} desta mesma '
-                     f'competência já está "{dup.get_status_display()}" — '
-                     'nada foi enviado para pagamento')
+        boleto.ia_resposta = (boleto.ia_resposta +
+                              f'\n[duplicado] o boleto #{dup.pk} desta '
+                              f'competência já está '
+                              f'"{dup.get_status_display()}"').strip()
+        _marcar(boleto, Boleto.Status.DUPLICADO)
         return
 
     # 5) O MÊS TEM DE BATER: vencimento dentro da janela da competência
@@ -290,7 +306,21 @@ def processar(boleto_pk):
                 boleto.ia_resposta = (boleto.ia_resposta +
                                       f'\n[menor] {motivo}').strip()
 
-    if boleto.valor_livre or (valor - boleto.valor_esperado) <= TOLERANCIA:
+    # 7) GATE DE CONVICÇÃO: só envia para pagamento sozinho se a confiança
+    # for >= limiar (Configurações; padrão 99%). Abaixo disso, espera o
+    # Cristiano liberar no painel ("Aprovar assim mesmo").
+    aprovaria = (boleto.valor_livre
+                 or (valor - boleto.valor_esperado) <= TOLERANCIA)
+    limiar = Configuracao.get_int('limiar_confianca', 99)
+    if (aprovaria and not boleto.valor_livre
+            and (boleto.ia_confianca or 0) < limiar):
+        _para_manual(boleto,
+                     f'valor confere, mas a confiança da IA foi '
+                     f'{boleto.ia_confianca}% (limiar: {limiar}%) — nada '
+                     'enviado; libere o envio no painel se estiver ok')
+        return
+
+    if aprovaria:
         _marcar(boleto, Boleto.Status.APROVADO)
         emails.enviar(
             settings.EMAIL_PAGADOR,

@@ -24,7 +24,7 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
     (Boleto.objects
      .filter(prestador=prestador, posto=posto, competencia=competencia,
              status__in=[Boleto.Status.RECEBIDO, Boleto.Status.DIVERGENTE,
-                         Boleto.Status.MANUAL])
+                         Boleto.Status.MANUAL, Boleto.Status.DUPLICADO])
      .update(status=Boleto.Status.SUBSTITUIDO))
 
     return Boleto.objects.create(
