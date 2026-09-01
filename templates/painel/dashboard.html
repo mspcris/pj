@@ -22,6 +22,15 @@
   <a href="?m={{ prox|date:'Y-m' }}">→</a>
 </div>
 
+{% if pendentes_baixo %}
+<a href="#secoes-extras" style="display:block;background:#fdf3e3;
+   border:1.5px solid var(--dourado);color:#7a5a10;border-radius:12px;
+   padding:11px 16px;margin-bottom:14px;font-weight:700">
+  📥 Há {{ pendentes_baixo }} boleto(s) nas seções do fim da página
+  ({% if parciais_mes %}{{ parciais_mes|length }} parciais · {% endif %}{% if fora_da_regua %}{{ fora_da_regua|length }} para destinar · {% endif %}{% if extras %}{{ extras|length }} extras · {% endif %}fora da tabela principal)
+  — clique para descer ↓
+</a>
+{% endif %}
 <div class="grade">
   <div class="kpi {% if resumo.faltando %}ruim{% else %}bom{% endif %}">
     <div class="num">{{ resumo.faltando }}</div><div class="rot">sem boleto</div></div>
@@ -112,6 +121,7 @@
   </table></div>
 </div>
 
+<div id="secoes-extras"></div>
 {% if parciais_mes %}
 <div class="card">
   <h2 style="font-size:1rem;margin-bottom:10px">🧩 Boletos parciais do mês

@@ -145,6 +145,8 @@ def dashboard(request, up):
         'mes': mes, 'mes_extenso': competencia_extenso(mes).capitalize(),
         'ant': ant, 'prox': prox, 'linhas': linhas, 'extras': extras,
         'parciais_mes': parciais_mes,
+        'pendentes_baixo': len(parciais_mes) + len(fora_da_regua)
+                           + len(extras),
         'fora_da_regua': fora_da_regua, 'resumo': resumo, 'up': up})
 
 
