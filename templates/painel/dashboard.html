@@ -77,6 +77,9 @@
           {% csrf_token %}<button class="btn mini dourado">Aprovar assim mesmo</button></form>
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}">
           {% csrf_token %}<button class="btn mini claro">Reverificar</button></form>
+        {% elif b.status == 'FIN_RECEBIDO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'pagar' %}">
+          {% csrf_token %}<button class="btn mini">Marcar PAGO</button></form>
         {% elif b.status == 'PAGO' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'despagar' %}"
               onsubmit="return confirm('Desfazer o PAGO? Volta para \'enviado p/ pagamento\' (nenhum e-mail é enviado).')">
@@ -130,7 +133,7 @@
           {% csrf_token %}<button class="btn mini dourado">Aprovar assim mesmo</button></form>
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}">
           {% csrf_token %}<button class="btn mini claro">Reverificar</button></form>
-        {% elif b.status == 'APROVADO' %}
+        {% elif b.status == 'APROVADO' or b.status == 'FIN_RECEBIDO' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'pagar' %}">
           {% csrf_token %}<button class="btn mini">Marcar PAGO</button></form>
         {% elif b.status == 'PAGO' %}
@@ -138,9 +141,9 @@
               onsubmit="return confirm('Desfazer o PAGO?')">
           {% csrf_token %}<button class="btn mini claro">Desfazer PAGO</button></form>
         {% endif %}
-        {% if b.status != 'APROVADO' and b.status != 'PAGO' %}
+        {% if b.status != 'PAGO' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'descartar' %}"
-              onsubmit="return confirm('Descartar este boleto? Ele some das listas, mas fica no banco (soft delete).')">
+              onsubmit="return confirm('{% if b.status == 'APROVADO' or b.status == 'FIN_RECEBIDO' %}ATENÇÃO: este boleto JÁ FOI enviado ao financeiro — se excluir, avise a equipe@ para NÃO pagar! {% endif %}Descartar? Some das listas, fica no banco (soft delete).')">
           {% csrf_token %}<button class="btn mini vermelho">Excluir</button></form>
         {% endif %}
       </div></td>

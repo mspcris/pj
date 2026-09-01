@@ -918,6 +918,44 @@ class GerentesPainelTest(BaseSetup):
         self.assertEqual(resp.status_code, 404)
 
 
+class FinanceiroRecebidoTest(BaseSetup):
+    def _aprovado(self, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=date(2026, 9, 1), arquivo=_pdf(),
+                    status=Boleto.Status.APROVADO,
+                    valor_extraido=Decimal('1500.00'))
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    def test_localiza_boleto_pelo_assunto_da_resposta(self):
+        from core.services.boletos import localizar_boleto_por_assunto
+        b = self._aprovado()
+        assunto = ('Re: Pagamento — Limpeza Total LTDA — Anchieta — '
+                   'setembro/2026 — R$ 1.500,00')
+        self.assertEqual(localizar_boleto_por_assunto(assunto), b)
+        # valor diferente não casa (extra × regular do mesmo posto)
+        self.assertIsNone(localizar_boleto_por_assunto(
+            'Re: Pagamento — Limpeza Total LTDA — Anchieta — '
+            'setembro/2026 — R$ 85,00'))
+        # assunto qualquer não casa
+        self.assertIsNone(localizar_boleto_por_assunto('Re: bom dia'))
+
+    def test_marcar_pago_a_partir_de_fin_recebido(self):
+        b = self._aprovado(status=Boleto.Status.FIN_RECEBIDO)
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/pagar/')
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.PAGO)
+
+    def test_fin_recebido_conta_como_duplicidade(self):
+        from core.services.boletos import duplicado_de
+        self._aprovado(status=Boleto.Status.FIN_RECEBIDO)
+        b2 = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf())
+        self.assertIsNotNone(duplicado_de(b2))
+
+
 class CcGerenteTest(BaseSetup):
     @mock.patch('core.services.emails.enviar', return_value=True)
     @mock.patch('core.services.ia.extrair_valor',

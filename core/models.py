@@ -245,6 +245,7 @@ class Boleto(models.Model):
     class Status(models.TextChoices):
         RECEBIDO = 'RECEBIDO', 'Recebido — aguardando verificação'
         APROVADO = 'APROVADO', 'Valor confere — enviado p/ pagamento'
+        FIN_RECEBIDO = 'FIN_RECEBIDO', 'Recebido pelo financeiro'
         DIVERGENTE = 'DIVERGENTE', 'Valor divergente — aguardando contato'
         MANUAL = 'MANUAL', 'Verificar manualmente'
         PAGO = 'PAGO', 'Pago'
@@ -283,8 +284,10 @@ class Boleto(models.Model):
     # Vai no bloco de dados do e-mail p/ o financeiro.
     observacao = models.TextField(blank=True)
 
-    status = models.CharField(max_length=12, choices=Status.choices,
+    status = models.CharField(max_length=14, choices=Status.choices,
                               default=Status.RECEBIDO)
+    # Quando o financeiro respondeu "recebido" ao e-mail de pagamento
+    fin_recebido_em = models.DateTimeField(null=True, blank=True)
     valor_esperado = models.DecimalField(max_digits=12, decimal_places=2,
                                          null=True, blank=True)
     valor_extraido = models.DecimalField(max_digits=12, decimal_places=2,
@@ -390,6 +393,7 @@ class EmailRecebido(models.Model):
         BOLETO_CRIADO = 'BOLETO', 'Boleto(s) criado(s)'
         SEM_PRESTADOR = 'SEM_PREST', 'Remetente sem cadastro'
         SEM_CONTEUDO = 'SEM_CONT', 'Sem PDF e sem linha digitável'
+        FIN = 'FIN', 'Confirmação do financeiro'
 
     message_id = models.CharField(max_length=255, unique=True)
     remetente = models.CharField(max_length=255)

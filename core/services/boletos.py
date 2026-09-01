@@ -131,6 +131,55 @@ def duplicado_de(boleto):
     return (Boleto.objects
             .filter(prestador=boleto.prestador, posto=boleto.posto,
                     competencia=boleto.competencia, extra=False,
-                    status__in=[Boleto.Status.APROVADO, Boleto.Status.PAGO])
+                    status__in=[Boleto.Status.APROVADO,
+                                Boleto.Status.FIN_RECEBIDO,
+                                Boleto.Status.PAGO])
             .exclude(pk=boleto.pk)
             .first())
+
+
+_MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+             'julho', 'agosto', 'setembro', 'outubro', 'novembro',
+             'dezembro']
+
+
+def localizar_boleto_por_assunto(assunto):
+    """Casa a RESPOSTA do financeiro com o boleto: o assunto do e-mail de
+    pagamento é 'Pagamento — <prestador> — <alvo> — <mês/ano> — R$ <valor>'.
+    Retorna o boleto APROVADO/FIN_RECEBIDO correspondente, ou None."""
+    from datetime import date
+    from decimal import Decimal, InvalidOperation
+    s = (assunto or '').strip()
+    while re.match(r'^(re|res|fwd|enc|en)\s*:\s*', s, re.I):
+        s = re.sub(r'^(re|res|fwd|enc|en)\s*:\s*', '', s, flags=re.I)
+    m = re.match(r'.*?Pagamento — (.+?) — (.+?) — ([a-zç]+)/(\d{4}) — '
+                 r'R\$\s*([\d.,]+)', s, re.I)
+    if not m:
+        return None
+    nome_p, alvo, mes_nome, ano, valor_txt = m.groups()
+    try:
+        competencia = date(int(ano),
+                           _MESES_PT.index(mes_nome.lower()) + 1, 1)
+    except ValueError:
+        return None
+    try:
+        valor = Decimal(valor_txt.replace('.', '').replace(',', '.'))
+    except InvalidOperation:
+        valor = None
+    prestador = Prestador.objects.filter(nome__iexact=nome_p.strip()).first()
+    if prestador is None:
+        return None
+    candidatos = Boleto.objects.filter(
+        prestador=prestador, competencia=competencia,
+        status__in=[Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO])
+    for b in candidatos:
+        nome_alvo = (b.posto_efetivo.nome if b.posto_efetivo
+                     else 'boleto único')
+        if nome_alvo.lower() != alvo.strip().lower():
+            continue
+        v = b.valor_extraido or b.valor_esperado
+        if valor is not None and v is not None and abs(v - valor) > \
+                Decimal('0.01'):
+            continue
+        return b
+    return None

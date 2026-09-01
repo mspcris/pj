@@ -98,7 +98,7 @@ def dashboard(request, up):
             return 0
         ordem = {Boleto.Status.DIVERGENTE: 1, Boleto.Status.MANUAL: 1,
                  Boleto.Status.RECEBIDO: 2, Boleto.Status.APROVADO: 3,
-                 Boleto.Status.PAGO: 4}
+                 Boleto.Status.FIN_RECEBIDO: 4, Boleto.Status.PAGO: 5}
         return ordem.get(b.status, 2)
     linhas.sort(key=lambda l: (peso(l), l['prestador'].nome))
 
@@ -107,7 +107,9 @@ def dashboard(request, up):
         'atencao': sum(1 for l in linhas if l['boleto'] and l['boleto'].status
                        in (Boleto.Status.DIVERGENTE, Boleto.Status.MANUAL)),
         'aguardando_pgto': sum(1 for l in linhas if l['boleto'] and
-                               l['boleto'].status == Boleto.Status.APROVADO),
+                               l['boleto'].status in
+                               (Boleto.Status.APROVADO,
+                                Boleto.Status.FIN_RECEBIDO)),
         'pagos': sum(1 for l in linhas if l['boleto'] and
                      l['boleto'].status == Boleto.Status.PAGO),
     }
@@ -122,14 +124,14 @@ def dashboard(request, up):
 def boleto_acao(request, up, pk, acao):
     boleto = get_object_or_404(Boleto, pk=pk)
     if acao == 'pagar' and boleto.status in (Boleto.Status.APROVADO,
+                                             Boleto.Status.FIN_RECEBIDO,
                                              Boleto.Status.MANUAL,
                                              Boleto.Status.DIVERGENTE):
         boleto.status = Boleto.Status.PAGO
         boleto.pago_em = timezone.now()
         boleto.save(update_fields=['status', 'pago_em'])
         messages.success(request, f'{boleto} marcado como PAGO.')
-    elif acao == 'descartar' and boleto.status not in (Boleto.Status.APROVADO,
-                                                       Boleto.Status.PAGO):
+    elif acao == 'descartar' and boleto.status != Boleto.Status.PAGO:
         # Soft delete do boleto: some das listas, fica no banco (auditável).
         boleto.status = Boleto.Status.DESCARTADO
         boleto.save(update_fields=['status'])

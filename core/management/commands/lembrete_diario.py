@@ -47,11 +47,15 @@ class Command(BaseCommand):
                                        Boleto.Status.MANUAL):
                     atencao.append(f'  • {prestador.nome} — {alvo}: '
                                    f'{achado.get_status_display()}')
-                elif achado.status == Boleto.Status.APROVADO:
+                elif achado.status in (Boleto.Status.APROVADO,
+                                       Boleto.Status.FIN_RECEBIDO):
+                    rot = ('recebido pelo financeiro'
+                           if achado.status == Boleto.Status.FIN_RECEBIDO
+                           else 'enviado p/ pagamento')
                     aguardando.append(
                         f'  • {prestador.nome} — {alvo} — '
                         f'R$ {_moeda(achado.valor_extraido)} '
-                        f'(enviado p/ pagamento, falta marcar PAGO)')
+                        f'({rot}, falta marcar PAGO)')
 
         partes = [f'Resumo dos PJs — {competencia_extenso(mes)}\n']
         partes.append(f'⛔ Sem boleto ainda ({len(faltando)}):')

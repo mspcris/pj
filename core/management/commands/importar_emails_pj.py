@@ -109,11 +109,60 @@ class Command(BaseCommand):
                     continue
                 msg = email.message_from_bytes(dados[0][1])
                 self._processar_mensagem(msg, probe)
+
+            # 2ª passada: respostas do FINANCEIRO aos e-mails de pagamento
+            # ("recebido") → status "Recebido pelo financeiro".
+            busca = (f'from:{settings.EMAIL_PAGADOR} "Pagamento" '
+                     f'newer_than:{settings.IMAP_DIAS}d')
+            ok, dados = conn.uid('SEARCH', 'X-GM-RAW', f'"{busca}"')
+            achados = (dados[0].split()
+                       if ok == 'OK' and dados and dados[0] else [])
+            self.stdout.write(f'respostas do financeiro: '
+                              f'{len(achados)} e-mail(s).')
+            for uid in sorted(achados, key=int):
+                ok, dados = conn.uid('FETCH', uid, '(BODY.PEEK[])')
+                if ok != 'OK' or not dados or dados[0] is None:
+                    continue
+                self._processar_resposta_financeiro(
+                    email.message_from_bytes(dados[0][1]), probe)
         finally:
             try:
                 conn.logout()
             except Exception:
                 pass
+
+    def _processar_resposta_financeiro(self, msg, probe):
+        from django.utils import timezone
+        from core.models import AuditLog, Boleto
+        message_id = (msg.get('Message-ID') or '').strip()[:255]
+        if not message_id:
+            return
+        if EmailRecebido.objects.filter(message_id=message_id).exists():
+            return
+        remetente = (email.utils.parseaddr(msg.get('From') or '')[1]
+                     .strip().lower())
+        assunto = _decodificar(msg.get('Subject'))[:255]
+        if probe:
+            self.stdout.write(f'[probe fin] {remetente} — {assunto}')
+            return
+        boleto = svc_boletos.localizar_boleto_por_assunto(assunto)
+        detalhe = ''
+        if boleto is not None and boleto.status == Boleto.Status.APROVADO:
+            boleto.status = Boleto.Status.FIN_RECEBIDO
+            boleto.fin_recebido_em = timezone.now()
+            boleto.save(update_fields=['status', 'fin_recebido_em'])
+            AuditLog.registrar(
+                AuditLog.Evento.STATUS, ator='financeiro',
+                detalhe=f'Boleto #{boleto.pk} confirmado recebido pelo '
+                        f'financeiro ({remetente})')
+            detalhe = f'#{boleto.pk}'
+            self.stdout.write(self.style.SUCCESS(
+                f'  financeiro confirmou: boleto #{boleto.pk} ({assunto[:60]})'))
+        else:
+            self.stdout.write(f'  resposta sem boleto casável: {assunto[:70]}')
+        EmailRecebido.objects.create(
+            message_id=message_id, remetente=remetente, assunto=assunto,
+            resultado=EmailRecebido.Resultado.FIN, detalhe=detalhe)
 
     def _processar_mensagem(self, msg, probe):
         message_id = (msg.get('Message-ID') or '').strip()[:255]
