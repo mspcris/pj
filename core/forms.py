@@ -97,6 +97,9 @@ class BoletoAdminForm(forms.Form):
         label='Aceitar este valor mesmo diferente do combinado '
               '(acordo/ajuste — único caminho para valor MAIOR)',
         required=False)
+    observacao = forms.CharField(
+        label='Observação do mês (vai no e-mail do financeiro)',
+        required=False, widget=forms.Textarea(attrs={'rows': 2}))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -148,6 +151,47 @@ class BoletoAdminForm(forms.Form):
             else:
                 dados['posto'] = None
         return dados
+
+
+class BoletoEditForm(forms.Form):
+    """Edição de boleto pelo admin: destinar posto (ex.: os vários PDFs de
+    um mesmo e-mail), acertar a competência e anotar a observação do mês."""
+    posto = forms.ModelChoiceField(label='Posto', required=False,
+                                   queryset=Posto.objects.none())
+    competencia = forms.ChoiceField(label='Mês (competência)')
+    linha_digitavel = forms.CharField(label='Linha digitável', required=False)
+    chave_pix = forms.CharField(label='Chave PIX', required=False)
+    valor_livre = forms.BooleanField(
+        label='Aceitar este valor mesmo diferente do combinado', required=False)
+    observacao = forms.CharField(
+        label='Observação do mês (vai no e-mail do financeiro)',
+        required=False, widget=forms.Textarea(attrs={'rows': 3}))
+
+    def __init__(self, boleto, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .services.verificacao import competencia_extenso
+        self.fields['posto'].queryset = Posto.objects.filter(ativo=True)
+        opcoes = competencias_opcoes()
+        if boleto.competencia not in opcoes:
+            opcoes = sorted(set(opcoes) | {boleto.competencia})
+        self.fields['competencia'].choices = [
+            (m.isoformat(), competencia_extenso(m).capitalize())
+            for m in opcoes]
+
+    def clean_linha_digitavel(self):
+        ld = ''.join(c for c in self.cleaned_data['linha_digitavel']
+                     if c.isdigit())
+        if ld and not 40 <= len(ld) <= 48:
+            raise forms.ValidationError(
+                'Linha digitável deve ter 47 ou 48 dígitos.')
+        return ld
+
+    def clean_competencia(self):
+        try:
+            return date.fromisoformat(
+                self.cleaned_data['competencia']).replace(day=1)
+        except ValueError:
+            raise forms.ValidationError('Mês inválido.')
 
 
 class ContratoForm(forms.Form):

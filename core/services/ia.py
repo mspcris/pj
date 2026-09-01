@@ -71,6 +71,33 @@ def extrair_valor(texto_pdf):
         return None, bruto
 
 
+def avaliar_diferenca(valor_boleto, valor_esperado, observacoes):
+    """Boleto veio MENOR que o combinado: as observações registradas (do mês
+    e do cadastro do prestador) explicam a diferença?
+
+    Retorna (explica: bool, motivo: str). A decisão final continua sendo do
+    fluxo — isto é só um parecer sobre textos que o PRÓPRIO admin escreveu.
+    """
+    system = (
+        'Você audita pagamentos a prestadores. Receberá o valor combinado, '
+        'o valor do boleto (menor) e as observações registradas pelo '
+        'administrador. Diga se as observações explicam a diferença a menor '
+        '(ex.: desconto de parcela, abatimento acordado, mês proporcional). '
+        'Responda SOMENTE JSON: {"explica": true/false, "motivo": "resumo '
+        'curto da justificativa, em uma frase"}. Seja criterioso: se as '
+        'observações não mencionam nada compatível com a diferença, '
+        'responda explica=false.')
+    user = (f'Valor combinado: R$ {valor_esperado}\n'
+            f'Valor do boleto: R$ {valor_boleto}\n'
+            f'Diferença a menor: R$ {valor_esperado - valor_boleto}\n'
+            f'Observações registradas:\n{observacoes}')
+    bruto = _chamar([{'role': 'system', 'content': system},
+                     {'role': 'user', 'content': user}],
+                    temperature=0.0, json_mode=True)
+    dados = json.loads(bruto)
+    return bool(dados.get('explica')), str(dados.get('motivo') or '')[:300]
+
+
 def redigir_email(instrucao, fatos):
     """Corpo de e-mail em PT-BR com frases sempre variadas.
 

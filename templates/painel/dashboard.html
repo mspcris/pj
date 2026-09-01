@@ -40,8 +40,11 @@
         {% elif b.valor_extraido %}🔢 R$ {{ b.valor_extraido }}
           <span class="sub" style="font-size:.72rem">(linha digitável)</span>
         {% else %}🔢 linha digitável{% endif %}</td>
-      <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
+      <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span>
+        {% if b.observacao %}<span title="{{ b.observacao }}">📝</span>{% endif %}</td>
       <td style="white-space:nowrap">
+        <a class="btn mini claro" title="Editar posto/mês/observação"
+           href="{% url 'painel_boleto_editar' b.pk %}">✏️</a>
         {% if b.status == 'APROVADO' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'pagar' %}" style="display:inline">
           {% csrf_token %}<button class="btn mini">Marcar PAGO</button></form>
@@ -80,9 +83,11 @@
   <div class="rolagem"><table>
     {% for b in fora_da_regua %}
     <tr>
-      <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"único" }}</td>
-      <td><a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎 arquivo</a></td>
+      <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
+        {% if b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
+      <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎 arquivo</a>{% else %}🔢 linha digitável{% endif %}</td>
       <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
+      <td><a class="btn mini dourado" href="{% url 'painel_boleto_editar' b.pk %}">✏️ Destinar posto</a></td>
     </tr>
     {% endfor %}
   </table></div>

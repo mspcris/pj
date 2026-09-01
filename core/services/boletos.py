@@ -14,7 +14,7 @@ def valor_esperado_para(prestador, posto):
 
 def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
               nome_original='', linha_digitavel='', chave_pix='',
-              valor_livre=False):
+              valor_livre=False, observacao=''):
     """Cria o boleto. Substitui apenas pendências (RECEBIDO/DIVERGENTE/
     MANUAL) da mesma chave — um boleto já APROVADO ou PAGO NUNCA é
     substituído em silêncio: a duplicidade é barrada na verificação."""
@@ -33,7 +33,7 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
         enviado_por=enviado_por,
         valor_esperado=valor_esperado_para(prestador, posto),
         linha_digitavel=linha_digitavel, chave_pix=(chave_pix or '').strip(),
-        valor_livre=valor_livre)
+        valor_livre=valor_livre, observacao=(observacao or '').strip())
 
 
 def duplicado_de(boleto):

@@ -92,9 +92,16 @@ def dados_pagamento(boleto, fatos):
     if (boleto.valor_esperado is not None
             and boleto.valor_extraido is not None
             and boleto.valor_esperado - boleto.valor_extraido > TOLERANCIA):
-        partes.append(f'Obs.: valor abaixo do combinado '
-                      f'(R$ {_moeda(boleto.valor_esperado)}) — acordo com o '
-                      'prestador.')
+        if fatos.get('motivo_menor'):
+            partes.append(f'Obs.: valor abaixo do combinado '
+                          f'(R$ {_moeda(boleto.valor_esperado)}). '
+                          f'Justificativa: {fatos["motivo_menor"]}')
+        else:
+            partes.append(f'Obs.: valor abaixo do combinado '
+                          f'(R$ {_moeda(boleto.valor_esperado)}) — acordo '
+                          'com o prestador.')
+    if boleto.observacao:
+        partes.append(f'Obs. do mês: {boleto.observacao}')
     return '\n'.join(partes)
 
 
@@ -252,9 +259,37 @@ def processar(boleto_pk):
         _para_manual(boleto, 'sem valor acordado cadastrado no painel')
         return
 
-    # 6) Valor × combinado. Igual ou MENOR (pode haver acordo) → aprova.
-    # MAIOR: NUNCA aprova sozinho — só o admin, cadastrando direto na
-    # plataforma com "aceitar este valor" (valor_livre).
+    # 6) Valor × combinado. Igual → aprova. MENOR: se houver observações
+    # (do mês ou do cadastro), a IA confere se elas EXPLICAM a diferença
+    # (ex.: "descontada parcela 3/7 do notebook — R$ 600"); obs que não
+    # explica → MANUAL. Sem obs nenhuma, vale a regra do acordo: aprova.
+    # MAIOR: NUNCA aprova sozinho — só o admin com "aceitar este valor".
+    menor = (not boleto.valor_livre and boleto.valor_esperado is not None
+             and (boleto.valor_esperado - valor) > TOLERANCIA)
+    if menor:
+        obs = ' | '.join(t.strip() for t in
+                         [boleto.observacao, boleto.prestador.observacao]
+                         if t and t.strip())
+        if obs:
+            try:
+                explica, motivo = ia.avaliar_diferenca(
+                    valor, boleto.valor_esperado, obs)
+            except Exception as e:
+                log.warning('IA de diferença falhou (%s); '
+                            'seguindo regra do acordo', e)
+                explica, motivo = True, ''
+            if not explica:
+                _para_manual(boleto,
+                             f'valor abaixo do combinado (R$ {_moeda(valor)} '
+                             f'× R$ {_moeda(boleto.valor_esperado)}) e as '
+                             'observações registradas NÃO explicam a '
+                             'diferença')
+                return
+            if motivo:
+                fatos['motivo_menor'] = motivo
+                boleto.ia_resposta = (boleto.ia_resposta +
+                                      f'\n[menor] {motivo}').strip()
+
     if boleto.valor_livre or (valor - boleto.valor_esperado) <= TOLERANCIA:
         _marcar(boleto, Boleto.Status.APROVADO)
         emails.enviar(
@@ -293,6 +328,20 @@ def processar(boleto_pk):
                               'para ligar para o Cristiano para entenderem a '
                               'diferença. NÃO cite números.')),
             boleto=boleto)
+
+
+def processar_async(boleto_pk):
+    """Só a verificação, sem reenviar o e-mail de 'recebemos' — para
+    reverificação após edição no painel."""
+    def _run():
+        close_old_connections()
+        try:
+            processar(boleto_pk)
+        except Exception:
+            log.exception('reverificação do boleto #%s falhou', boleto_pk)
+        finally:
+            close_old_connections()
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def fluxo_completo_async(boleto_pk):

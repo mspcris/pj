@@ -61,6 +61,10 @@ class Prestador(models.Model):
     ativo = models.BooleanField(default=True)
     observacao = models.TextField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
+    # Soft delete (regra do projeto: NUNCA delete físico — histórico de
+    # pagamento é auditável para sempre). Excluído some das listas, mas
+    # boletos, contratos e usuários continuam no banco.
+    excluido_em = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['nome']
@@ -131,11 +135,13 @@ class UsuarioPermitido(models.Model):
 class Contrato(models.Model):
     prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
                                   related_name='contratos')
-    posto = models.ForeignKey(Posto, on_delete=models.CASCADE,
+    # None = contrato geral da empresa (ou razão social sem posto mapeado)
+    posto = models.ForeignKey(Posto, null=True, blank=True,
+                              on_delete=models.SET_NULL,
                               related_name='contratos')
     arquivo = models.FileField(upload_to=_upload_contrato)
     nome_original = models.CharField(max_length=255, blank=True)
-    vigencia_inicio = models.DateField()
+    vigencia_inicio = models.DateField(null=True, blank=True)
     vigencia_fim = models.DateField(null=True, blank=True)
     enviado_por = models.EmailField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -150,7 +156,7 @@ class Contrato(models.Model):
     def vigente(self):
         from django.utils import timezone
         hoje = timezone.localdate()
-        if self.vigencia_inicio > hoje:
+        if self.vigencia_inicio and self.vigencia_inicio > hoje:
             return False
         return self.vigencia_fim is None or self.vigencia_fim >= hoje
 
@@ -184,6 +190,9 @@ class Boleto(models.Model):
     # Só o admin liga isto (cadastro direto): aceita o valor do boleto mesmo
     # diferente do combinado — único caminho para pagar valor MAIOR.
     valor_livre = models.BooleanField(default=False)
+    # Anotações do mês (ex.: "descontada parcela 3/7 do notebook — R$ 600").
+    # Vai no bloco de dados do e-mail p/ o financeiro.
+    observacao = models.TextField(blank=True)
 
     status = models.CharField(max_length=12, choices=Status.choices,
                               default=Status.RECEBIDO)

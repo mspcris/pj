@@ -182,7 +182,8 @@ def boleto_novo(request, up):
                 arquivo=arq, nome_original=arq.name if arq else '',
                 linha_digitavel=form.cleaned_data['linha_digitavel'],
                 chave_pix=form.cleaned_data['chave_pix'],
-                valor_livre=form.cleaned_data['valor_livre'])
+                valor_livre=form.cleaned_data['valor_livre'],
+                observacao=form.cleaned_data['observacao'])
             AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                                detalhe=f'(admin) Boleto #{boleto.pk} {boleto}')
             from .services.verificacao import fluxo_completo_async
@@ -194,6 +195,65 @@ def boleto_novo(request, up):
     else:
         form = BoletoAdminForm()
     return render(request, 'painel/boleto_form.html', {'form': form, 'up': up})
+
+
+@admin_required
+def boleto_editar(request, up, pk):
+    """Editar boleto: destinar posto (PDFs que chegaram juntos por e-mail),
+    acertar competência, linha digitável e a observação do mês. Mudança que
+    afeta a conferência manda o boleto de volta para verificação."""
+    from .forms import BoletoEditForm
+    from .services import boletos as svc_boletos
+    boleto = get_object_or_404(
+        Boleto.objects.select_related('prestador'), pk=pk)
+    prestador = boleto.prestador
+
+    if request.method == 'POST':
+        form = BoletoEditForm(boleto, request.POST)
+        if form.is_valid():
+            d = form.cleaned_data
+            posto = d['posto']
+            if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
+                posto = None
+            mudou = (posto != boleto.posto
+                     or d['competencia'] != boleto.competencia
+                     or d['linha_digitavel'] != boleto.linha_digitavel
+                     or d['valor_livre'] != boleto.valor_livre)
+            boleto.posto = posto
+            boleto.competencia = d['competencia']
+            boleto.linha_digitavel = d['linha_digitavel']
+            boleto.chave_pix = d['chave_pix'].strip()
+            boleto.valor_livre = d['valor_livre']
+            boleto.observacao = d['observacao'].strip()
+            boleto.valor_esperado = svc_boletos.valor_esperado_para(
+                prestador, posto)
+            if mudou and boleto.status not in (Boleto.Status.PAGO,
+                                               Boleto.Status.SUBSTITUIDO):
+                boleto.status = Boleto.Status.RECEBIDO
+                boleto.tentativas = 0
+                boleto.verificado_em = None
+                boleto.save()
+                from .services.verificacao import processar_async
+                processar_async(boleto.pk)
+                messages.success(request,
+                                 f'{boleto} salvo — verificando de novo.')
+            else:
+                boleto.save()
+                messages.success(request, f'{boleto} salvo.')
+            AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                               detalhe=f'Boleto #{boleto.pk} editado')
+            return redirect(f'/painel/?m={boleto.competencia:%Y-%m}')
+    else:
+        form = BoletoEditForm(boleto, initial={
+            'posto': boleto.posto_id,
+            'competencia': boleto.competencia.isoformat(),
+            'linha_digitavel': boleto.linha_digitavel,
+            'chave_pix': boleto.chave_pix,
+            'valor_livre': boleto.valor_livre,
+            'observacao': boleto.observacao,
+        })
+    return render(request, 'painel/boleto_edit.html',
+                  {'form': form, 'boleto': boleto, 'up': up})
 
 
 @admin_real_required
@@ -222,8 +282,8 @@ def prestadores(request, up):
             return redirect('painel_prestador', pk=p.pk)
     else:
         form = PrestadorForm()
-    lista = Prestador.objects.all().prefetch_related('vinculos__posto',
-                                                     'usuarios')
+    lista = (Prestador.objects.filter(excluido_em__isnull=True)
+             .prefetch_related('vinculos__posto', 'usuarios'))
     return render(request, 'painel/prestadores.html',
                   {'lista': lista, 'form': form, 'up': up})
 
@@ -289,19 +349,42 @@ def prestador_detalhe(request, up, pk):
 @admin_required
 @require_POST
 def prestador_excluir(request, up, pk):
+    """Soft delete — regra do projeto: NUNCA apagar de verdade. O prestador
+    some das listas e os usuários dele são bloqueados; boletos, contratos e
+    histórico ficam intactos no banco (auditáveis para sempre)."""
     prestador = get_object_or_404(Prestador, pk=pk)
-    detalhe = (f'Prestador EXCLUÍDO: {prestador.nome} '
-               f'(boletos={prestador.boletos.count()}, '
-               f'contratos={prestador.contratos.count()}, '
-               f'usuários={prestador.usuarios.count()})')
-    nome = prestador.nome
-    prestador.delete()
+    prestador.excluido_em = timezone.now()
+    prestador.ativo = False
+    prestador.save(update_fields=['excluido_em', 'ativo'])
+    prestador.usuarios.update(ativo=False)
     if request.session.get('ver_como') == pk:
         request.session.pop('ver_como', None)
-    AuditLog.registrar(AuditLog.Evento.CRUD, request, detalhe=detalhe)
-    messages.success(request, f'{nome} excluído com tudo que era dele '
-                              '(boletos, contratos, usuários).')
+    AuditLog.registrar(
+        AuditLog.Evento.CRUD, request,
+        detalhe=f'Prestador excluído (soft): {prestador.nome} '
+                f'(boletos={prestador.boletos.count()}, '
+                f'contratos={prestador.contratos.count()}, '
+                f'usuários bloqueados={prestador.usuarios.count()})')
+    messages.success(request,
+                     f'{prestador.nome} excluído (nada foi apagado do banco '
+                     '— dá para restaurar pela página dele).')
     return redirect('painel_prestadores')
+
+
+@admin_required
+@require_POST
+def prestador_restaurar(request, up, pk):
+    prestador = get_object_or_404(Prestador, pk=pk)
+    prestador.excluido_em = None
+    prestador.ativo = True
+    prestador.save(update_fields=['excluido_em', 'ativo'])
+    AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                       detalhe=f'Prestador restaurado: {prestador.nome}')
+    messages.success(request,
+                     f'{prestador.nome} restaurado. Os usuários dele '
+                     'continuam bloqueados — reative em Usuários quem deve '
+                     'voltar a entrar.')
+    return redirect('painel_prestador', pk=pk)
 
 
 @admin_required

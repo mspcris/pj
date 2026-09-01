@@ -221,6 +221,58 @@ class AdminBoletoTest(BaseSetup):
         self.assertEqual(Boleto.objects.count(), 0)
 
 
+class EditarBoletoTest(BaseSetup):
+    def _boleto_sem_posto(self):
+        return Boleto.objects.create(
+            prestador=self.prestador, posto=None,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            status=Boleto.Status.MANUAL)
+
+    @mock.patch('core.services.verificacao.processar_async')
+    def test_destinar_posto_recalcula_e_reverifica(self, m_proc):
+        b = self._boleto_sem_posto()
+        self.login_admin()
+        resp = self.client.post(f'/painel/boleto/{b.pk}/editar/', {
+            'posto': self.posto1.pk,
+            'competencia': date(2026, 9, 1).isoformat(),
+            'observacao': 'descontada parcela 3/7 do notebook (R$ 600)'})
+        self.assertEqual(resp.status_code, 302)
+        b.refresh_from_db()
+        self.assertEqual(b.posto, self.posto1)
+        self.assertEqual(b.valor_esperado, Decimal('1500.00'))
+        self.assertEqual(b.status, Boleto.Status.RECEBIDO)
+        self.assertIn('notebook', b.observacao)
+        m_proc.assert_called_once_with(b.pk)
+
+    @mock.patch('core.services.verificacao.processar_async')
+    def test_so_observacao_nao_reverifica(self, m_proc):
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO)
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/editar/', {
+            'posto': self.posto1.pk,
+            'competencia': date(2026, 9, 1).isoformat(),
+            'observacao': 'só uma nota'})
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)  # intacto
+        m_proc.assert_not_called()
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_observacao_vai_no_email_do_financeiro(self, m_mail):
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            status=Boleto.Status.MANUAL, valor_esperado=Decimal('1500.00'),
+            observacao='descontada parcela 3/7 do notebook')
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/aprovar/')
+        corpo = next(c.args[2] for c in m_mail.call_args_list
+                     if c.args[0] == 'equipe@camim.com.br')
+        self.assertIn('parcela 3/7 do notebook', corpo)
+
+
 class VerComoTest(BaseSetup):
     def test_admin_ve_portal_como_pj_e_volta(self):
         self.login_admin()
@@ -247,12 +299,26 @@ class VerComoTest(BaseSetup):
         resp = self.client.get('/')
         self.assertContains(resp, 'Empresa Teste LTDA')
 
-    def test_excluir_prestador(self):
+    def test_excluir_prestador_e_soft_delete(self):
         alvo = Prestador.objects.create(nome='Vai Sumir LTDA')
+        u = UsuarioPermitido.objects.create(email='sumir@x.com',
+                                            prestador=alvo)
         self.login_admin()
         resp = self.client.post(f'/painel/prestadores/{alvo.pk}/excluir/')
         self.assertEqual(resp.status_code, 302)
-        self.assertFalse(Prestador.objects.filter(pk=alvo.pk).exists())
+        alvo.refresh_from_db()
+        u.refresh_from_db()
+        self.assertIsNotNone(alvo.excluido_em)   # linha continua no banco
+        self.assertFalse(alvo.ativo)
+        self.assertFalse(u.ativo)                # usuário bloqueado
+        self.client.get('/painel/prestadores/')  # consome a msg flash
+        resp = self.client.get('/painel/prestadores/')
+        self.assertNotContains(resp, 'Vai Sumir')  # some da lista
+        # restaurar traz de volta
+        self.client.post(f'/painel/prestadores/{alvo.pk}/restaurar/')
+        alvo.refresh_from_db()
+        self.assertIsNone(alvo.excluido_em)
+        self.assertTrue(alvo.ativo)
 
     def test_pj_nao_consegue_usar_ver_como(self):
         outro = Prestador.objects.create(nome='Outro PJ')
@@ -309,6 +375,41 @@ class RegrasNegocioTest(BaseSetup):
         verificacao.processar(b.pk)
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.APROVADO)
+
+    @mock.patch('core.services.ia.avaliar_diferenca',
+                return_value=(True, 'desconto da parcela 3/7 do notebook'))
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('900.00'), '{"valor":"900.00"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_menor_com_obs_que_explica_aprova_com_motivo(
+            self, m_pdf, m_ia, m_mail, m_dif):
+        b = self._boleto()
+        b.observacao = 'descontada parcela 3/7 do notebook (R$ 600)'
+        b.save()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        corpo = next(c.args[2] for c in m_mail.call_args_list
+                     if c.args[0] == 'equipe@camim.com.br')
+        self.assertIn('parcela 3/7 do notebook', corpo)
+
+    @mock.patch('core.services.ia.avaliar_diferenca',
+                return_value=(False, ''))
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('900.00'), '{"valor":"900.00"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_menor_com_obs_que_nao_explica_vira_manual(
+            self, m_pdf, m_ia, m_mail, m_dif):
+        b = self._boleto()
+        b.observacao = 'obs qualquer sem relação'
+        b.save()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        destinos = _destinos(m_mail)
+        self.assertNotIn('equipe@camim.com.br', destinos)
 
     @mock.patch('core.services.emails.enviar', return_value=True)
     @mock.patch('core.services.ia.extrair_valor',

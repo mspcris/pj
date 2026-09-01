@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Editar boleto · Painel{% endblock %}
+{% block conteudo %}
+<h1>✏️ Editar boleto</h1>
+<p class="sub">{{ boleto.prestador.nome }} — {{ boleto.competencia|date:"m/Y" }}
+  — <span class="chip {{ boleto.status }}">{{ boleto.get_status_display }}</span>
+  {% if boleto.arquivo %} — <a href="{% url 'baixar_arquivo' 'boleto' boleto.pk %}">📎
+    {{ boleto.nome_original|default:"arquivo"|truncatechars:40 }}</a>{% endif %}</p>
+
+<div class="card">
+  <form method="post">
+    {% csrf_token %}
+    {% for campo in form %}
+      <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
+      {{ campo }}
+      {% if campo.errors %}<ul class="errolista">
+        {% for e in campo.errors %}<li>⚠️ {{ e }}</li>{% endfor %}
+      </ul>{% endif %}
+    {% endfor %}
+    <p class="sub" style="font-size:.82rem;margin-top:14px">
+      Mudou posto, mês, linha digitável ou "aceitar valor"? O boleto volta
+      para verificação automaticamente. Só a observação não reverifica.</p>
+    <div style="margin-top:10px;display:flex;gap:10px">
+      <button class="btn" type="submit" style="flex:1">SALVAR</button>
+      <a class="btn claro" href="{% url 'painel_dashboard' %}?m={{ boleto.competencia|date:'Y-m' }}">Voltar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

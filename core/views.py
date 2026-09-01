@@ -136,7 +136,9 @@ def contratos_lista(request, up, posto_id):
             return redirect('contratos_lista', posto_id=posto.pk)
     else:
         form = ContratoForm()
-    contratos = Contrato.objects.filter(prestador=up.prestador, posto=posto)
+    from django.db.models import Q
+    contratos = Contrato.objects.filter(
+        Q(posto=posto) | Q(posto__isnull=True), prestador=up.prestador)
     return render(request, 'contrato_lista.html',
                   {'posto': posto, 'contratos': contratos,
                    'form': form, 'up': up})

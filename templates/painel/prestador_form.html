@@ -60,7 +60,7 @@
   <div class="rolagem"><table>
     <tr><th>Posto</th><th>Arquivo</th><th>Vigência</th></tr>
     {% for c in contratos %}
-    <tr><td>{{ c.posto.nome }}</td>
+    <tr><td>{{ c.posto|default:"— (geral)" }}</td>
         <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}">📎 {{ c.nome_original|truncatechars:32 }}</a></td>
         <td>{{ c.vigencia_inicio|date:"d/m/Y" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td></tr>
     {% endfor %}
@@ -68,15 +68,29 @@
   {% else %}<p class="sub">Nenhum contrato anexado.</p>{% endif %}
 </div>
 
+{% if prestador.excluido_em %}
+<div class="card" style="border-color:var(--dourado)">
+  <h2 style="font-size:1.05rem;color:var(--alerta)">Prestador excluído
+    em {{ prestador.excluido_em|date:"d/m/Y H:i" }}</h2>
+  <p class="sub" style="font-size:.85rem">Nada foi apagado — boletos,
+    contratos e usuários continuam no banco.</p>
+  <form method="post" action="{% url 'painel_prestador_restaurar' prestador.pk %}">
+    {% csrf_token %}
+    <button class="btn dourado" type="submit">Restaurar prestador</button>
+  </form>
+</div>
+{% else %}
 <div class="card" style="border-color:#f5c6c0">
   <h2 style="font-size:1.05rem;color:var(--erro)">Zona de perigo</h2>
-  <p class="sub" style="font-size:.85rem">Excluir apaga o prestador e TUDO
-    que é dele: boletos (inclusive histórico de pagamentos), contratos e
-    usuários. Não tem volta. Para só pausar, desmarque "Ativo" nos dados.</p>
+  <p class="sub" style="font-size:.85rem">Excluir tira o prestador das
+    listas e bloqueia os usuários dele — mas NADA é apagado do banco
+    (soft delete): boletos, contratos e histórico ficam auditáveis, e dá
+    para restaurar por esta página. Para só pausar, desmarque "Ativo".</p>
   <form method="post" action="{% url 'painel_prestador_excluir' prestador.pk %}"
-        onsubmit="return confirm('EXCLUIR {{ prestador.nome|escapejs }} e todo o histórico? Não tem volta!')">
+        onsubmit="return confirm('Excluir {{ prestador.nome|escapejs }}? Ele some das listas, mas o histórico fica guardado e dá para restaurar.')">
     {% csrf_token %}
     <button class="btn vermelho" type="submit">Excluir prestador</button>
   </form>
 </div>
+{% endif %}
 {% endblock %}
