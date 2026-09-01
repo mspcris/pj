@@ -104,9 +104,10 @@
       {% elif l.parciais %}
       <td>🧩 {{ l.parciais|length }} parcial{{ l.parciais|length|pluralize:"is" }}</td>
       <td><span class="chip {% if l.parciais_soma >= l.valor %}APROVADO{% else %}RECEBIDO{% endif %}">
-        Parciais: R$ {{ l.parciais_soma }} de R$ {{ l.valor }}</span>
-        <div class="sub" style="font-size:.72rem">detalhes na seção 🧩 abaixo</div></td>
-      <td></td>
+        Parciais: R$ {{ l.parciais_soma }} de R$ {{ l.valor }}</span></td>
+      <td><div class="acoes">
+        <a class="btn mini claro" href="#secoes-extras">🧩 Gerenciar ↓</a>
+      </div></td>
       {% else %}
       <td>—</td>
       <td><span class="chip FALTA">SEM BOLETO</span></td>
