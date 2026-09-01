@@ -767,6 +767,17 @@ class PainelAcaoTest(BaseSetup):
         self.assertIn('equipe@camim.com.br', destinos)   # pagador
         self.assertIn('pj@empresa.com.br', destinos)     # aviso ao PJ
 
+    def test_desfazer_pago(self):
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            status=Boleto.Status.PAGO)
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/despagar/')
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertIsNone(b.pago_em)
+
     def test_marcar_pago(self):
         b = Boleto.objects.create(
             prestador=self.prestador, posto=self.posto1,

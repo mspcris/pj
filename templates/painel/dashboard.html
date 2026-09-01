@@ -63,6 +63,10 @@
           {% csrf_token %}<button class="btn mini dourado">Aprovar assim mesmo</button></form>
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}" style="display:inline">
           {% csrf_token %}<button class="btn mini claro">Reverificar</button></form>
+        {% elif b.status == 'PAGO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'despagar' %}" style="display:inline"
+              onsubmit="return confirm('Desfazer o PAGO? Volta para \'enviado p/ pagamento\' (nenhum e-mail é enviado).')">
+          {% csrf_token %}<button class="btn mini claro">Desfazer PAGO</button></form>
         {% elif b.status == 'RECEBIDO' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}" style="display:inline">
           {% csrf_token %}<button class="btn mini claro">Forçar verificação</button></form>

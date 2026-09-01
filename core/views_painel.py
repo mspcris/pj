@@ -127,6 +127,13 @@ def boleto_acao(request, up, pk, acao):
         boleto.pago_em = timezone.now()
         boleto.save(update_fields=['status', 'pago_em'])
         messages.success(request, f'{boleto} marcado como PAGO.')
+    elif acao == 'despagar' and boleto.status == Boleto.Status.PAGO:
+        # Clique errado no "Marcar PAGO": volta para APROVADO, sem e-mails.
+        boleto.status = Boleto.Status.APROVADO
+        boleto.pago_em = None
+        boleto.save(update_fields=['status', 'pago_em'])
+        messages.success(request, f'{boleto} voltou para "enviado p/ '
+                                  'pagamento" (PAGO desfeito).')
     elif acao == 'reprocessar':
         boleto.status = Boleto.Status.RECEBIDO
         boleto.tentativas = 0
