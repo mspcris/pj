@@ -112,7 +112,9 @@ class Command(BaseCommand):
 
             # 2ª passada: respostas do FINANCEIRO aos e-mails de pagamento
             # ("recebido") → status "Recebido pelo financeiro".
-            busca = (f'from:{settings.EMAIL_PAGADOR} "Pagamento" '
+            # sem aspas internas: a query inteira já vai entre aspas no UID
+            # SEARCH e aspas aninhadas quebram o parse do IMAP
+            busca = (f'from:{settings.EMAIL_PAGADOR} subject:Pagamento '
                      f'newer_than:{settings.IMAP_DIAS}d')
             ok, dados = conn.uid('SEARCH', 'X-GM-RAW', f'"{busca}"')
             achados = (dados[0].split()
