@@ -66,6 +66,9 @@
         {% elif b.status == 'RECEBIDO' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}" style="display:inline">
           {% csrf_token %}<button class="btn mini claro">Forçar verificação</button></form>
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'aprovar' %}" style="display:inline"
+              onsubmit="return confirm('Aprovar sem esperar a IA? Vai mandar p/ equipe@ pagar.')">
+          {% csrf_token %}<button class="btn mini dourado">Aprovar assim mesmo</button></form>
         {% endif %}
       </td>
       {% else %}
