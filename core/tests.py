@@ -809,7 +809,7 @@ class EnviarEmailTest(BaseSetup):
                          'Cristiano <cristiano@camim.com.br>')
         self.assertEqual(len(mail.outbox[0].attachments), 1)
 
-    @mock.patch('core.services.emails.EmailMessage.send',
+    @mock.patch('core.services.emails.EmailMultiAlternatives.send',
                 side_effect=RuntimeError('smtp caiu'))
     def test_falha_de_envio_nao_estoura_e_registra(self, m_send):
         from core.models import EmailLog
