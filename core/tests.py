@@ -473,7 +473,9 @@ class PainelAcaoTest(BaseSetup):
         self.client.post(f'/painel/boleto/{b.pk}/aprovar/')
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.APROVADO)
-        self.assertEqual(m_mail.call_args.args[0], 'equipe@camim.com.br')
+        destinos = _destinos(m_mail)
+        self.assertIn('equipe@camim.com.br', destinos)   # pagador
+        self.assertIn('pj@empresa.com.br', destinos)     # aviso ao PJ
 
     def test_marcar_pago(self):
         b = Boleto.objects.create(
