@@ -369,9 +369,10 @@ class BoletoExtraTest(BaseSetup):
             prestador=self.prestador, posto=self.posto1,
             competencia=date(2026, 9, 1), arquivo=_pdf(),
             status=Boleto.Status.RECEBIDO)
-        svc.registrar(self.prestador, date(2026, 9, 1),
-                      enviado_por='x@x.com', posto=self.posto1, extra=True,
-                      linha_digitavel=_linha_47(31250))
+        novo = svc.registrar(self.prestador, date(2026, 9, 1),
+                             enviado_por='x@x.com', posto=self.posto1,
+                             extra=True, linha_digitavel=_linha_47(31250))
+        self.assertTrue(novo.extra)  # o flag tem que ser GRAVADO
         regular.refresh_from_db()
         self.assertEqual(regular.status, Boleto.Status.RECEBIDO)  # intacto
 

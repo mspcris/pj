@@ -117,7 +117,8 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
         enviado_por=enviado_por,
         valor_esperado=valor_esperado_para(prestador, posto, competencia),
         linha_digitavel=linha_digitavel, chave_pix=(chave_pix or '').strip(),
-        valor_livre=valor_livre, observacao=(observacao or '').strip(),
+        valor_livre=valor_livre, extra=extra,
+        observacao=(observacao or '').strip(),
         nota_fiscal=nota_fiscal,
         nota_fiscal_nome=(nota_fiscal_nome or '')[:255])
 
