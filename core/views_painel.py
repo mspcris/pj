@@ -13,9 +13,9 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .forms import (BoletoAdminForm, PostoForm, PrestadorForm, UsuarioForm,
-                    ValorBRField)
+                    ValeForm, ValorBRField)
 from .models import (AuditLog, Boleto, Configuracao, Contrato, EmailLog,
-                     Posto, Prestador, PrestadorPosto, UsuarioPermitido)
+                     Posto, Prestador, PrestadorPosto, UsuarioPermitido, Vale)
 from django.contrib.auth.decorators import login_required
 
 from .views import _usuario_real, com_usuario
@@ -64,10 +64,13 @@ def dashboard(request, up):
         .exclude(status=Boleto.Status.SUBSTITUIDO)
         .select_related('prestador', 'posto', 'prestador__posto_cobranca'))
 
+    from .services import boletos as svc_boletos
     linhas, casados = [], set()
     for prestador in (Prestador.objects.filter(ativo=True)
                       .prefetch_related('vinculos__posto')):
-        for posto, valor in prestador.boletos_esperados():
+        for posto, _valor in prestador.boletos_esperados():
+            # valor esperado do MÊS (já com parcelas de vale abatidas)
+            valor = svc_boletos.valor_esperado_para(prestador, posto, mes)
             achado = None
             for b in boletos_mes:
                 if b.prestador_id != prestador.pk:
@@ -228,7 +231,7 @@ def boleto_editar(request, up, pk):
             boleto.valor_livre = d['valor_livre']
             boleto.observacao = d['observacao'].strip()
             boleto.valor_esperado = svc_boletos.valor_esperado_para(
-                prestador, posto)
+                prestador, posto, d['competencia'])
             if mudou and boleto.status not in (Boleto.Status.PAGO,
                                                Boleto.Status.SUBSTITUIDO):
                 boleto.status = Boleto.Status.RECEBIDO
@@ -342,6 +345,39 @@ def prestador_detalhe(request, up, pk):
                                detalhe=f'Valores de {prestador} atualizados')
             messages.success(request, 'Postos e valores salvos.')
             return redirect('painel_prestador', pk=pk)
+        elif qual == 'vale':
+            vale_form = ValeForm(request.POST)
+            if vale_form.is_valid():
+                d = vale_form.cleaned_data
+                if (prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO
+                        and not d['posto']):
+                    messages.error(request, 'Este prestador é um boleto por '
+                                            'posto — escolha de qual posto '
+                                            'o vale desconta.')
+                    return redirect('painel_prestador', pk=pk)
+                v = Vale.objects.create(
+                    prestador=prestador, posto=d['posto'],
+                    descricao=d['descricao'],
+                    valor_parcela=d['valor_parcela'],
+                    parcelas_total=d['parcelas_total'],
+                    primeira_competencia=d['primeira_competencia'])
+                AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                                   detalhe=f'Vale criado: {v}')
+                messages.success(request, f'Vale "{v.descricao}" criado — '
+                                          'as parcelas já abatem o valor '
+                                          'esperado dos próximos boletos.')
+            else:
+                messages.error(request, f'Vale inválido: {vale_form.errors}')
+            return redirect('painel_prestador', pk=pk)
+        elif qual == 'vale_toggle':
+            v = get_object_or_404(Vale, pk=request.POST.get('vale_pk'),
+                                  prestador=prestador)
+            v.ativo = not v.ativo
+            v.save(update_fields=['ativo'])
+            AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                               detalhe=f'Vale {"reativado" if v.ativo else "encerrado"}: {v}')
+            messages.success(request, f'Vale {"reativado" if v.ativo else "encerrado"}.')
+            return redirect('painel_prestador', pk=pk)
 
     vinculos = {v.posto_id: v for v in
                 PrestadorPosto.objects.filter(prestador=prestador, ativo=True)}
@@ -353,10 +389,13 @@ def prestador_detalhe(request, up, pk):
                      for p in postos]
     contratos = Contrato.objects.filter(prestador=prestador) \
         .select_related('posto')
+    mes_atual = timezone.localdate().replace(day=1)
+    vales = [{'vale': v, 'parcela_atual': v.parcela_em(mes_atual)}
+             for v in prestador.vales.all().select_related('posto')]
     return render(request, 'painel/prestador_form.html', {
         'prestador': prestador, 'form': form, 'linhas_postos': linhas_postos,
         'contratos': contratos, 'usuarios': prestador.usuarios.all(),
-        'up': up})
+        'vales': vales, 'vale_form': ValeForm(), 'up': up})
 
 
 @admin_required

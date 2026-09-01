@@ -2,14 +2,59 @@
 do admin e pelo robô da caixa pj@camim.com.br. Toda regra de substituição e
 proteção contra duplicidade mora aqui.
 """
-from ..models import Boleto, Prestador
+import re
+import unicodedata
+
+from ..models import Boleto, Posto, Prestador, Vale
 
 
-def valor_esperado_para(prestador, posto):
+def _norm(s):
+    s = unicodedata.normalize('NFKD', s or '')
+    return re.sub(r'\s+', ' ', s.encode('ascii', 'ignore').decode().upper())
+
+
+def identificar_posto(texto):
+    """Descobre o posto pelo CNPJ do sacado impresso no texto do boleto
+    (match exato de dígitos — determinístico); fallback: razão social."""
+    if not texto:
+        return None
+    digitos = re.sub(r'\D', '', texto)
+    ativos = Posto.objects.filter(ativo=True, excluido_em__isnull=True)
+    for p in ativos.exclude(cnpj=''):
+        cnpj = re.sub(r'\D', '', p.cnpj)
+        if cnpj and cnpj in digitos:
+            return p
+    texto_norm = _norm(texto)
+    for p in ativos.exclude(razao_social=''):
+        if _norm(p.razao_social) in texto_norm:
+            return p
+    return None
+
+
+def vales_aplicaveis(prestador, posto, competencia):
+    """[(vale, nº da parcela)] que abatem o boleto desta competência."""
+    qs = Vale.objects.filter(prestador=prestador, ativo=True)
+    if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
+        qs = qs.filter(posto=posto)
+    achados = []
+    for v in qs:
+        n = v.parcela_em(competencia)
+        if n is not None:
+            achados.append((v, n))
+    return achados
+
+
+def valor_esperado_para(prestador, posto, competencia=None):
     if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
-        return prestador.valor_esperado_unico()
-    vinculo = prestador.vinculos_ativos().filter(posto=posto).first()
-    return vinculo.valor_mensal if vinculo else None
+        base = prestador.valor_esperado_unico()
+    else:
+        vinculo = prestador.vinculos_ativos().filter(posto=posto).first()
+        base = vinculo.valor_mensal if vinculo else None
+    if base is None or competencia is None:
+        return base
+    for vale, _ in vales_aplicaveis(prestador, posto, competencia):
+        base -= vale.valor_parcela
+    return base
 
 
 def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
@@ -37,7 +82,7 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
         prestador=prestador, posto=posto, competencia=competencia,
         arquivo=arquivo, nome_original=(nome_original or '')[:255],
         enviado_por=enviado_por,
-        valor_esperado=valor_esperado_para(prestador, posto),
+        valor_esperado=valor_esperado_para(prestador, posto, competencia),
         linha_digitavel=linha_digitavel, chave_pix=(chave_pix or '').strip(),
         valor_livre=valor_livre, observacao=(observacao or '').strip())
 

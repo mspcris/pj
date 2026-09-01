@@ -243,6 +243,34 @@ class PrestadorForm(forms.ModelForm):
         self.fields['posto_cobranca'].required = False
 
 
+class ValeForm(forms.Form):
+    """Vale/adiantamento descontado em parcelas do boleto mensal."""
+    descricao = forms.CharField(label='Descrição (ex.: Notebook pago pela '
+                                      'Camim)', max_length=160)
+    posto = forms.ModelChoiceField(
+        label='Descontar do boleto de qual posto', required=False,
+        queryset=Posto.objects.filter(ativo=True))
+    valor_parcela = ValorBRField(label='Valor de cada parcela (R$)')
+    parcelas_total = forms.IntegerField(label='Número de parcelas',
+                                        min_value=1, max_value=120)
+    primeira_competencia = forms.CharField(
+        label='Mês da 1ª parcela',
+        widget=forms.TextInput(attrs={'type': 'month'}))
+
+    def clean_valor_parcela(self):
+        v = self.cleaned_data['valor_parcela']
+        if v is None or v <= 0:
+            raise forms.ValidationError('Informe o valor da parcela.')
+        return v
+
+    def clean_primeira_competencia(self):
+        try:
+            return date.fromisoformat(
+                self.cleaned_data['primeira_competencia'] + '-01')
+        except ValueError:
+            raise forms.ValidationError('Mês inválido.')
+
+
 class PostoForm(forms.ModelForm):
     class Meta:
         model = Posto

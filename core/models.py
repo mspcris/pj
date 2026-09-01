@@ -31,6 +31,10 @@ class Posto(models.Model):
     codigo = models.CharField(max_length=5, blank=True,
                               help_text='Letra do legado (A, B, C...)')
     id_endereco_legado = models.IntegerField(null=True, blank=True, unique=True)
+    # Entidade jurídica do posto — usada para destinar boleto pelo CNPJ do
+    # sacado impresso no PDF (determinístico, sem IA).
+    razao_social = models.CharField(max_length=200, blank=True)
+    cnpj = models.CharField(max_length=20, blank=True)
     ativo = models.BooleanField(default=True)
     # Soft delete — só para postos criados à mão; os 13 canônicos do legado
     # (com id_endereco_legado) nunca são excluídos, no máximo inativados.
@@ -108,6 +112,38 @@ class PrestadorPosto(models.Model):
 
     def __str__(self):
         return f'{self.prestador} @ {self.posto}'
+
+
+class Vale(models.Model):
+    """Adiantamento/empréstimo descontado em parcelas do boleto mensal.
+    Ex.: notebook que a Camim pagou pela GP5, descontado em 7× de R$ 600.
+    O valor esperado do boleto do posto (ou do boleto único) já sai com a
+    parcela do mês abatida, e o e-mail do financeiro cita o desconto."""
+    prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
+                                  related_name='vales')
+    # No modo POR_POSTO, de qual boleto o desconto sai; no UNICO, ignore.
+    posto = models.ForeignKey(Posto, null=True, blank=True,
+                              on_delete=models.SET_NULL, related_name='+')
+    descricao = models.CharField(max_length=160)
+    valor_parcela = models.DecimalField(max_digits=12, decimal_places=2)
+    parcelas_total = models.PositiveSmallIntegerField()
+    primeira_competencia = models.DateField(
+        help_text='Mês da parcela 1 (dia 1)')
+    ativo = models.BooleanField(default=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-criado_em']
+
+    def __str__(self):
+        return (f'{self.descricao} — {self.parcelas_total}× '
+                f'R$ {self.valor_parcela} ({self.prestador})')
+
+    def parcela_em(self, competencia):
+        """Nº da parcela nesta competência, ou None se fora do período."""
+        n = ((competencia.year - self.primeira_competencia.year) * 12
+             + competencia.month - self.primeira_competencia.month + 1)
+        return n if 1 <= n <= self.parcelas_total else None
 
 
 class UsuarioPermitido(models.Model):

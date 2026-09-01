@@ -21,7 +21,7 @@ from django.conf import settings
 from django.db import close_old_connections
 from django.utils import timezone
 
-from ..models import AuditLog, Boleto, Configuracao
+from ..models import AuditLog, Boleto, Configuracao, Prestador
 from . import boletos as svc_boletos
 from . import emails, frases, ia, pdf
 
@@ -100,6 +100,12 @@ def dados_pagamento(boleto, fatos):
             partes.append(f'Obs.: valor abaixo do combinado '
                           f'(R$ {_moeda(boleto.valor_esperado)}) — acordo '
                           'com o prestador.')
+    for vale, n in svc_boletos.vales_aplicaveis(
+            boleto.prestador, boleto.posto, boleto.competencia):
+        partes.append(f'Desconto: {vale.descricao} — parcela '
+                      f'{n}/{vale.parcelas_total} — '
+                      f'R$ {_moeda(vale.valor_parcela)} (já abatido do '
+                      'valor esperado)')
     if boleto.observacao:
         partes.append(f'Obs. do mês: {boleto.observacao}')
     return '\n'.join(partes)
@@ -187,6 +193,36 @@ def processar(boleto_pk):
         if not texto:
             _para_manual(boleto, 'PDF sem texto legível (escaneado?)')
             return
+        # FAVORECIDO: se o prestador tem CNPJ cadastrado, ele precisa
+        # constar no boleto — proteção contra pagar boleto de terceiros.
+        cnpj_prest = re.sub(r'\D', '', boleto.prestador.cnpj or '')
+        if cnpj_prest and cnpj_prest not in re.sub(r'\D', '', texto):
+            _para_manual(boleto,
+                         f'o CNPJ do prestador ({boleto.prestador.cnpj}) '
+                         'não aparece no boleto — confira o FAVORECIDO '
+                         'antes de liberar')
+            return
+
+        # Destino do boleto: dica pelo CNPJ do posto (sacado) impresso no
+        # PDF. NÃO é rigoroso — muitos PJs emitem contra si mesmos; se não
+        # achar, fica aguardando destinação manual no painel.
+        if (boleto.posto_id is None
+                and boleto.prestador.modo_boleto ==
+                Prestador.ModoBoleto.POR_POSTO):
+            posto = svc_boletos.identificar_posto(texto)
+            if posto is None:
+                vinculos = list(boleto.prestador.vinculos_ativos())
+                if len(vinculos) == 1:  # só atende um posto: é ele
+                    posto = vinculos[0].posto
+            if posto is not None:
+                boleto.posto = posto
+                boleto.valor_esperado = svc_boletos.valor_esperado_para(
+                    boleto.prestador, posto, boleto.competencia)
+                fatos = _fatos(boleto)
+                AuditLog.registrar(
+                    AuditLog.Evento.STATUS, ator='sistema',
+                    detalhe=f'Boleto #{boleto.pk} destinado a {posto} '
+                            'pelo CNPJ do sacado')
         try:
             valor_pdf, bruto = ia.extrair_valor(texto)
             boleto.ia_resposta = bruto[:4000]

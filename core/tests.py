@@ -299,6 +299,127 @@ class ValoresPostosTest(BaseSetup):
         self.assertEqual(v.valor_mensal, Decimal('1500.00'))  # intacto
 
 
+class ValeTest(BaseSetup):
+    def _vale(self, **kw):
+        from core.models import Vale
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    descricao='Notebook', valor_parcela=Decimal('600.00'),
+                    parcelas_total=7,
+                    primeira_competencia=date(2026, 7, 1))
+        base.update(kw)
+        return Vale.objects.create(**base)
+
+    def test_parcela_abate_o_esperado_no_periodo(self):
+        from core.services.boletos import valor_esperado_para
+        self._vale()
+        # setembro = parcela 3/7 → 1500 - 600
+        self.assertEqual(
+            valor_esperado_para(self.prestador, self.posto1, date(2026, 9, 1)),
+            Decimal('900.00'))
+        # depois da 7ª parcela (fev/2027) volta ao cheio
+        self.assertEqual(
+            valor_esperado_para(self.prestador, self.posto1, date(2027, 2, 1)),
+            Decimal('1500.00'))
+        # antes da 1ª também
+        self.assertEqual(
+            valor_esperado_para(self.prestador, self.posto1, date(2026, 6, 1)),
+            Decimal('1500.00'))
+        # outro posto não é afetado
+        self.assertEqual(
+            valor_esperado_para(self.prestador, self.posto2, date(2026, 9, 1)),
+            Decimal('2000.00'))
+
+    def test_vale_encerrado_nao_abate(self):
+        v = self._vale(ativo=False)
+        from core.services.boletos import valor_esperado_para
+        self.assertEqual(
+            valor_esperado_para(self.prestador, self.posto1, date(2026, 9, 1)),
+            Decimal('1500.00'))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('900.00'),
+                              '{"valor":"900.00","confianca":100}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_boleto_com_vale_aprova_e_cita_desconto(self, m_pdf, m_ia,
+                                                    m_mail):
+        from core.services import boletos as svc
+        self._vale()
+        b = svc.registrar(self.prestador, date(2026, 9, 1),
+                          enviado_por='pj@empresa.com.br',
+                          posto=self.posto1, arquivo=_pdf())
+        self.assertEqual(b.valor_esperado, Decimal('900.00'))
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        corpo = next(c.args[2] for c in m_mail.call_args_list
+                     if c.args[0] == 'equipe@camim.com.br')
+        self.assertIn('parcela 3/7', corpo)
+        self.assertIn('Notebook', corpo)
+
+
+class FavorecidoTest(BaseSetup):
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.pdf.extrair_texto',
+                return_value='Beneficiário: OUTRA EMPRESA '
+                             'CNPJ 99.999.999/0001-99')
+    def test_cnpj_do_prestador_ausente_vira_manual(self, m_pdf, m_mail):
+        self.prestador.cnpj = '11.222.333/0001-44'
+        self.prestador.save()
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            valor_esperado=Decimal('1500.00'))
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        destinos = _destinos(m_mail)
+        self.assertNotIn('equipe@camim.com.br', destinos)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1500.00'),
+                              '{"valor":"1500.00","confianca":100}'))
+    @mock.patch('core.services.pdf.extrair_texto',
+                return_value='Beneficiário CNPJ 11.222.333/0001-44 ok')
+    def test_cnpj_do_prestador_presente_segue_o_fluxo(self, m_pdf, m_ia,
+                                                      m_mail):
+        self.prestador.cnpj = '11.222.333/0001-44'
+        self.prestador.save()
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            valor_esperado=Decimal('1500.00'))
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+
+
+class IdentificarPostoTest(BaseSetup):
+    def test_identifica_pelo_cnpj_do_sacado(self):
+        from core.services.boletos import identificar_posto
+        texto = ('BOLETO... Sacado: CAMIM ANCHIETA '
+                 'CNPJ: 27.110.113/0001-04 ...')
+        self.assertEqual(identificar_posto(texto), self.posto1)  # Anchieta
+        self.assertIsNone(identificar_posto('sem cnpj nenhum aqui'))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1500.00'),
+                              '{"valor":"1500.00","confianca":100}'))
+    @mock.patch('core.services.pdf.extrair_texto',
+                return_value='Sacado CNPJ 27.110.113/0001-04 valor 1500')
+    def test_processar_destina_posto_pelo_cnpj(self, m_pdf, m_ia, m_mail):
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=None,
+            competencia=date(2026, 9, 1), arquivo=_pdf())
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.posto, self.posto1)                 # Anchieta
+        self.assertEqual(b.valor_esperado, Decimal('1500.00'))  # do vínculo
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+
+
 class MultiplosPdfsTest(BaseSetup):
     def test_boletos_sem_posto_nao_se_substituem(self):
         """9 PDFs no mesmo e-mail (posto ainda indefinido) são 9 boletos

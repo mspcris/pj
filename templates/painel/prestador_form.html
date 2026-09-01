@@ -74,6 +74,47 @@
 </div>
 
 <div class="card">
+  <h2 style="font-size:1.05rem">Vales (descontos em parcelas)</h2>
+  <p class="sub" style="font-size:.85rem">Adiantamentos que a Camim paga e
+    desconta do boleto mensal (ex.: notebook em 7× de R$ 600). A parcela do
+    mês é abatida do valor esperado automaticamente e citada no e-mail do
+    financeiro.</p>
+  {% if vales %}
+  <div class="rolagem"><table>
+    <tr><th>Descrição</th><th>Posto</th><th>Parcela</th><th>Valor</th>
+        <th>1ª parcela</th><th></th></tr>
+    {% for l in vales %}
+    <tr {% if not l.vale.ativo %}style="opacity:.5"{% endif %}>
+      <td><strong>{{ l.vale.descricao }}</strong></td>
+      <td>{{ l.vale.posto|default:"(boleto único)" }}</td>
+      <td>{% if l.vale.ativo %}{% if l.parcela_atual %}{{ l.parcela_atual }}/{{ l.vale.parcelas_total }} este mês{% else %}fora do período{% endif %}{% else %}encerrado{% endif %}</td>
+      <td>R$ {{ l.vale.valor_parcela }}</td>
+      <td>{{ l.vale.primeira_competencia|date:"m/Y" }}</td>
+      <td>
+        <form method="post" style="display:inline">
+          {% csrf_token %}<input type="hidden" name="qual" value="vale_toggle">
+          <input type="hidden" name="vale_pk" value="{{ l.vale.pk }}">
+          <button class="btn mini {% if l.vale.ativo %}vermelho{% else %}claro{% endif %}"
+                  type="submit">{% if l.vale.ativo %}Encerrar{% else %}Reativar{% endif %}</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table></div>
+  {% endif %}
+  <details {% if not vales %}open{% endif %} style="margin-top:10px">
+    <summary style="cursor:pointer;font-weight:700">Novo vale</summary>
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="qual" value="vale">
+      {% for campo in vale_form %}
+        <label>{{ campo.label }}</label>{{ campo }}
+      {% endfor %}
+      <button class="btn" type="submit" style="margin-top:16px">Criar vale</button>
+    </form>
+  </details>
+</div>
+
+<div class="card">
   <h2 style="font-size:1.05rem">Usuários deste prestador</h2>
   {% if usuarios %}
   <div class="rolagem"><table>
