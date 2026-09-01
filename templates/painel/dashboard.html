@@ -100,8 +100,18 @@
         {% if b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
       <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
           onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }}')">📎 arquivo</a>{% else %}🔢 linha digitável{% endif %}</td>
-      <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
-      <td><a class="btn mini dourado" href="{% url 'painel_boleto_editar' b.pk %}">✏️ Destinar posto</a></td>
+      <td><span class="chip {{ b.status }}"
+            {% if b.status == 'MANUAL' and b.motivo_manual %}title="{{ b.motivo_manual }}"{% endif %}
+          >{{ b.get_status_display }}</span>
+        {% if b.status == 'MANUAL' and b.motivo_manual %}
+          <div class="sub" style="font-size:.72rem;max-width:220px">{{ b.motivo_manual|truncatechars:60 }}</div>
+        {% endif %}</td>
+      <td style="white-space:nowrap">
+        <a class="btn mini dourado" href="{% url 'painel_boleto_editar' b.pk %}">✏️ Destinar posto</a>
+        {% if b.status == 'MANUAL' or b.status == 'DIVERGENTE' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}" style="display:inline">
+          {% csrf_token %}<button class="btn mini claro">Reverificar</button></form>
+        {% endif %}</td>
     </tr>
     {% endfor %}
   </table></div>
