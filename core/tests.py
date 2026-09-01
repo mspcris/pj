@@ -15,6 +15,15 @@ User = get_user_model()
 PDF_MINI = b'%PDF-1.4 conteudo de teste'
 
 
+def _destinos(m_mail):
+    """Todos os endereços de todas as chamadas (aceita str ou lista)."""
+    out = []
+    for c in m_mail.call_args_list:
+        d = c.args[0]
+        out.extend([d] if isinstance(d, str) else list(d))
+    return out
+
+
 def _pdf(nome='boleto.pdf'):
     return SimpleUploadedFile(nome, PDF_MINI, content_type='application/pdf')
 
@@ -144,7 +153,7 @@ class VerificacaoTest(BaseSetup):
         verificacao.processar(b.pk)
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.APROVADO)
-        destinos = [c.args[0] for c in m_mail.call_args_list]
+        destinos = _destinos(m_mail)
         self.assertIn('equipe@camim.com.br', destinos)      # pagador
         self.assertIn('pj@empresa.com.br', destinos)         # aviso ao PJ
 
@@ -157,7 +166,7 @@ class VerificacaoTest(BaseSetup):
         verificacao.processar(b.pk)
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.DIVERGENTE)
-        destinos = [c.args[0] for c in m_mail.call_args_list]
+        destinos = _destinos(m_mail)
         self.assertNotIn('equipe@camim.com.br', destinos)  # NÃO paga divergente
         self.assertIn('pj@empresa.com.br', destinos)
 
@@ -168,7 +177,7 @@ class VerificacaoTest(BaseSetup):
         verificacao.processar(b.pk)
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.MANUAL)
-        destinos = [c.args[0] for c in m_mail.call_args_list]
+        destinos = _destinos(m_mail)
         self.assertIn('cristiano@camim.com.br', destinos)
 
     @mock.patch('core.services.emails.enviar', return_value=True)
@@ -310,7 +319,7 @@ class RegrasNegocioTest(BaseSetup):
         verificacao.processar(b.pk)
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.DIVERGENTE)
-        destinos = [c.args[0] for c in m_mail.call_args_list]
+        destinos = _destinos(m_mail)
         self.assertNotIn('equipe@camim.com.br', destinos)
 
     @mock.patch('core.services.emails.enviar', return_value=True)
@@ -333,7 +342,7 @@ class RegrasNegocioTest(BaseSetup):
         verificacao.processar(b2.pk)
         b2.refresh_from_db()
         self.assertEqual(b2.status, Boleto.Status.MANUAL)
-        destinos = [c.args[0] for c in m_mail.call_args_list]
+        destinos = _destinos(m_mail)
         self.assertNotIn('equipe@camim.com.br', destinos)
 
     @mock.patch('core.services.verificacao.fluxo_completo_async')
@@ -367,7 +376,7 @@ class RegrasNegocioTest(BaseSetup):
         verificacao.processar(b.pk)
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.MANUAL)
-        destinos = [c.args[0] for c in m_mail.call_args_list]
+        destinos = _destinos(m_mail)
         self.assertNotIn('equipe@camim.com.br', destinos)
 
     @mock.patch('core.services.emails.enviar', return_value=True)

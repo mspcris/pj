@@ -18,18 +18,24 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
     """Envia e registra. Retorna True/False — nunca levanta exceção.
 
     `de` troca o remetente (ex.: e-mail p/ o pagador sai do cristiano@;
-    o padrão pj@ fica para os e-mails aos PJs)."""
-    dest_real = destinatario
+    o padrão pj@ fica para os e-mails aos PJs). `destinatario` pode ser
+    um endereço ou uma lista."""
+    if isinstance(destinatario, str):
+        dests = [destinatario]
+    else:
+        dests = [d for d in destinatario if d]
+    if not dests:
+        dests = [settings.EMAIL_ADMIN]
     if settings.EMAIL_MODO_TESTE:
-        assunto = f'[TESTE p/ {destinatario}] {assunto}'
-        dest_real = settings.EMAIL_ADMIN
+        assunto = f'[TESTE p/ {", ".join(dests)}] {assunto}'
+        dests = [settings.EMAIL_ADMIN]
 
-    registro = EmailLog(destinatario=dest_real, assunto=assunto,
+    registro = EmailLog(destinatario=', '.join(dests)[:255], assunto=assunto,
                         corpo=corpo, boleto=boleto)
     try:
         msg = EmailMessage(subject=assunto, body=corpo,
                            from_email=de or settings.DEFAULT_FROM_EMAIL,
-                           to=[dest_real])
+                           to=dests)
         if anexo_field:
             anexo_field.open('rb')
             try:

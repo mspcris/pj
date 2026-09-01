@@ -106,13 +106,24 @@ def _mes_seguinte_fim(competencia):
     return date(ano, mes, 1)  # exclusivo: vencimento < este dia
 
 
+def destinatarios_pj(boleto):
+    """Para quem vão os avisos do prestador: TODOS os usuários ativos do PJ
+    (não quem apertou o botão — se o admin cadastrar, o PJ é avisado do
+    mesmo jeito). Quem enviou também entra, se for outro endereço."""
+    ems = [u.email for u in boleto.prestador.usuarios.filter(ativo=True)]
+    extra = (boleto.enviado_por or '').lower()
+    if extra and extra != settings.EMAIL_ADMIN.lower() and extra not in ems:
+        ems.append(extra)
+    return ems or [settings.EMAIL_ADMIN]
+
+
 def enviar_recebido(boleto):
     fatos = _fatos(boleto)
     corpo = frases.corpo(
         'recebido', fatos,
         instrucao_ia=('Escreva confirmando que recebemos o boleto do '
                       'prestador e que ele será verificado em breve.'))
-    emails.enviar(boleto.enviado_por or settings.EMAIL_ADMIN,
+    emails.enviar(destinatarios_pj(boleto),
                   f'Boleto recebido — {fatos["competencia"]}',
                   corpo, boleto=boleto)
 
@@ -261,7 +272,7 @@ def processar(boleto_pk):
             anexo_field=boleto.arquivo if boleto.arquivo else None,
             de=settings.EMAIL_FROM_PAGADOR)
         emails.enviar(
-            boleto.enviado_por or settings.EMAIL_ADMIN,
+            destinatarios_pj(boleto),
             f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',
             frases.corpo(
                 'aprovado_pj', fatos,
@@ -273,7 +284,7 @@ def processar(boleto_pk):
         fatos['valor_esperado'] = _moeda(boleto.valor_esperado)
         _marcar(boleto, Boleto.Status.DIVERGENTE)
         emails.enviar(
-            boleto.enviado_por or settings.EMAIL_ADMIN,
+            destinatarios_pj(boleto),
             f'Boleto {fatos["competencia"]} — valor a confirmar',
             frases.corpo(
                 'divergente', fatos,
