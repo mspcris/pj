@@ -765,7 +765,7 @@ class ApiBoletosTest(BaseSetup):
         self.assertIn('nota fiscal', resp.json()['erro'])
 
     def test_pdf_invalido_400(self):
-        falso = SimpleUploadedFile('b.pdf', b'nao é pdf')
+        falso = SimpleUploadedFile('b.pdf', b'nao eh pdf')
         resp = self.client.post('/api/boletos/', {
             'posto': 'A', 'arquivo': falso}, **self.auth)
         self.assertEqual(resp.status_code, 400)
