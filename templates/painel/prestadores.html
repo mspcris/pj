@@ -6,7 +6,7 @@
 
 <div class="card">
   <div class="rolagem"><table>
-    <tr><th>Prestador</th><th>Modo</th><th>Postos</th><th>Usuários</th><th>Ativo</th></tr>
+    <tr><th>Prestador</th><th>Modo</th><th>Postos</th><th>Usuários</th><th>Ativo</th><th></th></tr>
     {% for p in lista %}
     <tr>
       <td><a href="{% url 'painel_prestador' p.pk %}"><strong>{{ p.nome }}</strong></a></td>
@@ -14,8 +14,13 @@
       <td>{% for v in p.vinculos.all %}{% if v.ativo %}{{ v.posto.nome }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}</td>
       <td>{{ p.usuarios.count }}</td>
       <td>{% if p.ativo %}✅{% else %}⛔{% endif %}</td>
+      <td>{% if p.ativo %}
+        <form method="post" action="{% url 'painel_ver_como' p.pk %}">
+          {% csrf_token %}<button class="btn mini claro" type="submit"
+            title="Ver o portal como este PJ vê">👁 Ver como</button>
+        </form>{% endif %}</td>
     </tr>
-    {% empty %}<tr><td colspan="5">Nenhum prestador ainda.</td></tr>
+    {% empty %}<tr><td colspan="6">Nenhum prestador ainda.</td></tr>
     {% endfor %}
   </table></div>
 </div>

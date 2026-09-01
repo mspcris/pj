@@ -10,7 +10,9 @@ Fluxo: upload → e-mail "recebemos" → extrai texto do PDF → IA extrai o val
 A decisão de comparação é 100% nossa (Decimal, tolerância de 1 centavo).
 A IA só extrai número e redige frase — nunca decide pagamento.
 """
+import json
 import logging
+import re
 import threading
 from decimal import Decimal
 
@@ -49,6 +51,20 @@ def _fatos(boleto):
         'competencia': competencia_extenso(boleto.competencia),
         'valor': _moeda(boleto.valor_extraido or boleto.valor_esperado),
     }
+
+
+def dados_pagamento(boleto, fatos):
+    """Bloco determinístico com os dados de pagamento — anexado ao corpo do
+    e-mail do pagador DEPOIS da redação (a IA nunca toca nesses dados)."""
+    partes = ['', '-' * 40,
+              f'Prestador: {fatos["prestador"]} — {fatos["alvo"]}',
+              f'Competência: {fatos["competencia"]}',
+              f'Valor: R$ {fatos["valor"]}']
+    if boleto.linha_digitavel:
+        partes.append(f'Linha digitável: {boleto.linha_digitavel}')
+    if boleto.chave_pix:
+        partes.append(f'Chave PIX: {boleto.chave_pix}')
+    return '\n'.join(partes)
 
 
 def enviar_recebido(boleto):
@@ -131,6 +147,15 @@ def processar(boleto_pk):
     boleto.valor_extraido = valor
     fatos['valor'] = _moeda(valor)
 
+    if not boleto.linha_digitavel:
+        try:
+            ld = re.sub(r'\D', '', str(json.loads(bruto)
+                                       .get('linha_digitavel') or ''))
+            if 40 <= len(ld) <= 48:
+                boleto.linha_digitavel = ld
+        except Exception:
+            pass
+
     if boleto.valor_esperado is None:
         _para_manual(boleto, 'sem valor acordado cadastrado no painel')
         return
@@ -144,9 +169,10 @@ def processar(boleto_pk):
             frases.corpo(
                 'aprovado_pagador', fatos,
                 instrucao_ia=('Escreva para a equipe de pagamento pedindo '
-                              'para pagar o boleto em anexo, informando '
-                              'prestador, posto, competência e valor, e que '
-                              'o valor já foi conferido.')),
+                              'para pagar o boleto em anexo, informando que '
+                              'o valor já foi conferido e que os dados de '
+                              'pagamento seguem abaixo da assinatura.'))
+            + dados_pagamento(boleto, fatos),
             boleto=boleto, anexo_field=boleto.arquivo)
         emails.enviar(
             boleto.enviado_por or settings.EMAIL_ADMIN,

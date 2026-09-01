@@ -14,9 +14,25 @@ from .models import AuditLog, Boleto, Contrato, Posto, Prestador, UsuarioPermiti
 def _usuario(request):
     if not request.user.is_authenticated:
         return None
-    return (UsuarioPermitido.objects
-            .filter(email=request.user.email.lower(), ativo=True)
-            .select_related('prestador').first())
+    up = (UsuarioPermitido.objects
+          .filter(email=request.user.email.lower(), ativo=True)
+          .select_related('prestador').first())
+    # Modo "ver como": o admin enxerga o portal exatamente como o PJ vê.
+    # Instância virtual (não salva), só para esta requisição.
+    pk = request.session.get('ver_como')
+    if up is not None and up.is_admin and pk:
+        prestador = Prestador.objects.filter(pk=pk, ativo=True).first()
+        if prestador is not None:
+            return UsuarioPermitido(email=up.email, nome=up.nome,
+                                    prestador=prestador, is_admin=False,
+                                    ativo=True)
+    return up
+
+
+@login_required
+def sair_ver_como(request):
+    request.session.pop('ver_como', None)
+    return redirect('painel_dashboard')
 
 
 def com_usuario(view):

@@ -12,7 +12,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import PostoForm, PrestadorForm, UsuarioForm, ValorBRField
+from .forms import (BoletoAdminForm, PostoForm, PrestadorForm, UsuarioForm,
+                    ValorBRField)
 from .models import (AuditLog, Boleto, Contrato, EmailLog, Posto, Prestador,
                      PrestadorPosto, UsuarioPermitido)
 from .views import com_usuario
@@ -118,7 +119,7 @@ def boleto_acao(request, up, pk, acao):
         # Aprovação manual: o Cristiano conferiu no olho → envia p/ pagamento.
         from django.conf import settings
         from .services import emails, frases
-        from .services.verificacao import _fatos, _moeda
+        from .services.verificacao import _fatos, _moeda, dados_pagamento
         boleto.status = Boleto.Status.APROVADO
         boleto.verificado_em = timezone.now()
         boleto.save(update_fields=['status', 'verificado_em'])
@@ -128,7 +129,8 @@ def boleto_acao(request, up, pk, acao):
             settings.EMAIL_PAGADOR,
             f'Pagamento — {fatos["prestador"]} — {fatos["alvo"]} — '
             f'{fatos["competencia"]} — R$ {fatos["valor"]}',
-            frases.corpo('aprovado_pagador', fatos),
+            frases.corpo('aprovado_pagador', fatos)
+            + dados_pagamento(boleto, fatos),
             boleto=boleto, anexo_field=boleto.arquivo)
         messages.success(request, f'{boleto} aprovado e enviado p/ pagamento.')
     else:
@@ -136,6 +138,59 @@ def boleto_acao(request, up, pk, acao):
     AuditLog.registrar(AuditLog.Evento.STATUS, request,
                        detalhe=f'Ação "{acao}" no boleto #{pk}')
     return redirect(request.POST.get('voltar') or 'painel_dashboard')
+
+
+@admin_required
+def boleto_novo(request, up):
+    """Cadastro de boleto pelo admin — ex.: boleto que chegou pelo zap.
+    Entra no MESMO fluxo de verificação do upload do PJ."""
+    if request.method == 'POST':
+        form = BoletoAdminForm(request.POST, request.FILES)
+        if form.is_valid():
+            prestador = form.cleaned_data['prestador']
+            posto = form.cleaned_data['posto']
+            competencia = form.cleaned_data['competencia']
+            if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
+                valor_esperado = prestador.valor_esperado_unico()
+            else:
+                vinculo = prestador.vinculos_ativos().filter(
+                    posto=posto).first()
+                valor_esperado = vinculo.valor_mensal if vinculo else None
+
+            (Boleto.objects
+             .filter(prestador=prestador, posto=posto, competencia=competencia)
+             .exclude(status__in=[Boleto.Status.PAGO,
+                                  Boleto.Status.SUBSTITUIDO])
+             .update(status=Boleto.Status.SUBSTITUIDO))
+
+            arq = form.cleaned_data['arquivo']
+            boleto = Boleto.objects.create(
+                prestador=prestador, posto=posto, competencia=competencia,
+                arquivo=arq, nome_original=arq.name[:255],
+                enviado_por=up.email, valor_esperado=valor_esperado,
+                linha_digitavel=form.cleaned_data['linha_digitavel'],
+                chave_pix=form.cleaned_data['chave_pix'].strip())
+            AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
+                               detalhe=f'(admin) Boleto #{boleto.pk} {boleto}')
+            from .services.verificacao import fluxo_completo_async
+            fluxo_completo_async(boleto.pk)
+            messages.success(request,
+                             f'Boleto de {prestador.nome} cadastrado — '
+                             'entrou na fila de verificação.')
+            return redirect('painel_dashboard')
+    else:
+        form = BoletoAdminForm()
+    return render(request, 'painel/boleto_form.html', {'form': form, 'up': up})
+
+
+@admin_required
+@require_POST
+def ver_como(request, up, pk):
+    prestador = get_object_or_404(Prestador, pk=pk, ativo=True)
+    request.session['ver_como'] = prestador.pk
+    messages.success(request,
+                     f'Você está vendo o portal como {prestador.nome}.')
+    return redirect('home')
 
 
 # ---------------------------------------------------------------------------

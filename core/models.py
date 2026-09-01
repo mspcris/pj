@@ -174,6 +174,11 @@ class Boleto(models.Model):
     nome_original = models.CharField(max_length=255, blank=True)
     enviado_por = models.EmailField(blank=True)
 
+    # Dados de pagamento — preenchidos pelo admin (boleto que chegou pelo
+    # zap) ou extraídos do PDF pela IA. Vão no e-mail para o pagador.
+    linha_digitavel = models.CharField(max_length=60, blank=True)
+    chave_pix = models.CharField(max_length=140, blank=True)
+
     status = models.CharField(max_length=12, choices=Status.choices,
                               default=Status.RECEBIDO)
     valor_esperado = models.DecimalField(max_digits=12, decimal_places=2,

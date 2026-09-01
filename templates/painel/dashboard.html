@@ -1,7 +1,11 @@
 {% extends 'base.html' %}
 {% block title %}Painel · Camim PJs{% endblock %}
 {% block conteudo %}
-<h1>Controle de pagamentos</h1>
+<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  <h1 style="margin:0">Controle de pagamentos</h1>
+  <a class="btn mini dourado" href="{% url 'painel_boleto_novo' %}">
+    ➕ Cadastrar boleto (chegou pelo zap)</a>
+</div>
 <div class="mesnav">
   <a href="?m={{ ant|date:'Y-m' }}">←</a>
   <div class="mes">{{ mes_extenso }}</div>

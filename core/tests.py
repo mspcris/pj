@@ -183,6 +183,75 @@ class VerificacaoTest(BaseSetup):
         self.assertEqual(m_mail.call_count, chamadas)
 
 
+class AdminBoletoTest(BaseSetup):
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_admin_cadastra_boleto_do_zap(self, m_async):
+        self.login_admin()
+        hoje = date.today().replace(day=1)
+        linha = '23793.38128 60007.827136 95000.063305 9 84340000150000'
+        resp = self.client.post('/painel/boleto/novo/', {
+            'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+            'competencia': hoje.isoformat(), 'arquivo': _pdf(),
+            'linha_digitavel': linha, 'chave_pix': 'pix@empresa.com.br'})
+        self.assertEqual(resp.status_code, 302)
+        b = Boleto.objects.get()
+        self.assertEqual(b.valor_esperado, Decimal('1500.00'))
+        self.assertEqual(b.linha_digitavel,
+                         ''.join(c for c in linha if c.isdigit()))
+        self.assertEqual(b.chave_pix, 'pix@empresa.com.br')
+        self.assertEqual(b.enviado_por, 'cristiano@camim.com.br')
+        m_async.assert_called_once_with(b.pk)
+
+    def test_admin_precisa_escolher_posto_no_modo_por_posto(self):
+        self.login_admin()
+        hoje = date.today().replace(day=1)
+        resp = self.client.post('/painel/boleto/novo/', {
+            'prestador': self.prestador.pk,
+            'competencia': hoje.isoformat(), 'arquivo': _pdf()})
+        self.assertEqual(resp.status_code, 200)  # volta com erro
+        self.assertEqual(Boleto.objects.count(), 0)
+
+
+class VerComoTest(BaseSetup):
+    def test_admin_ve_portal_como_pj_e_volta(self):
+        self.login_admin()
+        self.client.post(f'/painel/ver-como/{self.prestador.pk}/')
+        resp = self.client.get('/')
+        self.assertContains(resp, 'ANEXAR BOLETO')
+        self.assertContains(resp, 'Modo visualização')
+        # no modo "ver como", o painel fica inacessível até sair
+        self.assertEqual(self.client.get('/painel/').status_code, 302)
+        self.client.get('/sair-ver-como/')
+        self.assertEqual(self.client.get('/painel/').status_code, 200)
+
+    def test_pj_nao_consegue_usar_ver_como(self):
+        outro = Prestador.objects.create(nome='Outro PJ')
+        self.login_pj()
+        self.client.post(f'/painel/ver-como/{outro.pk}/')
+        self.assertNotIn('ver_como', self.client.session)
+
+
+class LinhaDigitavelIATest(BaseSetup):
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor', return_value=(
+        Decimal('1500.00'),
+        '{"valor":"1500.00","linha_digitavel":'
+        '"23793381286000782713695000063305984340000150000"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='BOLETO')
+    def test_ia_extrai_linha_e_vai_no_email_do_pagador(self, m_pdf, m_ia,
+                                                       m_mail):
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            valor_esperado=Decimal('1500.00'))
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(len(b.linha_digitavel), 47)
+        corpo_pagador = next(c.args[2] for c in m_mail.call_args_list
+                             if c.args[0] == 'equipe@camim.com.br')
+        self.assertIn('Linha digitável: 2379338', corpo_pagador)
+
+
 class PermissoesTest(BaseSetup):
     def test_pj_nao_baixa_boleto_de_outro(self):
         outro = Prestador.objects.create(nome='Outra Empresa')

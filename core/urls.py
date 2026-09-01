@@ -12,7 +12,13 @@ urlpatterns = [
     path('arquivo/<str:tipo>/<int:pk>/', views.baixar_arquivo,
          name='baixar_arquivo'),
 
+    path('sair-ver-como/', views.sair_ver_como, name='sair_ver_como'),
+
     path('painel/', views_painel.dashboard, name='painel_dashboard'),
+    path('painel/boleto/novo/', views_painel.boleto_novo,
+         name='painel_boleto_novo'),
+    path('painel/ver-como/<int:pk>/', views_painel.ver_como,
+         name='painel_ver_como'),
     path('painel/boleto/<int:pk>/<str:acao>/', views_painel.boleto_acao,
          name='painel_boleto_acao'),
     path('painel/prestadores/', views_painel.prestadores,

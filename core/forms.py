@@ -77,6 +77,68 @@ class BoletoForm(forms.Form):
         return d.replace(day=1)
 
 
+class BoletoAdminForm(forms.Form):
+    """Cadastro de boleto pelo admin (ex.: boleto que chegou pelo zap)."""
+    prestador = forms.ModelChoiceField(label='Prestador',
+                                       queryset=Prestador.objects.none())
+    posto = forms.ModelChoiceField(label='Posto (se um boleto por posto)',
+                                   queryset=Posto.objects.none(),
+                                   required=False)
+    competencia = forms.ChoiceField(label='Mês do boleto')
+    arquivo = forms.FileField(label='Arquivo do boleto (PDF)')
+    linha_digitavel = forms.CharField(
+        label='Linha digitável (opcional)', required=False,
+        widget=forms.TextInput(attrs={'inputmode': 'numeric',
+                                      'placeholder': '47 ou 48 dígitos'}))
+    chave_pix = forms.CharField(label='Chave PIX (opcional)', required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .services.verificacao import competencia_extenso
+        self.fields['prestador'].queryset = Prestador.objects.filter(ativo=True)
+        self.fields['posto'].queryset = Posto.objects.filter(ativo=True)
+        hoje = date.today().replace(day=1)
+        self.fields['competencia'].choices = [
+            (m.isoformat(), competencia_extenso(m).capitalize())
+            for m in competencias_opcoes()]
+        self.fields['competencia'].initial = hoje.isoformat()
+
+    def clean_arquivo(self):
+        return _validar_arquivo(self.cleaned_data['arquivo'], _EXT_BOLETO)
+
+    def clean_competencia(self):
+        try:
+            return date.fromisoformat(
+                self.cleaned_data['competencia']).replace(day=1)
+        except ValueError:
+            raise forms.ValidationError('Mês inválido.')
+
+    def clean_linha_digitavel(self):
+        ld = ''.join(c for c in self.cleaned_data['linha_digitavel']
+                     if c.isdigit())
+        if ld and not 40 <= len(ld) <= 48:
+            raise forms.ValidationError(
+                'Linha digitável deve ter 47 ou 48 dígitos.')
+        return ld
+
+    def clean(self):
+        dados = super().clean()
+        prestador, posto = dados.get('prestador'), dados.get('posto')
+        if prestador:
+            if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
+                if not posto:
+                    raise forms.ValidationError(
+                        f'{prestador.nome} emite um boleto POR POSTO — '
+                        'escolha o posto.')
+                if not prestador.vinculos_ativos().filter(posto=posto).exists():
+                    raise forms.ValidationError(
+                        f'{prestador.nome} não tem vínculo ativo com '
+                        f'{posto.nome} (cadastre o valor primeiro).')
+            else:
+                dados['posto'] = None
+        return dados
+
+
 class ContratoForm(forms.Form):
     arquivo = forms.FileField(label='Arquivo do contrato (PDF)')
     vigencia_inicio = forms.DateField(

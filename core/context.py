@@ -1,11 +1,8 @@
-"""Context processor: injeta o UsuarioPermitido logado em todo template."""
-from .models import UsuarioPermitido
+"""Context processor: injeta o UsuarioPermitido logado (respeitando o modo
+"ver como" do admin) em todo template."""
+from .views import _usuario
 
 
 def usuario_pj(request):
-    up = None
-    if request.user.is_authenticated:
-        up = UsuarioPermitido.objects.filter(
-            email=request.user.email.lower(), ativo=True
-        ).select_related('prestador').first()
-    return {'usuario_pj': up}
+    return {'usuario_pj': _usuario(request),
+            'ver_como_ativo': request.session.get('ver_como')}

@@ -122,6 +122,15 @@ tr:last-child td{border-bottom:0}
   </nav>
   {% endif %}
 </header>
+{% if ver_como_ativo %}
+<div style="background:var(--dourado);color:#3a2b05;padding:10px 18px;
+     font-weight:800;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+  👁 Modo visualização — você está vendo o portal como
+  {{ usuario_pj.prestador.nome }}
+  <a href="{% url 'sair_ver_como' %}" class="btn mini"
+     style="background:#3a2b05;color:#fff">Voltar ao painel</a>
+</div>
+{% endif %}
 <main>
   {% if messages %}<div class="msgs">
     {% for m in messages %}<div class="msg {{ m.tags }}">{{ m }}</div>{% endfor %}
