@@ -115,7 +115,9 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
         prestador=prestador, posto=posto, competencia=competencia,
         arquivo=arquivo, nome_original=(nome_original or '')[:255],
         enviado_por=enviado_por,
-        valor_esperado=valor_esperado_para(prestador, posto, competencia),
+        # Extra não tem combinado — o valor de referência é o próprio boleto
+        valor_esperado=(None if extra else
+                        valor_esperado_para(prestador, posto, competencia)),
         linha_digitavel=linha_digitavel, chave_pix=(chave_pix or '').strip(),
         valor_livre=valor_livre, extra=extra,
         observacao=(observacao or '').strip(),

@@ -388,6 +388,7 @@ class BoletoExtraTest(BaseSetup):
                              enviado_por='x@x.com', posto=self.posto1,
                              extra=True, linha_digitavel=_linha_47(31250))
         self.assertTrue(novo.extra)  # o flag tem que ser GRAVADO
+        self.assertIsNone(novo.valor_esperado)  # extra não herda combinado
         regular.refresh_from_db()
         self.assertEqual(regular.status, Boleto.Status.RECEBIDO)  # intacto
 

@@ -89,7 +89,10 @@ def dados_pagamento(boleto, fatos):
         partes.append(f'Linha digitável: {boleto.linha_digitavel}')
     if boleto.chave_pix:
         partes.append(f'Chave PIX: {boleto.chave_pix}')
-    if (boleto.valor_esperado is not None
+    if boleto.extra:
+        partes.append('Obs.: cobrança EXTRA/avulsa — não faz parte da '
+                      'mensalidade do posto.')
+    if (not boleto.extra and boleto.valor_esperado is not None
             and boleto.valor_extraido is not None
             and boleto.valor_esperado - boleto.valor_extraido > TOLERANCIA):
         if fatos.get('motivo_menor'):
