@@ -40,6 +40,19 @@ _APROVADO_PAGADOR = [
      'Abraço,\nCristiano'),
 ]
 
+_FIN_RECEBIDO = [
+    ('Prezados,\n\nBoas notícias: o boleto da competência de {competencia} '
+     '({prestador} — {alvo}) já está com o nosso setor financeiro para '
+     'processamento do pagamento. Nenhuma ação é necessária da sua parte — '
+     'é só aguardar a compensação. Os dados do documento seguem abaixo.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+    ('Prezado(a) {prestador},\n\nInformamos que o setor financeiro da CAMIM '
+     'confirmou o recebimento do boleto da competência de {competencia} e o '
+     'pagamento está em processamento. Não é preciso fazer nada — '
+     'avisaremos se houver qualquer novidade.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+]
+
 _DIVERGENTE = [
     ('Olá!\n\nRecebi o boleto de {competencia} ({prestador} — {alvo}), mas o '
      'valor que consta nele não bate com o que combinamos. Pode me ligar para '
@@ -67,6 +80,7 @@ def corpo(tipo, fatos, instrucao_ia=None):
         'recebido': _RECEBIDO,
         'aprovado_pj': _APROVADO_PJ,
         'aprovado_pagador': _APROVADO_PAGADOR,
+        'fin_recebido': _FIN_RECEBIDO,
         'divergente': _DIVERGENTE,
         'manual_admin': _MANUAL_ADMIN,
     }
