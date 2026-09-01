@@ -35,7 +35,12 @@
         <td><label for="atende_{{ l.posto.pk }}" style="margin:0;cursor:pointer">
             <strong>{{ l.posto.nome }}</strong>
             {% if l.posto.codigo %}<span class="sub" style="font-size:.75rem"> ({{ l.posto.codigo }})</span>{% endif %}
-            {% if l.tem_contrato %} <span title="Já tem contrato anexado neste posto">📄</span>{% endif %}</label></td>
+            {% if l.tem_contrato %} <span title="Já tem contrato anexado neste posto">📄</span>{% endif %}
+            {% if l.posto.razao_social %}
+            <div style="font-size:.72rem;color:var(--cinza);font-weight:400">
+              {{ l.posto.razao_social }}
+              {% if l.posto.cnpj %} · {{ l.posto.cnpj }}{% endif %}</div>
+            {% endif %}</label></td>
         <td><input name="valor_{{ l.posto.pk }}" inputmode="decimal"
              placeholder="—" value="{% if l.vinculo %}{{ l.vinculo.valor_mensal }}{% endif %}"
              oninput="if(this.value){document.getElementById('atende_{{ l.posto.pk }}').checked=true}"></td>
