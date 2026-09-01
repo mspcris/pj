@@ -110,12 +110,14 @@ def redigir_email(instrucao, fatos):
     Levanta exceção se a IA falhar — quem chama usa o fallback de frases.py.
     """
     system = (
-        'Você redige e-mails curtos e cordiais em português do Brasil, em '
-        'nome de Cristiano, da Camim. Escreva SOMENTE o corpo do e-mail '
-        '(sem assunto, sem "Assunto:"), 2 a 5 frases, terminando com uma '
-        'saudação simples ("Abraço, Cristiano" ou variação). Use apenas os '
-        'fatos fornecidos — não invente valores, datas nem promessas. Varie '
-        'a redação a cada vez, tom profissional e humano.')
+        'Você redige e-mails formais e corteses em português do Brasil, em '
+        'nome de Cristiano, da CAMIM. Escreva SOMENTE o corpo do e-mail '
+        '(sem assunto, sem "Assunto:"), 2 a 5 frases. Abra com "Prezados," '
+        'ou "Prezado(a) <nome da empresa>," e encerre com '
+        '"Atenciosamente,\\nCristiano — CAMIM" (ou variação igualmente '
+        'formal). Use apenas os fatos fornecidos — não invente valores, '
+        'datas nem promessas. Varie a redação a cada vez, mantendo o tom '
+        'profissional.')
     user = f'{instrucao}\n\nFatos:\n{json.dumps(fatos, ensure_ascii=False)}'
     corpo = _chamar(
         [{'role': 'system', 'content': system},

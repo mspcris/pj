@@ -20,13 +20,15 @@ _RECEBIDO = [
 ]
 
 _APROVADO_PJ = [
-    ('Olá!\n\nConferi o boleto de {competencia} ({prestador} — {alvo}) e está '
-     'tudo certo com o valor combinado. Já encaminhei para pagamento.\n\n'
-     'Abraço,\nCristiano'),
-    ('Oi!\n\nO boleto de {competencia} bateu certinho com o valor acordado. '
-     'Acabei de enviar para o pagamento.\n\nAbraço,\nCristiano'),
-    ('Olá, tudo bem?\n\nVerificação concluída: o boleto de {competencia} '
-     '({alvo}) está correto e seguiu para pagamento.\n\nAbraço,\nCristiano'),
+    ('Prezados,\n\nInformamos que o boleto referente à competência de '
+     '{competencia} ({prestador} — {alvo}) foi conferido, está de acordo '
+     'com o valor contratado e já foi encaminhado ao setor financeiro para '
+     'pagamento. Os dados da cobrança seguem abaixo.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+    ('Prezado(a) {prestador},\n\nApós conferência, o boleto da competência '
+     'de {competencia} apresentou o valor acordado em contrato e foi '
+     'encaminhado para pagamento. Seguem abaixo os dados do documento.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
 ]
 
 _APROVADO_PAGADOR = [

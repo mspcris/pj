@@ -158,7 +158,7 @@ def boleto_acao(request, up, pk, acao):
         from django.conf import settings
         from .services import emails, frases
         from .services.verificacao import (_fatos, _moeda, dados_pagamento,
-                                           destinatarios_pj)
+                                           dados_pj, destinatarios_pj)
         boleto.status = Boleto.Status.APROVADO
         boleto.verificado_em = timezone.now()
         boleto.save(update_fields=['status', 'verificado_em'])
@@ -179,7 +179,8 @@ def boleto_acao(request, up, pk, acao):
         emails.enviar(
             destinatarios_pj(boleto),
             f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',
-            frases.corpo('aprovado_pj', fatos), boleto=boleto)
+            frases.corpo('aprovado_pj', fatos) + dados_pj(boleto, fatos),
+            boleto=boleto)
         messages.success(request, f'{boleto} enviado p/ pagamento '
                                   '(equipe e prestador avisados).')
     else:

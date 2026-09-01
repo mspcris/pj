@@ -111,6 +111,30 @@ def dados_pagamento(boleto, fatos):
     return '\n'.join(partes)
 
 
+def dados_pj(boleto, fatos):
+    """Bloco formal do aviso ao prestador: quem paga, CNPJs, competência,
+    valor e vencimento — mesmo padrão do e-mail do financeiro."""
+    prest = boleto.prestador
+    partes = ['', '-' * 40,
+              f'Prestador: {prest.nome}'
+              + (f' — CNPJ {prest.cnpj}' if prest.cnpj else '')]
+    posto = boleto.posto_efetivo
+    if posto is not None:
+        pagador = posto.razao_social or posto.nome
+        linha = f'Empresa pagadora: {pagador}'
+        if posto.razao_social and posto.razao_social.upper() != \
+                posto.nome.upper():
+            linha += f' ({posto.nome})'
+        if posto.cnpj:
+            linha += f' — CNPJ {posto.cnpj}'
+        partes.append(linha)
+    partes.append(f'Competência: {fatos["competencia"]}')
+    partes.append(f'Valor: R$ {fatos["valor"]}')
+    if boleto.vencimento:
+        partes.append(f'Vencimento: {boleto.vencimento:%d/%m/%Y}')
+    return '\n'.join(partes)
+
+
 def _mes_seguinte_fim(competencia):
     """Último dia do mês seguinte ao da competência."""
     m = competencia.month + 2
@@ -405,9 +429,13 @@ def processar(boleto_pk):
             f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',
             frases.corpo(
                 'aprovado_pj', fatos,
-                instrucao_ia=('Escreva para o prestador avisando que o boleto '
-                              'foi conferido, o valor está correto e já foi '
-                              'encaminhado para pagamento.')),
+                instrucao_ia=('Escreva em tom FORMAL para o prestador, '
+                              'informando que o boleto foi conferido, o '
+                              'valor está de acordo com o contratado e o '
+                              'documento já foi encaminhado ao setor '
+                              'financeiro para pagamento. Diga que os dados '
+                              'da cobrança seguem abaixo da assinatura.'))
+            + dados_pj(boleto, fatos),
             boleto=boleto)
     else:
         fatos['valor_esperado'] = _moeda(boleto.valor_esperado)
