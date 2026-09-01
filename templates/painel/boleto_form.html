@@ -5,6 +5,13 @@
 <p class="sub">Boleto que chegou pelo zap (ou qualquer outro canal). Entra no
 mesmo fluxo: IA confere o valor e, se bater, vai para o pagamento.</p>
 
+<div class="card" style="background:var(--verde-claro);border-style:dashed;
+     text-align:center;padding:16px" id="area-colar">
+  📋 <strong>Cole aqui (Ctrl+V)</strong> o print do boleto ou o código de
+  barras — a imagem vira o anexo e o código preenche a linha digitável.
+  <div id="colar-feedback" class="sub" style="margin-top:6px"></div>
+</div>
+
 <div class="card">
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
@@ -28,4 +35,34 @@ mesmo fluxo: IA confere o valor e, se bater, vai para o pagamento.</p>
     </div>
   </form>
 </div>
+<script>
+document.addEventListener('paste', function(e){
+  var feedback = document.getElementById('colar-feedback');
+  var itens = (e.clipboardData || {}).items || [];
+  for (var i = 0; i < itens.length; i++){
+    if (itens[i].type.indexOf('image') === 0){
+      var f = itens[i].getAsFile();
+      var ext = (itens[i].type.split('/')[1] || 'png').replace('jpeg','jpg');
+      var dt = new DataTransfer();
+      dt.items.add(new File([f], 'boleto-colado.' + ext, {type: f.type}));
+      var input = document.querySelector('input[type=file]');
+      input.files = dt.files;
+      feedback.textContent = '✅ Imagem colada e anexada ao formulário. ' +
+        'Cole também o código de barras (a IA não lê imagem).';
+      e.preventDefault();
+      return;
+    }
+  }
+  // Texto: só intercepta se não estiver digitando dentro de um campo
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  var texto = (e.clipboardData || window.clipboardData).getData('text') || '';
+  var digitos = texto.replace(/\D/g, '');
+  if (digitos.length >= 44 && digitos.length <= 48){
+    document.querySelector('input[name=linha_digitavel]').value = digitos;
+    feedback.textContent = '✅ Código de barras colado na linha digitável (' +
+      digitos.length + ' dígitos).';
+    e.preventDefault();
+  }
+});
+</script>
 {% endblock %}

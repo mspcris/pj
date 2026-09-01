@@ -182,13 +182,18 @@ def processar(boleto_pk):
 
     fatos = _fatos(boleto)
 
-    # 1) Valor do PDF (via IA) — quando há PDF.
+    # 1) Valor do PDF (via IA) — quando há PDF. Imagem/foto: a IA não lê,
+    # mas com linha digitável a conferência sai pelo código de barras e a
+    # imagem segue de anexo para o financeiro.
     valor_pdf = None
     confianca_pdf = None
-    if boleto.arquivo:
-        if not boleto.arquivo.name.lower().endswith('.pdf'):
-            _para_manual(boleto, 'arquivo não é PDF (imagem/foto)')
-            return
+    eh_pdf = bool(boleto.arquivo
+                  and boleto.arquivo.name.lower().endswith('.pdf'))
+    if boleto.arquivo and not eh_pdf and not boleto.linha_digitavel:
+        _para_manual(boleto, 'arquivo é imagem (IA não lê) e sem linha '
+                             'digitável — nada para conferir')
+        return
+    if eh_pdf:
         texto = pdf.extrair_texto(boleto.arquivo.path)
         if not texto:
             _para_manual(boleto, 'PDF sem texto legível (escaneado?)')

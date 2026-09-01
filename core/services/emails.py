@@ -4,6 +4,7 @@ EMAIL_MODO_TESTE=true no .env desvia TODO e-mail para EMAIL_ADMIN — para
 testar o fluxo inteiro sem incomodar PJ nem a equipe de pagamento.
 """
 import logging
+import mimetypes
 
 from django.conf import settings
 from django.core.mail import EmailMessage
@@ -41,7 +42,9 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
             try:
                 nome = (getattr(boleto, 'nome_original', '') or
                         anexo_field.name.rsplit('/', 1)[-1])
-                msg.attach(nome, anexo_field.read(), 'application/pdf')
+                tipo = (mimetypes.guess_type(nome)[0]
+                        or 'application/octet-stream')
+                msg.attach(nome, anexo_field.read(), tipo)
             finally:
                 anexo_field.close()
         msg.send(fail_silently=False)

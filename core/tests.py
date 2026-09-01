@@ -445,6 +445,46 @@ class MultiplosPdfsTest(BaseSetup):
                                   Boleto.Status.RECEBIDO])
 
 
+class BoletoImagemTest(BaseSetup):
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_admin_cadastra_imagem_com_linha(self, m_async):
+        self.login_admin()
+        img = SimpleUploadedFile('boleto-colado.png', b'\x89PNG fake',
+                                 content_type='image/png')
+        resp = self.client.post('/painel/boleto/novo/', {
+            'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+            'competencia': date.today().replace(day=1).isoformat(),
+            'arquivo': img, 'linha_digitavel': _linha_47(150000)})
+        self.assertEqual(resp.status_code, 302)
+        b = Boleto.objects.get()
+        self.assertTrue(b.arquivo.name.endswith('.png'))
+
+    def test_imagem_sem_linha_e_recusada_no_form(self):
+        self.login_admin()
+        img = SimpleUploadedFile('print.png', b'\x89PNG fake',
+                                 content_type='image/png')
+        resp = self.client.post('/painel/boleto/novo/', {
+            'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+            'competencia': date.today().replace(day=1).isoformat(),
+            'arquivo': img})
+        self.assertEqual(resp.status_code, 200)  # volta com erro
+        self.assertEqual(Boleto.objects.count(), 0)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_imagem_com_linha_confere_pelo_codigo(self, m_mail):
+        img = SimpleUploadedFile('boleto.png', b'\x89PNG fake',
+                                 content_type='image/png')
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=img,
+            linha_digitavel=_linha_47(150000),
+            valor_esperado=Decimal('1500.00'))
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertEqual(b.valor_extraido, Decimal('1500.00'))
+
+
 class VerComoTest(BaseSetup):
     def test_admin_ve_portal_como_pj_e_volta(self):
         self.login_admin()

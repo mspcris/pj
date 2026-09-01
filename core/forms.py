@@ -86,7 +86,8 @@ class BoletoAdminForm(forms.Form):
                                    required=False)
     competencia = forms.ChoiceField(label='Mês do boleto')
     arquivo = forms.FileField(
-        label='Arquivo do boleto (PDF — opcional se tiver linha digitável)',
+        label='Arquivo do boleto (PDF ou imagem — opcional se tiver linha '
+              'digitável)',
         required=False)
     linha_digitavel = forms.CharField(
         label='Linha digitável', required=False,
@@ -114,7 +115,9 @@ class BoletoAdminForm(forms.Form):
 
     def clean_arquivo(self):
         arq = self.cleaned_data.get('arquivo')
-        return _validar_arquivo(arq, _EXT_BOLETO) if arq else None
+        # Admin pode anexar imagem (print do zap/e-mail); a conferência aí
+        # sai pela linha digitável e a imagem vai de anexo p/ o financeiro.
+        return _validar_arquivo(arq, _EXT_CONTRATO) if arq else None
 
     def clean_competencia(self):
         try:
@@ -133,10 +136,16 @@ class BoletoAdminForm(forms.Form):
 
     def clean(self):
         dados = super().clean()
-        if not dados.get('arquivo') and not dados.get('linha_digitavel'):
+        arq = dados.get('arquivo')
+        if not arq and not dados.get('linha_digitavel'):
             raise forms.ValidationError(
-                'Anexe o PDF ou informe a linha digitável — sem nenhum dos '
-                'dois não há o que conferir.')
+                'Anexe o boleto ou informe a linha digitável — sem nenhum '
+                'dos dois não há o que conferir.')
+        if (arq and not arq.name.lower().endswith('.pdf')
+                and not dados.get('linha_digitavel')):
+            raise forms.ValidationError(
+                'Imagem não dá para a IA ler — cole também a linha '
+                'digitável para a conferência sair pelo código de barras.')
         prestador, posto = dados.get('prestador'), dados.get('posto')
         if prestador:
             if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
