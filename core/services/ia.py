@@ -116,8 +116,11 @@ def redigir_email(instrucao, fatos):
         'ou "Prezado(a) <nome da empresa>," e encerre com '
         '"Atenciosamente,\\nCristiano — CAMIM" (ou variação igualmente '
         'formal). Use apenas os fatos fornecidos — não invente valores, '
-        'datas nem promessas. Varie a redação a cada vez, mantendo o tom '
-        'profissional.')
+        'datas nem promessas. O campo "alvo"/"posto" é o nome de uma '
+        'UNIDADE (posto) da CAMIM, batizada pelo bairro do Rio de Janeiro '
+        'onde fica — refira-se a ela como "unidade X" ou "posto X", NUNCA '
+        'como município, cidade ou região. Varie a redação a cada vez, '
+        'mantendo o tom profissional.')
     user = f'{instrucao}\n\nFatos:\n{json.dumps(fatos, ensure_ascii=False)}'
     corpo = _chamar(
         [{'role': 'system', 'content': system},
