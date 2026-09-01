@@ -299,6 +299,83 @@ class ValoresPostosTest(BaseSetup):
         self.assertEqual(v.valor_mensal, Decimal('1500.00'))  # intacto
 
 
+class BoletoExtraTest(BaseSetup):
+    """Dois boletos no mesmo posto/mês: o normal + uma cobrança extra
+    (ex.: ajuda de custo 'passagem')."""
+
+    def _regular_aprovado(self):
+        return Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO,
+            valor_esperado=Decimal('1500.00'))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('312.50'),
+                              '{"valor":"312.50","confianca":100}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_extra_nao_vira_duplicado_e_aprova_com_valor_livre(
+            self, m_pdf, m_ia, m_mail):
+        self._regular_aprovado()
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            extra=True, valor_livre=True,
+            observacao='ajuda de custo — passagem')
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertEqual(b.valor_extraido, Decimal('312.50'))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('312.50'),
+                              '{"valor":"312.50","confianca":100}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_extra_sem_valor_livre_espera_liberacao(self, m_pdf, m_ia,
+                                                    m_mail):
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(), extra=True)
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        self.assertIsNone(b.valor_esperado)  # extra não herda o combinado
+        self.assertIn('EXTRA', b.motivo_manual)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1500.00'),
+                              '{"valor":"1500.00","confianca":100}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_extra_aprovado_nao_bloqueia_o_regular(self, m_pdf, m_ia,
+                                                   m_mail):
+        Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            extra=True, status=Boleto.Status.APROVADO)
+        regular = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            valor_esperado=Decimal('1500.00'))
+        verificacao.processar(regular.pk)
+        regular.refresh_from_db()
+        self.assertEqual(regular.status, Boleto.Status.APROVADO)
+
+    def test_registrar_extra_nao_substitui_o_regular(self):
+        from core.services import boletos as svc
+        regular = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf(),
+            status=Boleto.Status.RECEBIDO)
+        svc.registrar(self.prestador, date(2026, 9, 1),
+                      enviado_por='x@x.com', posto=self.posto1, extra=True,
+                      linha_digitavel=_linha_47(31250))
+        regular.refresh_from_db()
+        self.assertEqual(regular.status, Boleto.Status.RECEBIDO)  # intacto
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

@@ -243,6 +243,9 @@ class Boleto(models.Model):
     # Só o admin liga isto (cadastro direto): aceita o valor do boleto mesmo
     # diferente do combinado — único caminho para pagar valor MAIOR.
     valor_livre = models.BooleanField(default=False)
+    # Cobrança extra/avulsa (ex.: ajuda de custo): convive com o boleto
+    # normal do mesmo posto/mês — fora da régua e da trava de duplicidade.
+    extra = models.BooleanField(default=False)
     # Anotações do mês (ex.: "descontada parcela 3/7 do notebook — R$ 600").
     # Vai no bloco de dados do e-mail p/ o financeiro.
     observacao = models.TextField(blank=True)

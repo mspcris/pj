@@ -76,8 +76,8 @@ def dashboard(request, up):
             for b in boletos_mes:
                 if b.prestador_id != prestador.pk:
                     continue
-                if b.status == Boleto.Status.DUPLICADO:
-                    continue  # duplicado nunca representa a régua
+                if b.status == Boleto.Status.DUPLICADO or b.extra:
+                    continue  # duplicado/extra nunca representam a régua
                 if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
                     if b.posto_id is None:
                         achado = b
@@ -209,6 +209,7 @@ def boleto_novo(request, up):
                 linha_digitavel=form.cleaned_data['linha_digitavel'],
                 chave_pix=form.cleaned_data['chave_pix'],
                 valor_livre=form.cleaned_data['valor_livre'],
+                extra=form.cleaned_data['extra'],
                 observacao=form.cleaned_data['observacao'])
             AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                                detalhe=f'(admin) Boleto #{boleto.pk} {boleto}')
@@ -244,15 +245,18 @@ def boleto_editar(request, up, pk):
             mudou = (posto != boleto.posto
                      or d['competencia'] != boleto.competencia
                      or d['linha_digitavel'] != boleto.linha_digitavel
-                     or d['valor_livre'] != boleto.valor_livre)
+                     or d['valor_livre'] != boleto.valor_livre
+                     or d['extra'] != boleto.extra)
             boleto.posto = posto
             boleto.competencia = d['competencia']
             boleto.linha_digitavel = d['linha_digitavel']
             boleto.chave_pix = d['chave_pix'].strip()
             boleto.valor_livre = d['valor_livre']
+            boleto.extra = d['extra']
             boleto.observacao = d['observacao'].strip()
-            boleto.valor_esperado = svc_boletos.valor_esperado_para(
-                prestador, posto, d['competencia'])
+            boleto.valor_esperado = (
+                None if d['extra'] else svc_boletos.valor_esperado_para(
+                    prestador, posto, d['competencia']))
             if mudou and boleto.status not in (Boleto.Status.PAGO,
                                                Boleto.Status.SUBSTITUIDO):
                 boleto.status = Boleto.Status.RECEBIDO
@@ -276,6 +280,7 @@ def boleto_editar(request, up, pk):
             'linha_digitavel': boleto.linha_digitavel,
             'chave_pix': boleto.chave_pix,
             'valor_livre': boleto.valor_livre,
+            'extra': boleto.extra,
             'observacao': boleto.observacao,
         })
     return render(request, 'painel/boleto_edit.html',

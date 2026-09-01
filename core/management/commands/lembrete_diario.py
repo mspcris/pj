@@ -34,6 +34,7 @@ class Command(BaseCommand):
                 achado = next(
                     (b for b in boletos
                      if b.status != Boleto.Status.DUPLICADO and
+                     not b.extra and
                      b.prestador_id == prestador.pk and
                      (b.posto_id is None
                       if prestador.modo_boleto == Prestador.ModoBoleto.UNICO

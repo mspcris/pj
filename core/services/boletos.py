@@ -89,7 +89,7 @@ def valor_esperado_para(prestador, posto, competencia=None):
 def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
               nome_original='', linha_digitavel='', chave_pix='',
               valor_livre=False, observacao='', nota_fiscal=None,
-              nota_fiscal_nome=''):
+              nota_fiscal_nome='', extra=False):
     """Cria o boleto. Substitui apenas pendências (RECEBIDO/DIVERGENTE/
     MANUAL) da mesma chave — um boleto já APROVADO ou PAGO NUNCA é
     substituído em silêncio: a duplicidade é barrada na verificação."""
@@ -99,10 +99,13 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
     # Substituição só quando a chave é definida. No modo POR_POSTO com posto
     # ainda indefinido (ex.: vários PDFs no mesmo e-mail esperando
     # destinação), cada boleto é uma cobrança distinta — NÃO substitui.
-    if not (prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO
+    # Cobrança extra nunca substitui (convive com o boleto normal do mês).
+    if not extra and not (
+            prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO
             and posto is None):
         (Boleto.objects
          .filter(prestador=prestador, posto=posto, competencia=competencia,
+                 extra=False,
                  status__in=[Boleto.Status.RECEBIDO,
                              Boleto.Status.DIVERGENTE,
                              Boleto.Status.MANUAL, Boleto.Status.DUPLICADO])
@@ -120,10 +123,13 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
 
 
 def duplicado_de(boleto):
-    """Outro boleto da mesma chave já enviado p/ pagamento (ou pago)?"""
+    """Outro boleto da mesma chave já enviado p/ pagamento (ou pago)?
+    Cobranças extras ficam fora da trava, nos dois sentidos."""
+    if boleto.extra:
+        return None
     return (Boleto.objects
             .filter(prestador=boleto.prestador, posto=boleto.posto,
-                    competencia=boleto.competencia,
+                    competencia=boleto.competencia, extra=False,
                     status__in=[Boleto.Status.APROVADO, Boleto.Status.PAGO])
             .exclude(pk=boleto.pk)
             .first())

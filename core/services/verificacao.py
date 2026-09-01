@@ -355,12 +355,19 @@ def processar(boleto_pk):
 
     # Valores podem ter sido cadastrados DEPOIS do boleto chegar — na
     # reverificação, recalcula o esperado em vez de reclamar à toa.
-    if boleto.valor_esperado is None:
+    # Cobrança EXTRA não tem combinado: nunca herda o valor do posto.
+    if boleto.valor_esperado is None and not boleto.extra:
         boleto.valor_esperado = svc_boletos.valor_esperado_para(
             boleto.prestador, boleto.posto, boleto.competencia)
 
     if boleto.valor_esperado is None and not boleto.valor_livre:
-        _para_manual(boleto, 'sem valor acordado cadastrado no painel')
+        if boleto.extra:
+            _para_manual(boleto, 'cobrança EXTRA sem valor de referência — '
+                                 'confira e libere com "Aprovar assim '
+                                 'mesmo" (ou edite marcando "aceitar este '
+                                 'valor")')
+        else:
+            _para_manual(boleto, 'sem valor acordado cadastrado no painel')
         return
 
     # 6) Valor × combinado. Igual → aprova. MENOR: se houver observações

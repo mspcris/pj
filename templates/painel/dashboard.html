@@ -110,8 +110,10 @@
   <div class="rolagem"><table class="tabela-compacta">
     {% for b in fora_da_regua %}
     <tr>
-      <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
-        {% if b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
+      <td>{% if b.extra %}<span class="chip" style="background:var(--dourado);color:#3a2b05">EXTRA</span> {% endif %}
+        {{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
+        {% if b.observacao %}<div class="sub" style="font-size:.75rem">📝 {{ b.observacao|truncatechars:50 }}</div>
+        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
       <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
           onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }}')">📎 arquivo</a>{% else %}🔢 linha digitável{% endif %}</td>
       <td><span class="chip {{ b.status }}"
@@ -121,14 +123,26 @@
           <div class="sub" style="font-size:.72rem;max-width:220px">{{ b.motivo_manual|truncatechars:60 }}</div>
         {% endif %}</td>
       <td><div class="acoes">
-        <a class="btn mini dourado" href="{% url 'painel_boleto_editar' b.pk %}">✏️ Destinar posto</a>
-        {% if b.status == 'MANUAL' or b.status == 'DIVERGENTE' %}
+        <a class="btn mini dourado" href="{% url 'painel_boleto_editar' b.pk %}">✏️ Editar</a>
+        {% if b.status == 'MANUAL' or b.status == 'DIVERGENTE' or b.status == 'RECEBIDO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'aprovar' %}"
+              onsubmit="return confirm('Conferiu no olho? Vai mandar p/ equipe@ pagar.')">
+          {% csrf_token %}<button class="btn mini dourado">Aprovar assim mesmo</button></form>
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'reprocessar' %}">
           {% csrf_token %}<button class="btn mini claro">Reverificar</button></form>
+        {% elif b.status == 'APROVADO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'pagar' %}">
+          {% csrf_token %}<button class="btn mini">Marcar PAGO</button></form>
+        {% elif b.status == 'PAGO' %}
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'despagar' %}"
+              onsubmit="return confirm('Desfazer o PAGO?')">
+          {% csrf_token %}<button class="btn mini claro">Desfazer PAGO</button></form>
         {% endif %}
+        {% if b.status != 'APROVADO' and b.status != 'PAGO' %}
         <form method="post" action="{% url 'painel_boleto_acao' b.pk 'descartar' %}"
               onsubmit="return confirm('Descartar este boleto? Ele some das listas, mas fica no banco (soft delete).')">
           {% csrf_token %}<button class="btn mini vermelho">Excluir</button></form>
+        {% endif %}
       </div></td>
     </tr>
     {% endfor %}
