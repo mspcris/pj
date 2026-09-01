@@ -160,7 +160,9 @@ tr:last-child td{border-bottom:0}
 </div>
 <script>
 function abrirPdf(url, titulo){
-  document.getElementById('modal-pdf-frame').src = url + '?inline=1';
+  // #navpanes=0 abre sem o menu lateral; zoom ajustado à largura
+  document.getElementById('modal-pdf-frame').src =
+    url + '?inline=1#navpanes=0&zoom=page-width';
   document.getElementById('modal-pdf-baixar').href = url;
   document.getElementById('modal-pdf-titulo').textContent = titulo || 'Documento';
   document.getElementById('modal-pdf').style.display = 'flex';
