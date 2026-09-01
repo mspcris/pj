@@ -299,6 +299,31 @@ class ValoresPostosTest(BaseSetup):
         self.assertEqual(v.valor_mensal, Decimal('1500.00'))  # intacto
 
 
+class MultiplosPdfsTest(BaseSetup):
+    def test_boletos_sem_posto_nao_se_substituem(self):
+        """9 PDFs no mesmo e-mail (posto ainda indefinido) são 9 boletos
+        distintos — o bug era o último substituir todos os anteriores."""
+        from core.services import boletos as svc
+        hoje = date(2026, 9, 1)
+        for i in range(3):
+            svc.registrar(self.prestador, hoje, enviado_por='pj@empresa.com.br',
+                          posto=None, nome_original=f'pdf{i}.pdf')
+        vivos = Boleto.objects.exclude(status=Boleto.Status.SUBSTITUIDO)
+        self.assertEqual(vivos.count(), 3)
+
+    def test_com_posto_definido_continua_substituindo(self):
+        from core.services import boletos as svc
+        hoje = date(2026, 9, 1)
+        svc.registrar(self.prestador, hoje, enviado_por='x@x.com',
+                      posto=self.posto1)
+        svc.registrar(self.prestador, hoje, enviado_por='x@x.com',
+                      posto=self.posto1)
+        status = list(Boleto.objects.order_by('pk')
+                      .values_list('status', flat=True))
+        self.assertEqual(status, [Boleto.Status.SUBSTITUIDO,
+                                  Boleto.Status.RECEBIDO])
+
+
 class VerComoTest(BaseSetup):
     def test_admin_ve_portal_como_pj_e_volta(self):
         self.login_admin()

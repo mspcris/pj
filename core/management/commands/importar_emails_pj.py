@@ -118,7 +118,13 @@ class Command(BaseCommand):
         message_id = (msg.get('Message-ID') or '').strip()[:255]
         if not message_id:
             return
-        if EmailRecebido.objects.filter(message_id=message_id).exists():
+        registro = EmailRecebido.objects.filter(message_id=message_id).first()
+        # Dedupe: já processado com sucesso (ou sem conteúdo aproveitável)
+        # nunca repete. SEM_PRESTADOR fica em retentativa SILENCIOSA — no
+        # dia em que o remetente entrar na whitelist, os boletos entram
+        # sozinhos, sem o Cristiano precisar cadastrar um a um.
+        if registro and registro.resultado != \
+                EmailRecebido.Resultado.SEM_PRESTADOR:
             return
         remetente = (email.utils.parseaddr(msg.get('From') or '')[1]
                      .strip().lower())
@@ -133,6 +139,8 @@ class Command(BaseCommand):
                       prestador__ativo=True)
               .select_related('prestador').first())
         if up is None:
+            if registro:
+                return  # já avisado antes; segue aguardando cadastro
             EmailRecebido.objects.create(
                 message_id=message_id, remetente=remetente, assunto=assunto,
                 resultado=EmailRecebido.Resultado.SEM_PRESTADOR)
@@ -168,9 +176,10 @@ class Command(BaseCommand):
                 criados.append(b)
 
         if not criados:
-            EmailRecebido.objects.create(
-                message_id=message_id, remetente=remetente, assunto=assunto,
-                resultado=EmailRecebido.Resultado.SEM_CONTEUDO)
+            EmailRecebido.objects.update_or_create(
+                message_id=message_id,
+                defaults={'remetente': remetente, 'assunto': assunto,
+                          'resultado': EmailRecebido.Resultado.SEM_CONTEUDO})
             svc_emails.enviar(
                 settings.EMAIL_ADMIN,
                 f'⚠️ E-mail de {prestador.nome} sem boleto legível',
@@ -181,12 +190,33 @@ class Command(BaseCommand):
             self.stdout.write(f'  SEM_CONTEUDO: {remetente}')
             return
 
-        EmailRecebido.objects.create(
-            message_id=message_id, remetente=remetente, assunto=assunto,
-            resultado=EmailRecebido.Resultado.BOLETO_CRIADO,
-            detalhe=', '.join(f'#{b.pk}' for b in criados))
+        EmailRecebido.objects.update_or_create(
+            message_id=message_id,
+            defaults={'remetente': remetente, 'assunto': assunto,
+                      'resultado': EmailRecebido.Resultado.BOLETO_CRIADO,
+                      'detalhe': ', '.join(f'#{b.pk}' for b in criados)})
+        if len(criados) == 1:
+            enviar_recebido(criados[0])
+        else:
+            # Vários PDFs no mesmo e-mail → UM aviso só, não um por boleto.
+            from core.services import frases
+            from core.services.verificacao import (competencia_extenso,
+                                                   destinatarios_pj)
+            fatos = {'prestador': prestador.nome, 'alvo': 'vários postos',
+                     'competencia': competencia_extenso(competencia),
+                     'valor': '—', 'quantidade': len(criados)}
+            svc_emails.enviar(
+                destinatarios_pj(criados[0]),
+                f'Boletos recebidos ({len(criados)}) — '
+                f'{fatos["competencia"]}',
+                frases.corpo(
+                    'recebido', fatos,
+                    instrucao_ia=(f'Escreva confirmando que recebemos os '
+                                  f'{len(criados)} boletos enviados no '
+                                  'e-mail e que serão verificados um a um '
+                                  'em breve.')),
+                boleto=criados[0])
         for b in criados:
-            enviar_recebido(b)
             processar(b.pk)
         self.stdout.write(self.style.SUCCESS(
             f'  {len(criados)} boleto(s) de {prestador.nome} '

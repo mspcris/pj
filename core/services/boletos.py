@@ -21,11 +21,17 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
     if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
         posto = None
 
-    (Boleto.objects
-     .filter(prestador=prestador, posto=posto, competencia=competencia,
-             status__in=[Boleto.Status.RECEBIDO, Boleto.Status.DIVERGENTE,
-                         Boleto.Status.MANUAL, Boleto.Status.DUPLICADO])
-     .update(status=Boleto.Status.SUBSTITUIDO))
+    # Substituição só quando a chave é definida. No modo POR_POSTO com posto
+    # ainda indefinido (ex.: vários PDFs no mesmo e-mail esperando
+    # destinação), cada boleto é uma cobrança distinta — NÃO substitui.
+    if not (prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO
+            and posto is None):
+        (Boleto.objects
+         .filter(prestador=prestador, posto=posto, competencia=competencia,
+                 status__in=[Boleto.Status.RECEBIDO,
+                             Boleto.Status.DIVERGENTE,
+                             Boleto.Status.MANUAL, Boleto.Status.DUPLICADO])
+         .update(status=Boleto.Status.SUBSTITUIDO))
 
     return Boleto.objects.create(
         prestador=prestador, posto=posto, competencia=competencia,
