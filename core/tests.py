@@ -273,6 +273,31 @@ class EditarBoletoTest(BaseSetup):
         self.assertIn('parcela 3/7 do notebook', corpo)
 
 
+class ValoresPostosTest(BaseSetup):
+    def test_checkbox_atende_cria_e_remove_vinculo(self):
+        self.login_admin()
+        url = f'/painel/prestadores/{self.prestador.pk}/'
+        # marca só Anchieta com valor; Bangu (que tinha vínculo) desmarcado
+        self.client.post(url, {'qual': 'valores',
+                               f'atende_{self.posto1.pk}': 'on',
+                               f'valor_{self.posto1.pk}': '1.800,00'})
+        vinculos = {v.posto_id: v for v in
+                    PrestadorPosto.objects.filter(prestador=self.prestador)}
+        self.assertTrue(vinculos[self.posto1.pk].ativo)
+        self.assertEqual(vinculos[self.posto1.pk].valor_mensal,
+                         Decimal('1800.00'))
+        self.assertFalse(vinculos[self.posto2.pk].ativo)  # desmarcado
+
+    def test_atende_sem_valor_nao_salva(self):
+        self.login_admin()
+        url = f'/painel/prestadores/{self.prestador.pk}/'
+        self.client.post(url, {'qual': 'valores',
+                               f'atende_{self.posto1.pk}': 'on'})
+        v = PrestadorPosto.objects.get(prestador=self.prestador,
+                                       posto=self.posto1)
+        self.assertEqual(v.valor_mensal, Decimal('1500.00'))  # intacto
+
+
 class VerComoTest(BaseSetup):
     def test_admin_ve_portal_como_pj_e_volta(self):
         self.login_admin()

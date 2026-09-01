@@ -308,6 +308,7 @@ def prestador_detalhe(request, up, pk):
             campo = ValorBRField(required=False)
             with transaction.atomic():
                 for posto in postos:
+                    atende = bool(request.POST.get(f'atende_{posto.pk}'))
                     bruto = (request.POST.get(f'valor_{posto.pk}') or '').strip()
                     try:
                         valor = campo.clean(bruto) if bruto else None
@@ -315,10 +316,16 @@ def prestador_detalhe(request, up, pk):
                         messages.error(request,
                                        f'Valor inválido em {posto.nome}.')
                         return redirect('painel_prestador', pk=pk)
+                    if atende and valor is None:
+                        messages.error(
+                            request, f'{posto.nome} está marcado como '
+                                     '"atende", mas sem valor mensal — '
+                                     'nada foi salvo.')
+                        return redirect('painel_prestador', pk=pk)
                     vinculo = PrestadorPosto.objects.filter(
                         prestador=prestador, posto=posto).first()
-                    if valor is None:
-                        if vinculo:
+                    if not atende:
+                        if vinculo and vinculo.ativo:
                             vinculo.ativo = False
                             vinculo.save(update_fields=['ativo'])
                     elif vinculo:
@@ -336,7 +343,11 @@ def prestador_detalhe(request, up, pk):
 
     vinculos = {v.posto_id: v for v in
                 PrestadorPosto.objects.filter(prestador=prestador, ativo=True)}
-    linhas_postos = [{'posto': p, 'vinculo': vinculos.get(p.pk)}
+    postos_com_contrato = set(
+        Contrato.objects.filter(prestador=prestador, posto__isnull=False)
+        .values_list('posto_id', flat=True))
+    linhas_postos = [{'posto': p, 'vinculo': vinculos.get(p.pk),
+                      'tem_contrato': p.pk in postos_com_contrato}
                      for p in postos]
     contratos = Contrato.objects.filter(prestador=prestador) \
         .select_related('posto')

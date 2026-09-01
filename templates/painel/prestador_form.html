@@ -18,19 +18,27 @@
 
 <div class="card">
   <h2 style="font-size:1.05rem">Postos e valores combinados</h2>
-  <p class="sub" style="font-size:.85rem">Preencha o valor mensal nos postos onde
-    este PJ atua. Vazio = não atua. No modo "boleto único", a soma vira o valor
-    esperado (a menos que você preencha "Valor do boleto único" acima).</p>
+  <p class="sub" style="font-size:.85rem">Marque <strong>Atende</strong> nos
+    postos onde este PJ trabalha e informe o valor mensal combinado. No modo
+    "boleto único", a soma vira o valor esperado (a menos que você preencha
+    "Valor do boleto único" acima). 📄 = já tem contrato anexado no posto.</p>
   <form method="post">
     {% csrf_token %}<input type="hidden" name="qual" value="valores">
     <div class="rolagem"><table>
-      <tr><th>Posto</th><th style="width:180px">Valor mensal (R$)</th></tr>
+      <tr><th style="width:90px">Atende</th><th>Posto</th>
+          <th style="width:180px">Valor mensal (R$)</th></tr>
       {% for l in linhas_postos %}
       <tr>
-        <td><strong>{{ l.posto.nome }}</strong>
-            {% if l.posto.codigo %}<span class="sub" style="font-size:.75rem"> ({{ l.posto.codigo }})</span>{% endif %}</td>
+        <td><input type="checkbox" name="atende_{{ l.posto.pk }}"
+             id="atende_{{ l.posto.pk }}" {% if l.vinculo %}checked{% endif %}
+             onchange="var v=document.getElementsByName('valor_{{ l.posto.pk }}')[0]; if(this.checked){v.focus()}else{v.value=''}"></td>
+        <td><label for="atende_{{ l.posto.pk }}" style="margin:0;cursor:pointer">
+            <strong>{{ l.posto.nome }}</strong>
+            {% if l.posto.codigo %}<span class="sub" style="font-size:.75rem"> ({{ l.posto.codigo }})</span>{% endif %}
+            {% if l.tem_contrato %} <span title="Já tem contrato anexado neste posto">📄</span>{% endif %}</label></td>
         <td><input name="valor_{{ l.posto.pk }}" inputmode="decimal"
-             placeholder="—" value="{% if l.vinculo %}{{ l.vinculo.valor_mensal }}{% endif %}"></td>
+             placeholder="—" value="{% if l.vinculo %}{{ l.vinculo.valor_mensal }}{% endif %}"
+             oninput="if(this.value){document.getElementById('atende_{{ l.posto.pk }}').checked=true}"></td>
       </tr>
       {% endfor %}
     </table></div>
