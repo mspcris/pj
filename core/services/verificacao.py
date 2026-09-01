@@ -326,6 +326,12 @@ def processar(boleto_pk):
                      f'a competência {fatos["competencia"]}')
         return
 
+    # Valores podem ter sido cadastrados DEPOIS do boleto chegar — na
+    # reverificação, recalcula o esperado em vez de reclamar à toa.
+    if boleto.valor_esperado is None:
+        boleto.valor_esperado = svc_boletos.valor_esperado_para(
+            boleto.prestador, boleto.posto, boleto.competencia)
+
     if boleto.valor_esperado is None and not boleto.valor_livre:
         _para_manual(boleto, 'sem valor acordado cadastrado no painel')
         return
