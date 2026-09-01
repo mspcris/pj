@@ -9,6 +9,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/opt/pj
 Environment=PYTHONUNBUFFERED=1
+Environment=HOME=/opt/pj
 ExecStart=/opt/pj/.venv/bin/gunicorn pj.wsgi:application \
   --bind 127.0.0.1:8022 --workers 3 --timeout 120
 Restart=always
