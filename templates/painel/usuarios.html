@@ -27,6 +27,17 @@ entra</strong>, mesmo com senha certa no idCamim.</p>
           <button class="btn mini {% if u.ativo %}vermelho{% else %}claro{% endif %}" type="submit">
             {% if u.ativo %}Bloquear{% else %}Reativar{% endif %}</button>
         </form>
+        {% if u.prestador %}
+        <form method="post" style="display:inline"
+              onsubmit="return confirm('Gerar {% if u.api_token %}um NOVO token (o atual para de funcionar){% else %}o token de API{% endif %} para {{ u.email|escapejs }}?')">
+          {% csrf_token %}
+          <input type="hidden" name="pk" value="{{ u.pk }}">
+          <input type="hidden" name="acao" value="token">
+          <button class="btn mini claro" type="submit"
+                  title="{% if u.api_token %}Token gerado em {{ u.api_token_criado_em|date:'d/m/Y' }} — gerar outro revoga o atual{% else %}Gerar token da API{% endif %}">
+            🔑{% if u.api_token %} ✓{% endif %}</button>
+        </form>
+        {% endif %}
       </td>
       <td>{{ u.ultimo_login|date:"d/m H:i"|default:"nunca" }}</td>
       <td></td>

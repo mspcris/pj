@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_painel
+from . import api, views, views_painel
 
 urlpatterns = [
     path('', views.home, name='home'),
@@ -13,6 +13,7 @@ urlpatterns = [
          name='baixar_arquivo'),
 
     path('sair-ver-como/', views.sair_ver_como, name='sair_ver_como'),
+    path('api/boletos/', api.boletos, name='api_boletos'),
 
     path('painel/', views_painel.dashboard, name='painel_dashboard'),
     path('painel/boleto/novo/', views_painel.boleto_novo,

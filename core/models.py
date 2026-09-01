@@ -158,6 +158,11 @@ class UsuarioPermitido(models.Model):
                                   related_name='usuarios')
     is_admin = models.BooleanField(default=False)
     ativo = models.BooleanField(default=True)
+    # Token da API (Authorization: Bearer ...) — gerado no painel Usuários,
+    # exibido uma única vez. Para revogar, gere outro ou bloqueie o usuário.
+    api_token = models.CharField(max_length=64, null=True, blank=True,
+                                 unique=True)
+    api_token_criado_em = models.DateTimeField(null=True, blank=True)
     ultimo_login = models.DateTimeField(null=True, blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
 

@@ -499,6 +499,20 @@ def postos(request, up):
 def usuarios(request, up):
     if request.method == 'POST':
         pk = request.POST.get('pk')
+        if request.POST.get('acao') == 'token' and pk:
+            import secrets
+            u = get_object_or_404(UsuarioPermitido, pk=pk,
+                                  prestador__isnull=False)
+            u.api_token = secrets.token_hex(24)
+            u.api_token_criado_em = timezone.now()
+            u.save(update_fields=['api_token', 'api_token_criado_em'])
+            AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                               detalhe=f'Token de API gerado p/ {u.email}')
+            messages.success(
+                request,
+                f'Token de API de {u.email} (COPIE AGORA — não será '
+                f'mostrado de novo): {u.api_token}')
+            return redirect('painel_usuarios')
         instancia = get_object_or_404(UsuarioPermitido, pk=pk) if pk else None
         form = UsuarioForm(request.POST, instance=instancia)
         if form.is_valid():

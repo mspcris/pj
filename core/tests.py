@@ -727,6 +727,62 @@ class RegrasNegocioTest(BaseSetup):
         self.assertIsNone(verificacao.valor_da_linha(''))
 
 
+class ApiBoletosTest(BaseSetup):
+    def setUp(self):
+        super().setUp()
+        self.up.api_token = 'a' * 48
+        self.up.save()
+        self.auth = {'HTTP_AUTHORIZATION': 'Bearer ' + 'a' * 48}
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_post_cria_boleto_com_nf(self, m_async):
+        resp = self.client.post('/api/boletos/', {
+            'competencia': '2026-10', 'posto': 'A',
+            'arquivo': _pdf(), 'nota_fiscal': _pdf('nf.pdf')}, **self.auth)
+        self.assertEqual(resp.status_code, 201)
+        dados = resp.json()
+        self.assertEqual(dados['competencia'], '2026-10')
+        self.assertEqual(dados['posto'], 'Anchieta')
+        self.assertEqual(dados['valor_esperado'], '1500.00')
+        self.assertTrue(dados['tem_nota_fiscal'])
+        m_async.assert_called_once()
+
+    def test_sem_token_401(self):
+        resp = self.client.post('/api/boletos/', {'arquivo': _pdf()})
+        self.assertEqual(resp.status_code, 401)
+
+    def test_token_errado_401(self):
+        resp = self.client.post('/api/boletos/', {'arquivo': _pdf()},
+                                HTTP_AUTHORIZATION='Bearer errado')
+        self.assertEqual(resp.status_code, 401)
+
+    def test_exige_nf_barra_sem_nota(self):
+        self.prestador.exige_nf = True
+        self.prestador.save()
+        resp = self.client.post('/api/boletos/', {
+            'posto': 'A', 'arquivo': _pdf()}, **self.auth)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('nota fiscal', resp.json()['erro'])
+
+    def test_pdf_invalido_400(self):
+        falso = SimpleUploadedFile('b.pdf', b'nao é pdf')
+        resp = self.client.post('/api/boletos/', {
+            'posto': 'A', 'arquivo': falso}, **self.auth)
+        self.assertEqual(resp.status_code, 400)
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_get_lista_do_mes(self, m_async):
+        self.client.post('/api/boletos/', {
+            'competencia': '2026-10', 'posto': 'B',
+            'arquivo': _pdf()}, **self.auth)
+        resp = self.client.get('/api/boletos/?competencia=2026-10',
+                               **self.auth)
+        self.assertEqual(resp.status_code, 200)
+        lista = resp.json()['boletos']
+        self.assertEqual(len(lista), 1)
+        self.assertEqual(lista[0]['posto'], 'Bangu')
+
+
 class EnviarEmailTest(BaseSetup):
     """O serviço de envio real (sem mock do enviar): sucesso, lista de
     destinatários e — principalmente — falha de SMTP sem estourar."""

@@ -72,6 +72,32 @@ combinados e usuários; log de e-mails e auditoria.
   Cristiano, com o destinatário real no assunto. Troque para `false` quando
   validar o fluxo.
 
+## API para PJs desenvolvedores
+
+Autenticação por token (`Authorization: Bearer <token>`), gerado pelo admin
+em Usuários (botão 🔑, exibido uma única vez; gerar outro revoga o atual).
+
+```bash
+# Anexar boleto + nota fiscal do mês
+curl -X POST https://pj.camim.com.br/api/boletos/ \
+  -H "Authorization: Bearer SEU_TOKEN" \
+  -F "competencia=2026-10" \
+  -F "arquivo=@boleto.pdf" \
+  -F "nota_fiscal=@nf.pdf"
+# → 201 {"id": 42, "competencia": "2026-10", "posto": "...",
+#        "status": "RECEBIDO", "valor_esperado": "1234.56", ...}
+
+# Consultar os boletos do mês
+curl https://pj.camim.com.br/api/boletos/?competencia=2026-10 \
+  -H "Authorization: Bearer SEU_TOKEN"
+```
+
+Campos do POST: `competencia` (YYYY-MM; padrão mês atual), `arquivo` (PDF,
+obrigatório), `nota_fiscal` (obrigatório se o prestador exige NF), `posto`
+(letra ou nome — só no modo por-posto com vários postos; sem ele, o CNPJ do
+sacado no PDF destina sozinho), `linha_digitavel` (opcional). O boleto entra
+no MESMO fluxo de verificação do portal.
+
 ## Rodar local
 
 ```bash
