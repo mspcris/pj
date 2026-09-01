@@ -158,6 +158,7 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
 if not DEBUG:
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 2592000  # 30 dias; site é só HTTPS (certbot)
 
 LOGGING = {
     'version': 1,
