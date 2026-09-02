@@ -1188,6 +1188,8 @@ class ListaPrestadoresTest(BaseSetup):
         self.login_admin()
         resp = self.client.get('/painel/prestadores/')
         self.assertContains(resp, '<span title="contrato vigente">Anchieta')
+        self.assertContains(resp, 'R$ 1.500,00')   # valor de Anchieta
+        self.assertContains(resp, 'Total mensal: R$ 3.500,00')
         self.assertContains(resp, f'?anexar={self.posto2.pk}#contratos')
         self.assertContains(resp, '1 sem contrato vigente')
         # o link abre a página com "Anexar contrato" aberto e o posto escolhido

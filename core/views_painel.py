@@ -604,13 +604,17 @@ def prestadores(request, up):
         geral = any(c.posto_id is None for c in vigentes)
         cobertos = {c.posto_id for c in vigentes}
         if p.modo_boleto == Prestador.ModoBoleto.UNICO:
-            postos = [p.posto_cobranca] if p.posto_cobranca else []
+            postos = ([(p.posto_cobranca, p.valor_esperado_unico())]
+                      if p.posto_cobranca else [])
         else:
-            postos = [v.posto for v in p.vinculos.all()
+            postos = [(v.posto, v.valor_mensal) for v in p.vinculos.all()
                       if v.ativo and v.posto.ativo]
-        p.postos_info = [{'posto': x,
-                          'ok': geral or x.pk in cobertos} for x in postos]
+        p.postos_info = [{'posto': x, 'valor': valor,
+                          'ok': geral or x.pk in cobertos}
+                         for x, valor in postos]
         p.sem_contrato = sum(1 for i in p.postos_info if not i['ok'])
+        p.total_mensal = sum((v for _, v in postos if v is not None),
+                             Decimal('0'))
     return render(request, 'painel/prestadores.html',
                   {'lista': lista, 'form': form, 'up': up})
 

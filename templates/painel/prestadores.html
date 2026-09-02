@@ -13,8 +13,8 @@
         {% if p.representante and p.representante != p.nome %}<div class="sub" style="font-size:.78rem">👤 {{ p.contato }}</div>{% endif %}</td>
       <td>{{ p.get_modo_boleto_display }}</td>
       <td>{% for i in p.postos_info %}{% if i.ok %}<span title="contrato vigente">{{ i.posto.nome }}</span>{% else %}<a href="{% url 'painel_prestador' p.pk %}?anexar={{ i.posto.pk }}#contratos"
-             title="Sem contrato vigente — clique para anexar" style="color:#c0392b;font-weight:700;text-decoration:underline dotted">{{ i.posto.nome }}</a>{% endif %}{% if not forloop.last %}, {% endif %}{% empty %}{% if p.modo_boleto == 'UNICO' %}<span class="chip FALTA">sem posto de cobrança</span>{% endif %}{% endfor %}
-        {% if p.modo_boleto == 'UNICO' and p.valor_esperado_unico %} <span class="sub" style="font-size:.78rem">R$ {{ p.valor_esperado_unico }}</span>{% endif %}
+             title="Sem contrato vigente — clique para anexar" style="color:#c0392b;font-weight:700;text-decoration:underline dotted">{{ i.posto.nome }}</a>{% endif %}{% if i.valor is not None %} <span class="sub" style="font-size:.76rem;white-space:nowrap">R$ {{ i.valor }}</span>{% endif %}{% if not forloop.last %}, {% endif %}{% empty %}{% if p.modo_boleto == 'UNICO' %}<span class="chip FALTA">sem posto de cobrança</span>{% endif %}{% endfor %}
+        {% if p.postos_info|length > 1 %}<div style="margin-top:4px;font-weight:800">Total mensal: R$ {{ p.total_mensal }}</div>{% endif %}
         {% if p.sem_contrato %}<div class="sub" style="font-size:.74rem;color:#c0392b">📄 {{ p.sem_contrato }} sem contrato vigente</div>{% endif %}</td>
       <td>{{ p.usuarios.count }}</td>
       <td>{% if p.ativo %}✅{% else %}⛔{% endif %}</td>
