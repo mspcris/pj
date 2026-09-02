@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}Anexar boleto · Camim PJs{% endblock %}
+{% block conteudo %}
+<h1>📎 Anexar boleto</h1>
+<p class="sub">Toque no posto para anexar o boleto dele. {{ mes_extenso }}:
+  <strong>{{ feitos }} de {{ cartoes|length }}</strong> posto{{ cartoes|length|pluralize }} com boleto.</p>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px">
+  {% for c in cartoes %}
+  <a href="{% url 'anexar_boleto' %}?posto={{ c.posto.pk }}" class="card"
+     style="display:block;text-align:center;padding:22px 12px;min-height:150px;
+            border-width:2px;{% if c.boletos %}border-color:var(--verde);background:var(--verde-claro){% else %}border-style:dashed{% endif %}">
+    <div style="font-size:2.2rem">{% if c.boletos %}✅{% else %}📄{% endif %}</div>
+    <div style="font-weight:800;font-size:1.05rem;color:var(--verde-esc);margin-top:6px">{{ c.posto.nome }}</div>
+    {% if c.boletos %}
+      {% for b in c.boletos %}
+      <div style="margin-top:6px"><span class="chip {{ b.status }}">{{ b.get_status_display }}</span>
+        {% if c.boletos|length > 1 %}<div class="sub" style="font-size:.72rem">{% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% endif %}{% if b.parcial %} · parcial{% endif %}{% if b.extra %} · extra{% endif %}</div>{% endif %}</div>
+      {% endfor %}
+      <div class="sub" style="font-size:.74rem;margin-top:8px">toque para anexar outro</div>
+    {% else %}
+      <div style="margin-top:8px;color:#7a4b00;font-weight:700;font-size:.9rem">Falta anexar</div>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+<p style="margin-top:18px"><a class="btn claro" href="{% url 'home' %}">← Voltar</a></p>
+{% endblock %}

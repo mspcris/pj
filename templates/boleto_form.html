@@ -1,15 +1,17 @@
 {% extends 'base.html' %}
 {% block title %}Anexar boleto · Camim PJs{% endblock %}
 {% block conteudo %}
-<h1>📎 Anexar boleto</h1>
-<p class="sub">Escolha o mês, anexe o arquivo e pronto — a gente cuida do resto.</p>
+<h1>📎 Anexar boleto{% if posto_fixo %} — {{ posto_fixo.nome }}{% endif %}</h1>
+<p class="sub">{% if posto_fixo %}Posto <strong>{{ posto_fixo.nome }}</strong> —
+  <a href="{% url 'anexar_boleto' %}">trocar de posto</a>. {% endif %}Escolha o mês, anexe o arquivo e pronto — a gente cuida do resto.</p>
 
 <div class="card">
   <form method="post" enctype="multipart/form-data">
     {% csrf_token %}
     {% for campo in form %}
+      {% if campo.is_hidden %}{{ campo }}{% else %}
       <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>
-      {{ campo }}
+      {{ campo }}{% endif %}
       {% if campo.errors %}<ul class="errolista">
         {% for e in campo.errors %}<li>⚠️ {{ e }}</li>{% endfor %}
       </ul>{% endif %}
@@ -19,7 +21,7 @@
     </ul>{% endif %}
     <div style="margin-top:22px;display:flex;gap:10px">
       <button class="btn" type="submit" style="flex:1">ENVIAR BOLETO</button>
-      <a class="btn claro" href="{% url 'home' %}">Voltar</a>
+      <a class="btn claro" href="{% if varios %}{% url 'anexar_boleto' %}{% else %}{% url 'home' %}{% endif %}">Voltar</a>
     </div>
   </form>
 </div>

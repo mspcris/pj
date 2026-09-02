@@ -990,6 +990,45 @@ class HomePjTest(BaseSetup):
         self.assertContains(resp, 'Todos os seus boletos')
 
 
+class AnexarPorPostoTest(BaseSetup):
+    """PJ com vários postos: quadrados por posto → formulário do posto →
+    volta aos quadrados."""
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_quadrados_e_fluxo(self, m_async):
+        self.login_pj()
+        resp = self.client.get('/boleto/')
+        self.assertContains(resp, 'Anchieta')
+        self.assertContains(resp, 'Bangu')
+        self.assertContains(resp, 'Falta anexar', count=2)
+        self.assertContains(resp, '0 de 2')
+        # toca em Anchieta → formulário com o posto travado
+        resp = self.client.get(f'/boleto/?posto={self.posto1.pk}')
+        self.assertContains(resp, 'Anexar boleto — Anchieta')
+        self.assertContains(resp, 'type="hidden" name="posto"')
+        self.assertContains(resp, 'trocar de posto')
+        hoje = date.today().replace(day=1)
+        resp = self.client.post('/boleto/', {
+            'competencia': hoje.isoformat(), 'posto': self.posto1.pk,
+            'arquivo': _pdf()})
+        self.assertRedirects(resp, '/boleto/')
+        resp = self.client.get('/boleto/')
+        self.assertContains(resp, '1 de 2')
+        self.assertContains(resp, 'Falta anexar', count=1)
+        self.assertContains(resp, 'toque para anexar outro')
+        self.assertEqual(Boleto.objects.get().posto, self.posto1)
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_boleto_unico_vai_direto_ao_formulario(self, m_async):
+        self.prestador.modo_boleto = Prestador.ModoBoleto.UNICO
+        self.prestador.posto_cobranca = self.posto1
+        self.prestador.save()
+        self.login_pj()
+        resp = self.client.get('/boleto/')
+        self.assertContains(resp, 'ENVIAR BOLETO')
+        self.assertNotContains(resp, 'Falta anexar')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale
