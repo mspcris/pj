@@ -87,9 +87,10 @@ class Prestador(models.Model):
         POSTERIOR = 'POSTERIOR', ('Pagamento no mês seguinte à prestação '
                                   'do serviço')
     # Boleto.competencia é SEMPRE o mês do pagamento (a régua). O regime
-    # diz qual foi o mês do serviço: o mesmo (vigente) ou o anterior.
+    # diz qual foi o mês do serviço: o anterior (padrão — quase todos) ou
+    # o mesmo (vigente — exceção, ex.: Erick).
     regime_pagamento = models.CharField(max_length=10, choices=Regime.choices,
-                                        default=Regime.VIGENTE)
+                                        default=Regime.POSTERIOR)
     # Prazos do contrato (a IA tenta ler do PDF ao anexar; editáveis).
     dia_pagamento = models.PositiveSmallIntegerField(
         null=True, blank=True,

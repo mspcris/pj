@@ -822,7 +822,13 @@ class RegimePagamentoTest(BaseSetup):
         self.assertTrue(pj.startswith('Prezado'), pj)
         self.assertIn('Representante: Guido Cerqueira', pj)
 
+    def test_padrao_e_mes_seguinte(self):
+        self.assertEqual(Prestador().regime_pagamento,
+                         Prestador.Regime.POSTERIOR)
+
     def test_vigente(self):
+        self.prestador.regime_pagamento = Prestador.Regime.VIGENTE
+        self.prestador.save()
         dados, b = self._dados()
         self.assertNotIn('Representante:', dados)  # igual ao nome: omite
         self.assertIn('Serviço prestado em: setembro/2026', dados)
@@ -831,7 +837,6 @@ class RegimePagamentoTest(BaseSetup):
         self.assertNotIn('Vencimento', dados)
 
     def test_posterior_com_prazos_do_contrato(self):
-        self.prestador.regime_pagamento = Prestador.Regime.POSTERIOR
         self.prestador.dia_pagamento = 10
         self.prestador.dia_vencimento = 5
         self.prestador.save()

@@ -339,7 +339,7 @@ class PrestadorForm(forms.ModelForm):
 
     def clean_regime_pagamento(self):
         return (self.cleaned_data.get('regime_pagamento')
-                or Prestador.Regime.VIGENTE)
+                or Prestador.Regime.POSTERIOR)
 
     def clean_dia_pagamento(self):
         d = self.cleaned_data.get('dia_pagamento')
