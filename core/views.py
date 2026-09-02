@@ -163,10 +163,12 @@ def anexar_boleto(request, up):
 
 
 def _postos_para_contrato(prestador):
-    """Postos onde o PJ pode ver/anexar contrato: os vinculados e, no modo
-    boleto ÚNICO, o posto de cobrança (Caio: Realengo)."""
+    """Postos onde o PJ pode ver/anexar contrato: os vinculados, o posto
+    de cobrança (boleto ÚNICO — Caio: Realengo) e qualquer posto que já
+    tenha contrato dele (Fátima: contrato com Anchieta, paga Nilópolis)."""
     from django.db.models import Q
-    filtro = Q(vinculos__prestador=prestador, vinculos__ativo=True)
+    filtro = (Q(vinculos__prestador=prestador, vinculos__ativo=True)
+              | Q(contratos__prestador=prestador))
     if prestador.posto_cobranca_id:
         filtro |= Q(pk=prestador.posto_cobranca_id)
     return Posto.objects.filter(filtro, ativo=True).distinct().order_by('nome')

@@ -1072,6 +1072,12 @@ class ContratoBoletoUnicoTest(BaseSetup):
         self.assertTrue(m_ap.called)
         self.assertEqual(Contrato.objects.filter(
             prestador=self.prestador).count(), 1)
+        # Fátima: contrato com Anchieta, paga por Nilópolis → vê os dois
+        Contrato.objects.create(prestador=self.prestador, posto=self.posto1,
+                                arquivo=_pdf('c2.pdf'), nome_original='c2')
+        resp = self.client.get('/contratos/')
+        self.assertContains(resp, 'Anchieta')
+        self.assertContains(resp, self.prestador.posto_cobranca.nome)
 
 
 class ValeTest(BaseSetup):
