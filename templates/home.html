@@ -19,15 +19,21 @@
   </div>
 </a>
 
-{% if boletos %}
+{% if boletos or todos %}
 <div class="card">
-  <h2 style="font-size:1.05rem;margin-bottom:10px">Seus últimos boletos</h2>
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+    <h2 style="font-size:1.05rem;margin:0">{% if todos %}Todos os seus boletos{% else %}Seus boletos dos últimos 60 dias{% endif %}</h2>
+    {% if todos %}<a class="btn mini claro" href="{% url 'home' %}">últimos 60 dias</a>
+    {% elif ocultos %}<a class="btn mini claro" href="{% url 'home' %}?todos=1">ver todos ({{ ocultos }} mais antigo{{ ocultos|pluralize }})</a>{% endif %}
+  </div>
   <div class="rolagem"><table>
-    <tr><th>Mês</th><th>Posto</th><th>Situação</th></tr>
+    <tr><th>Mês</th><th>Posto</th><th>Valor</th><th>Enviado em</th><th>Situação</th></tr>
     {% for b in boletos %}
     <tr>
       <td><strong>{{ b.competencia|date:"m/Y" }}</strong></td>
-      <td>{{ b.posto_efetivo|default:"—" }}</td>
+      <td>{{ b.posto_efetivo|default:"—" }}{% if b.parcial %} <span class="sub" style="font-size:.72rem">🧩 parcial</span>{% endif %}{% if b.extra %} <span class="sub" style="font-size:.72rem">extra</span>{% endif %}</td>
+      <td>{% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}—{% endif %}</td>
+      <td class="sub">{{ b.criado_em|date:"d/m H:i" }}</td>
       <td><span class="chip {{ b.status }}">{{ b.get_status_display }}</span></td>
     </tr>
     {% endfor %}

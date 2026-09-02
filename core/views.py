@@ -5,6 +5,7 @@ from functools import wraps
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import FileResponse, Http404
+from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import BoletoForm, ContratoForm
@@ -72,10 +73,21 @@ def sem_acesso(request):
 def home(request, up):
     if up.prestador is None and up.is_admin:
         return redirect('painel_dashboard')
-    boletos = (Boleto.objects.filter(prestador=up.prestador)
-               .exclude(status=Boleto.Status.SUBSTITUIDO)
-               .select_related('posto', 'prestador__posto_cobranca')[:6])
-    return render(request, 'home.html', {'up': up, 'boletos': boletos})
+    # Últimos 60 dias por padrão (cabe o mês inteiro de quem manda um
+    # boleto por posto); "?todos=1" lista tudo.
+    todos = request.GET.get('todos') == '1'
+    qs = (Boleto.objects.filter(prestador=up.prestador)
+          .exclude(status=Boleto.Status.SUBSTITUIDO)
+          .select_related('posto', 'prestador__posto_cobranca')
+          .order_by('-criado_em'))
+    total = qs.count()
+    if not todos:
+        limite = timezone.now() - timezone.timedelta(days=60)
+        qs = qs.filter(criado_em__gte=limite)
+    boletos = list(qs)
+    return render(request, 'home.html', {
+        'up': up, 'boletos': boletos, 'todos': todos,
+        'ocultos': total - len(boletos)})
 
 
 @prestador_required

@@ -967,6 +967,29 @@ class CpfRepresentanteTest(BaseSetup):
                          '029.303.624-13')
 
 
+class HomePjTest(BaseSetup):
+    def test_lista_60_dias_e_ver_todos(self):
+        from django.utils import timezone
+        for i in range(9):
+            Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=date(2026, 9, 1),
+                                  valor_extraido=Decimal('10.00') * (i + 1))
+        antigo = Boleto.objects.create(prestador=self.prestador,
+                                       posto=self.posto2,
+                                       competencia=date(2026, 5, 1))
+        Boleto.objects.filter(pk=antigo.pk).update(
+            criado_em=timezone.now() - timezone.timedelta(days=90))
+        self.login_pj()
+        resp = self.client.get('/')
+        self.assertContains(resp, 'últimos 60 dias')
+        self.assertContains(resp, 'R$ 90,00')  # os 9 aparecem
+        self.assertNotContains(resp, '05/2026')
+        self.assertContains(resp, 'ver todos (1 mais antigo)')
+        resp = self.client.get('/?todos=1')
+        self.assertContains(resp, '05/2026')
+        self.assertContains(resp, 'Todos os seus boletos')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale
