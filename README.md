@@ -115,6 +115,7 @@ sudo rsync -a --exclude .venv --exclude db.sqlite3 ./ /opt/pj/
 cd /opt/pj && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python manage.py migrate && .venv/bin/python manage.py collectstatic --noinput
 sudo cp deploy/pj.service /etc/systemd/system/ && sudo systemctl enable --now pj
+# Deploys seguintes: rsync + migrate + `sudo systemctl reload pj` (suave, sem derrubar requisições)
 sudo cp deploy/nginx-pj.conf /etc/nginx/sites-available/pj
 sudo ln -s /etc/nginx/sites-available/pj /etc/nginx/sites-enabled/
 sudo certbot --nginx -d pj.camim.com.br && sudo systemctl reload nginx

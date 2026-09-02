@@ -11,7 +11,11 @@ WorkingDirectory=/opt/pj
 Environment=PYTHONUNBUFFERED=1
 Environment=HOME=/opt/pj
 ExecStart=/opt/pj/.venv/bin/gunicorn pj.wsgi:application \
-  --bind 127.0.0.1:8022 --workers 3 --timeout 120
+  --bind 127.0.0.1:8022 --workers 3 --timeout 120 --graceful-timeout 30
+# Deploy SEM derrubar ninguém: `systemctl reload pj` (HUP) troca os workers
+# um a um, terminando as requisições em andamento. `restart` só quando
+# mudar o próprio unit/venv.
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
 

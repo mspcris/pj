@@ -103,7 +103,9 @@ def extrair_dados_contrato(texto_contrato):
         'documento.')
     bruto = _chamar(
         [{'role': 'system', 'content': system},
-         {'role': 'user', 'content': texto_contrato[:60000]}],
+         # Contrato longo estoura o limite do modelo (400 na JRA): o que
+         # interessa (partes, endereço, prazos) está no começo.
+         {'role': 'user', 'content': texto_contrato[:28000]}],
         temperature=0.0, json_mode=True)
     dados = json.loads(bruto)
 
