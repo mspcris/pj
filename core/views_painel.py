@@ -592,8 +592,25 @@ def prestadores(request, up):
             return redirect('painel_prestador', pk=p.pk)
     else:
         form = PrestadorForm()
-    lista = (Prestador.objects.filter(excluido_em__isnull=True)
-             .prefetch_related('vinculos__posto', 'usuarios'))
+    lista = list(Prestador.objects.filter(excluido_em__isnull=True)
+                 .select_related('posto_cobranca')
+                 .prefetch_related('vinculos__posto', 'usuarios',
+                                   'contratos'))
+    hoje = timezone.localdate()
+    for p in lista:
+        # Contrato vigente por posto (contrato "geral", sem posto, cobre
+        # todos). Posto sem contrato vigente = vermelho + link p/ anexar.
+        vigentes = [c for c in p.contratos.all() if c.vigente]
+        geral = any(c.posto_id is None for c in vigentes)
+        cobertos = {c.posto_id for c in vigentes}
+        if p.modo_boleto == Prestador.ModoBoleto.UNICO:
+            postos = [p.posto_cobranca] if p.posto_cobranca else []
+        else:
+            postos = [v.posto for v in p.vinculos.all()
+                      if v.ativo and v.posto.ativo]
+        p.postos_info = [{'posto': x,
+                          'ok': geral or x.pk in cobertos} for x in postos]
+        p.sem_contrato = sum(1 for i in p.postos_info if not i['ok'])
     return render(request, 'painel/prestadores.html',
                   {'lista': lista, 'form': form, 'up': up})
 
@@ -750,11 +767,16 @@ def prestador_detalhe(request, up, pk):
         vales.append({'vale': v, 'parcela_atual': v.parcela_em(mes_atual),
                       'pendentes': pendentes,
                       'descontadas': v.parcelas_total - len(pendentes)})
+    # ?anexar=<posto> (vindo do vermelho da lista): abre "Anexar contrato"
+    # já com o posto escolhido.
+    anexar = Posto.objects.filter(pk=request.GET.get('anexar') or 0).first()
+    contrato_form = ContratoAdminForm(
+        initial={'posto': anexar.pk} if anexar else None)
     return render(request, 'painel/prestador_form.html', {
         'prestador': prestador, 'form': form, 'linhas_postos': linhas_postos,
         'contratos': contratos, 'usuarios': prestador.usuarios.all(),
         'vales': vales, 'vale_form': ValeForm(),
-        'contrato_form': ContratoAdminForm(), 'up': up})
+        'contrato_form': contrato_form, 'anexar': anexar, 'up': up})
 
 
 @admin_required

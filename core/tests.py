@@ -1174,8 +1174,32 @@ class ListaPrestadoresTest(BaseSetup):
         self.prestador.save()
         self.login_admin()
         resp = self.client.get('/painel/prestadores/')
-        self.assertContains(resp, '<strong>Realengo</strong>')
+        self.assertContains(resp, 'Realengo</a>')  # vermelho: sem contrato
         self.assertContains(resp, 'R$ 3.990,00')
+
+    def test_posto_sem_contrato_vigente_fica_vermelho_com_link(self):
+        # Anchieta com contrato vigente; Bangu com contrato VENCIDO
+        Contrato.objects.create(prestador=self.prestador, posto=self.posto1,
+                                arquivo=_pdf('a.pdf'), nome_original='a',
+                                vigencia_fim=date(2099, 1, 1))
+        Contrato.objects.create(prestador=self.prestador, posto=self.posto2,
+                                arquivo=_pdf('b.pdf'), nome_original='b',
+                                vigencia_fim=date(2020, 1, 1))
+        self.login_admin()
+        resp = self.client.get('/painel/prestadores/')
+        self.assertContains(resp, '<span title="contrato vigente">Anchieta')
+        self.assertContains(resp, f'?anexar={self.posto2.pk}#contratos')
+        self.assertContains(resp, '1 sem contrato vigente')
+        # o link abre a página com "Anexar contrato" aberto e o posto escolhido
+        resp = self.client.get(f'/painel/prestadores/{self.prestador.pk}/'
+                               f'?anexar={self.posto2.pk}')
+        self.assertContains(resp, 'Bangu está sem contrato vigente')
+        self.assertContains(resp, f'<option value="{self.posto2.pk}" selected')
+        # contrato GERAL (sem posto) cobre todos
+        Contrato.objects.create(prestador=self.prestador, posto=None,
+                                arquivo=_pdf('g.pdf'), nome_original='g')
+        resp = self.client.get('/painel/prestadores/')
+        self.assertNotContains(resp, 'sem contrato vigente')
 
 
 class ValeTest(BaseSetup):
