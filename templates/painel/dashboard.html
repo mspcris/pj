@@ -17,10 +17,45 @@
     ➕ Cadastrar boleto (chegou pelo zap)</a>
 </div>
 <div class="mesnav">
-  <a href="?m={{ ant|date:'Y-m' }}">←</a>
+  <a href="?m={{ ant|date:'Y-m' }}{{ qs_filtro }}">←</a>
   <div class="mes">{{ mes_extenso }}</div>
-  <a href="?m={{ prox|date:'Y-m' }}">→</a>
+  <a href="?m={{ prox|date:'Y-m' }}{{ qs_filtro }}">→</a>
 </div>
+
+<form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 14px">
+  <input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
+  <select name="prestador" onchange="this.form.submit()">
+    <option value="">👤 todos os prestadores</option>
+    {% for p in prestadores %}<option value="{{ p.pk }}" {% if filtro.prestador and filtro.prestador.pk == p.pk %}selected{% endif %}>{{ p.nome }}</option>{% endfor %}
+  </select>
+  <select name="posto" onchange="this.form.submit()">
+    <option value="">🏥 todos os postos</option>
+    {% for p in postos %}<option value="{{ p.pk }}" {% if filtro.posto and filtro.posto.pk == p.pk %}selected{% endif %}>{{ p.nome }}</option>{% endfor %}
+  </select>
+  {% if filtro.prestador or filtro.posto %}
+  <a class="btn mini claro" href="?m={{ mes|date:'Y-m' }}">✕ limpar filtro</a>
+  {% endif %}
+</form>
+
+{% if filtro.prestador or filtro.posto %}
+<div class="card" style="border:2px solid {% if resumo_filtro.passou %}#8a1c1c{% elif resumo_filtro.falta %}var(--dourado){% else %}#0b7a5e{% endif %}">
+  <div style="font-size:1.05rem;font-weight:800">
+    🧮 {% if filtro.prestador %}{{ filtro.prestador.nome }}{% endif %}{% if filtro.prestador and filtro.posto %} — {% endif %}{% if filtro.posto %}{{ filtro.posto.nome }}{% endif %}
+    · {{ mes_extenso }}</div>
+  <div style="display:flex;gap:26px;flex-wrap:wrap;margin-top:8px;font-size:1rem">
+    <div><span class="sub">Previsto ({{ resumo_filtro.postos }} linha{{ resumo_filtro.postos|pluralize }})</span><br><strong>R$ {{ resumo_filtro.previsto }}</strong></div>
+    <div><span class="sub">Boletos até aqui</span><br><strong>R$ {{ resumo_filtro.entrou }}</strong></div>
+    <div>
+      {% if resumo_filtro.passou %}<span class="sub">PASSOU do previsto</span><br><strong style="color:#8a1c1c">⚠️ +R$ {{ resumo_filtro.passou }}</strong>
+      {% elif resumo_filtro.falta %}<span class="sub">Falta</span><br><strong style="color:#7a4b00">⏳ R$ {{ resumo_filtro.falta }}</strong>
+      {% else %}<span class="sub">Falta</span><br><strong style="color:#0b5e3c">✅ R$ 0,00 — completo</strong>{% endif %}
+    </div>
+    {% if resumo_filtro.pendentes %}<div><span class="sub">Em verificação (não contam)</span><br><strong>{{ resumo_filtro.pendentes }}</strong></div>{% endif %}
+    {% if resumo_filtro.sem_boleto %}<div><span class="sub">Sem boleto</span><br><strong style="color:#8a1c1c">{{ resumo_filtro.sem_boleto }}</strong></div>{% endif %}
+  </div>
+  <p class="sub" style="margin:8px 0 0;font-size:.78rem">"Boletos até aqui" soma só o que já foi aprovado/enviado ao financeiro/pago. Cobranças EXTRAS ficam fora da conta.</p>
+</div>
+{% endif %}
 
 {% if pendentes_baixo %}
 <a href="#secoes-extras" style="display:block;background:#fdf3e3;
@@ -71,7 +106,7 @@
           <div class="sub" style="font-size:.72rem;max-width:230px">{{ b.motivo_manual|truncatechars:70 }}</div>
         {% endif %}
         {% if l.diferenca %}<div class="sub" style="font-size:.72rem;color:#7a4b00;font-weight:700"
-          title="Valor do boleto diferente do combinado">≠ combinado: {% if l.diferenca > 0 %}+{% else %}−{% endif %}R$ {{ l.diferenca|cut:"-" }}</div>{% endif %}
+          title="Valor do boleto diferente do combinado">≠ combinado: {{ l.diferenca_txt }}</div>{% endif %}
         {% if b.observacao %}<span title="{{ b.observacao }}">📝</span>{% endif %}</td>
       <td><div class="acoes">
         <a class="btn mini claro" title="Editar posto/mês/observação"
@@ -104,7 +139,7 @@
         {% endif %}
       </div></td>
       {% elif l.parciais %}
-      <td>🧩 {{ l.parciais|length }} parcial{{ l.parciais|length|pluralize:"is" }}
+      <td>🧩 {{ l.parciais|length }} {% if l.parciais|length == 1 %}parcial{% else %}parciais{% endif %}
         {% if l.parciais_valores %}<div class="sub" style="font-size:.72rem">{{ l.parciais_valores }}</div>{% endif %}</td>
       <td><span class="chip {% if l.parciais_falta == 0 %}APROVADO{% else %}RECEBIDO{% endif %}">
         Parciais: R$ {{ l.parciais_soma }} de R$ {{ l.valor }}</span>

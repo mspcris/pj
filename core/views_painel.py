@@ -126,6 +126,61 @@ def dashboard(request, up):
                               and abs(achado.valor_extraido - valor)
                               > Decimal('0.01') else None),
             })
+            if linhas[-1]['diferenca'] is not None:
+                from .services.verificacao import _moeda
+                d = linhas[-1]['diferenca']
+                linhas[-1]['diferenca_txt'] = (
+                    ('+' if d > 0 else '−') + 'R$ ' + _moeda(abs(d)))
+
+    # FILTRO por prestador ou posto: a régua vira uma tela de conferência
+    # ("Elias: previsto 9.000, boletos até aqui 8.999,40, falta 0,60").
+    filtro = {'prestador': None, 'posto': None}
+    g = request.GET
+    if g.get('prestador', '').isdigit():
+        filtro['prestador'] = Prestador.objects.filter(
+            pk=int(g['prestador'])).first()
+    if g.get('posto', '').isdigit():
+        filtro['posto'] = Posto.objects.filter(pk=int(g['posto'])).first()
+
+    def bate(prestador_id, posto_id):
+        if filtro['prestador'] and prestador_id != filtro['prestador'].pk:
+            return False
+        if filtro['posto'] and posto_id != filtro['posto'].pk:
+            return False
+        return True
+    if filtro['prestador'] or filtro['posto']:
+        linhas = [l for l in linhas
+                  if bate(l['prestador'].pk,
+                          l['posto'].pk if l['posto'] else None)]
+        boletos_mes = [b for b in boletos_mes
+                       if bate(b.prestador_id,
+                               b.posto_efetivo.pk if b.posto_efetivo
+                               else None)]
+
+    aprov = (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO,
+             Boleto.Status.PAGO)
+    previsto = sum((l['valor'] for l in linhas if l['valor'] is not None),
+                   Decimal('0'))
+    entrou = Decimal('0')
+    pendentes_valor = 0
+    for l in linhas:
+        b = l['boleto']
+        if b is not None:
+            if b.status in aprov and b.valor_extraido is not None:
+                entrou += b.valor_extraido
+            elif b.status not in aprov:
+                pendentes_valor += 1
+        entrou += l['parciais_soma']
+        pendentes_valor += len(l['parciais_pendentes'])
+    resumo_filtro = {
+        'previsto': previsto, 'entrou': entrou,
+        'falta': max(Decimal('0'), previsto - entrou),
+        'passou': max(Decimal('0'), entrou - previsto),
+        'pendentes': pendentes_valor,
+        'postos': len(linhas),
+        'sem_boleto': sum(1 for l in linhas
+                          if l['boleto'] is None and not l['parciais']),
+    }
 
     sobras = [b for b in boletos_mes if b.pk not in casados]
     # Extras e parciais são cobranças LEGÍTIMAS — seções próprias, sem tom
@@ -169,8 +224,15 @@ def dashboard(request, up):
         if b.status in (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO))
     resumo['pagos'] += sum(1 for b in (extras + parciais_mes)
                            if b.status == Boleto.Status.PAGO)
-    return render(request, 'painel/dashboard.html', {'grupos_parciais': grupos_parciais, 'parciais_soltas': soltas,
-                   
+    qs_filtro = ''.join(
+        f'&{k}={v.pk}' for k, v in filtro.items() if v is not None)
+    return render(request, 'painel/dashboard.html', {
+        'grupos_parciais': grupos_parciais, 'parciais_soltas': soltas,
+        'filtro': filtro, 'qs_filtro': qs_filtro,
+        'resumo_filtro': resumo_filtro,
+        'prestadores': Prestador.objects.filter(ativo=True).order_by('nome'),
+        'postos': Posto.objects.filter(ativo=True, excluido_em__isnull=True)
+                               .order_by('nome'),
         'mes': mes, 'mes_extenso': competencia_extenso(mes).capitalize(),
         'ant': ant, 'prox': prox, 'linhas': linhas, 'extras': extras,
         'parciais_mes': parciais_mes,

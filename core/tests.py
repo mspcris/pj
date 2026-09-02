@@ -663,6 +663,40 @@ class QuantoFaltaTest(BaseSetup):
                                    resp.content.decode()))
 
 
+class FiltroPainelTest(BaseSetup):
+    """Filtrar o painel por prestador/posto vira tela de conferência:
+    previsto × boletos até aqui × falta, e a tabela só do filtro."""
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_resumo_por_prestador_e_por_posto(self, m_async):
+        mes = date.today().replace(day=1)
+        outro = Prestador.objects.create(nome='Outro PJ')
+        PrestadorPosto.objects.create(prestador=outro, posto=self.posto2,
+                                      valor_mensal=Decimal('700.00'))
+        # Anchieta: 2 parciais (500 + 999,99) de 1.500; Bangu: cheio 2.000
+        for v in ('500.00', '999.99'):
+            Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=mes, parcial=True,
+                                  status=Boleto.Status.APROVADO,
+                                  valor_extraido=Decimal(v))
+        Boleto.objects.create(prestador=self.prestador, posto=self.posto2,
+                              competencia=mes, status=Boleto.Status.PAGO,
+                              valor_extraido=Decimal('2000.00'))
+        self.login_admin()
+        resp = self.client.get(f'/painel/?prestador={self.prestador.pk}')
+        self.assertContains(resp, '🧮 Limpeza Total LTDA')
+        self.assertContains(resp, 'R$ 3.500,00')   # previsto
+        self.assertContains(resp, 'R$ 3.499,99')   # até aqui
+        self.assertContains(resp, '⏳ R$ 0,01')     # falta
+        self.assertNotContains(resp, 'Outro PJ</strong>')
+        resp = self.client.get(f'/painel/?posto={self.posto2.pk}')
+        self.assertContains(resp, 'R$ 2.700,00')   # 2.000 + 700 previstos
+        self.assertContains(resp, 'Outro PJ')
+        self.assertNotContains(resp, 'Anchieta</td>')
+        # setas do mês carregam o filtro
+        self.assertContains(resp, f'&amp;posto={self.posto2.pk}">→</a>')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale
