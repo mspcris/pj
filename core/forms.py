@@ -290,12 +290,18 @@ class PrestadorForm(forms.ModelForm):
         model = Prestador
         fields = ['nome', 'representante', 'representante_nome_social',
                   'cnpj', 'modo_boleto', 'posto_cobranca',
-                  'valor_unico', 'exige_nf', 'ativo', 'emails_aviso',
+                  'valor_unico', 'regime_pagamento', 'dia_pagamento',
+                  'dia_vencimento', 'exige_nf', 'ativo', 'emails_aviso',
                   'observacao']
         widgets = {'observacao': forms.Textarea(attrs={'rows': 2}),
                    'emails_aviso': forms.TextInput(attrs={
                        'placeholder': 'fulano@gmail.com, outro@x.com'})}
-        labels = {'representante': 'Representante (a pessoa — é quem os '
+        labels = {'regime_pagamento': 'Regime de pagamento',
+                  'dia_pagamento': 'Data prevista para pagamento — dia do '
+                                   'mês (lido do contrato; pode mudar)',
+                  'dia_vencimento': 'Vencimento do boleto — dia do mês '
+                                    '(lido do contrato; pode mudar)',
+                  'representante': 'Representante (a pessoa — é quem os '
                                    'e-mails tratam por "Prezado(a)")',
                   'representante_nome_social': 'Representante — Nome social '
                                                '(se preenchido, é assim que '
@@ -312,6 +318,23 @@ class PrestadorForm(forms.ModelForm):
             'Posto cobrança (só no modo boleto ÚNICO)'
         self.fields['valor_unico'].label = \
             'Valor do boleto único (só no modo ÚNICO; vazio = soma dos postos)'
+        self.fields['regime_pagamento'].required = False
+
+    def clean_regime_pagamento(self):
+        return (self.cleaned_data.get('regime_pagamento')
+                or Prestador.Regime.VIGENTE)
+
+    def clean_dia_pagamento(self):
+        d = self.cleaned_data.get('dia_pagamento')
+        if d is not None and not 1 <= d <= 31:
+            raise forms.ValidationError('Dia entre 1 e 31.')
+        return d
+
+    def clean_dia_vencimento(self):
+        d = self.cleaned_data.get('dia_vencimento')
+        if d is not None and not 1 <= d <= 31:
+            raise forms.ValidationError('Dia entre 1 e 31.')
+        return d
 
     def clean_representante(self):
         # Vazio = a própria empresa (cadastros antigos: nome == representante)

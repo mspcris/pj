@@ -786,6 +786,93 @@ class RepresentanteTest(BaseSetup):
         self.assertEqual(f.cleaned_data['representante'], 'Empresa X')
 
 
+class RegimePagamentoTest(BaseSetup):
+    """Serviço prestado em X / Competência / Pagamento em Y nos e-mails."""
+
+    def _dados(self):
+        b = Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=date(2026, 9, 1),
+                                  valor_extraido=Decimal('1500.00'))
+        return verificacao.dados_pj(b, verificacao._fatos(b)), b
+
+    def test_pagador_e_saudado_como_equipe_e_ve_o_representante(self):
+        self.prestador.representante = 'Guido Cerqueira'
+        self.prestador.save()
+        b = Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=date(2026, 9, 1),
+                                  valor_extraido=Decimal('1500.00'),
+                                  linha_digitavel=_linha_47(150000))
+        with mock.patch('core.services.emails.enviar',
+                        return_value=True) as m_mail, \
+             mock.patch('core.services.ia.redigir_email',
+                        side_effect=RuntimeError('off')):
+            verificacao.enviar_para_pagamento(b)
+        pag = [c for c in m_mail.call_args_list
+               if c.args[0] == 'equipe@camim.com.br'][-1].args[2]
+        self.assertTrue(pag.startswith('Prezada equipe do setor financeiro,'),
+                        pag)
+        self.assertNotIn('Prezado(a) Guido', pag)
+        self.assertIn('Representante: Guido Cerqueira', pag)
+        pj = [c for c in m_mail.call_args_list
+              if c.args[0] == ['pj@empresa.com.br']][-1].args[2]
+        self.assertTrue(pj.startswith('Prezado'), pj)
+        self.assertIn('Representante: Guido Cerqueira', pj)
+
+    def test_vigente(self):
+        dados, b = self._dados()
+        self.assertNotIn('Representante:', dados)  # igual ao nome: omite
+        self.assertIn('Serviço prestado em: setembro/2026', dados)
+        self.assertIn('Competência: setembro/2026', dados)
+        self.assertNotIn('Pagamento em:', dados)
+        self.assertNotIn('Vencimento', dados)
+
+    def test_posterior_com_prazos_do_contrato(self):
+        self.prestador.regime_pagamento = Prestador.Regime.POSTERIOR
+        self.prestador.dia_pagamento = 10
+        self.prestador.dia_vencimento = 5
+        self.prestador.save()
+        self.assertEqual(self.prestador.mes_servico(date(2026, 1, 1)),
+                         date(2025, 12, 1))
+        dados, b = self._dados()
+        self.assertIn('Serviço prestado em: agosto/2026', dados)
+        self.assertIn('Competência: agosto/2026', dados)
+        self.assertIn('Pagamento em: setembro/2026', dados)
+        self.assertIn('Pagamento previsto: dia 10 de setembro/2026', dados)
+        self.assertIn('Vencimento: dia 5 (previsto no contrato)', dados)
+        pag = verificacao.dados_pagamento(b, verificacao._fatos(b))
+        self.assertIn('Pagamento em: setembro/2026', pag)
+        # o assunto continua pelo mês do pagamento (chave do financeiro)
+        self.assertEqual(verificacao._fatos(b)['competencia'],
+                         'setembro/2026')
+
+    def test_contrato_preenche_so_o_que_esta_em_branco(self):
+        from core.models import Contrato
+        from core.services.contratos import aplicar_prazos
+        self.prestador.dia_vencimento = 20  # já digitado: não mexe
+        self.prestador.save()
+        c = Contrato.objects.create(prestador=self.prestador,
+                                    arquivo=_pdf('contrato.pdf'),
+                                    nome_original='contrato.pdf')
+        with mock.patch('core.services.pdf.extrair_texto',
+                        return_value='pagamento até o dia 10 do mês '
+                                     'subsequente'), \
+             mock.patch('core.services.ia.extrair_prazos_contrato',
+                        return_value={'dia_pagamento': 10,
+                                      'dia_vencimento': 5,
+                                      'regime': 'POSTERIOR',
+                                      'trecho': 'até o dia 10'}):
+            lidos = aplicar_prazos(c)
+        self.prestador.refresh_from_db()
+        self.assertEqual(self.prestador.dia_pagamento, 10)
+        self.assertEqual(self.prestador.dia_vencimento, 20)
+        self.assertEqual(lidos['regime_sugerido'], 'POSTERIOR')
+        # IA fora do ar: nada quebra, nada muda
+        with mock.patch('core.services.pdf.extrair_texto', return_value='x'), \
+             mock.patch('core.services.ia.extrair_prazos_contrato',
+                        side_effect=RuntimeError('off')):
+            self.assertEqual(aplicar_prazos(c), {})
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

@@ -78,6 +78,31 @@ class Prestador(models.Model):
                                        related_name='+')
     valor_unico = models.DecimalField(max_digits=12, decimal_places=2,
                                       null=True, blank=True)
+
+    class Regime(models.TextChoices):
+        VIGENTE = 'VIGENTE', ('Pagamento no mês vigente — serviço e '
+                              'pagamento no mesmo mês')
+        POSTERIOR = 'POSTERIOR', ('Pagamento no mês seguinte à prestação '
+                                  'do serviço')
+    # Boleto.competencia é SEMPRE o mês do pagamento (a régua). O regime
+    # diz qual foi o mês do serviço: o mesmo (vigente) ou o anterior.
+    regime_pagamento = models.CharField(max_length=10, choices=Regime.choices,
+                                        default=Regime.VIGENTE)
+    # Prazos do contrato (a IA tenta ler do PDF ao anexar; editáveis).
+    dia_pagamento = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        verbose_name='Data prevista para pagamento (dia do mês)')
+    dia_vencimento = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        verbose_name='Vencimento do boleto (dia do mês)')
+
+    def mes_servico(self, competencia):
+        """Mês em que o serviço foi prestado, dado o mês do pagamento."""
+        if self.regime_pagamento == self.Regime.POSTERIOR:
+            m = competencia.month - 1 or 12
+            ano = competencia.year - (1 if m == 12 else 0)
+            return competencia.replace(year=ano, month=m, day=1)
+        return competencia.replace(day=1)
     # Só aceita boleto acompanhado de nota fiscal (modelo nacional NFS-e).
     exige_nf = models.BooleanField(
         default=False, verbose_name='Exigir nota fiscal anexa')

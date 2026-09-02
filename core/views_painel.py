@@ -606,7 +606,7 @@ def prestador_detalhe(request, up, pk):
             cform = ContratoAdminForm(request.POST, request.FILES)
             if cform.is_valid():
                 arq = cform.cleaned_data['arquivo']
-                Contrato.objects.create(
+                contrato = Contrato.objects.create(
                     prestador=prestador, posto=cform.cleaned_data['posto'],
                     arquivo=arq, nome_original=arq.name[:255],
                     enviado_por=up.email,
@@ -615,7 +615,23 @@ def prestador_detalhe(request, up, pk):
                 AuditLog.registrar(AuditLog.Evento.UPLOAD_CONTRATO, request,
                                    detalhe=f'(painel) {prestador} — '
                                            f'{arq.name[:60]}')
-                messages.success(request, 'Contrato anexado.')
+                from .services.contratos import aplicar_prazos
+                lidos = aplicar_prazos(contrato)
+                aviso = ''
+                if lidos.get('dia_pagamento') or lidos.get('dia_vencimento'):
+                    aviso += (' Lido do contrato:'
+                              + (f' pagamento dia {lidos["dia_pagamento"]};'
+                                 if lidos.get('dia_pagamento') else '')
+                              + (f' vencimento dia {lidos["dia_vencimento"]};'
+                                 if lidos.get('dia_vencimento') else '')
+                              + ' confira no cadastro.')
+                if lidos.get('regime_sugerido') and \
+                        lidos['regime_sugerido'] != prestador.regime_pagamento:
+                    aviso += (f' O contrato sugere regime '
+                              f'{lidos["regime_sugerido"]} — o cadastro está '
+                              f'{prestador.regime_pagamento}; ajuste se for '
+                              'o caso.')
+                messages.success(request, 'Contrato anexado.' + aviso)
             else:
                 messages.error(request, f'Contrato inválido: {cform.errors}')
             return redirect('painel_prestador', pk=pk)

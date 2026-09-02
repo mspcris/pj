@@ -32,10 +32,10 @@ _APROVADO_PJ = [
 ]
 
 _APROVADO_PAGADOR = [
-    ('Equipe,\n\nSegue em anexo o boleto de {prestador} ({alvo}), competência '
+    ('Prezada equipe do setor financeiro,\n\nSegue em anexo o boleto de {prestador} ({alvo}), competência '
      '{competencia}, no valor de R$ {valor}. Valor conferido com o contrato — '
      'favor efetuar o pagamento.\n\nAbraço,\nCristiano'),
-    ('Equipe,\n\nEncaminho para pagamento o boleto anexo: {prestador} — '
+    ('Prezada equipe do setor financeiro,\n\nEncaminho para pagamento o boleto anexo: {prestador} — '
      '{alvo} — {competencia} — R$ {valor}. Já validei o valor.\n\n'
      'Abraço,\nCristiano'),
 ]
@@ -56,10 +56,10 @@ _APROVADO_PJ_PARCIAL = [
 ]
 
 _APROVADO_PAGADOR_PARCIAL = [
-    ('Equipe,\n\nSegue em anexo o boleto de {prestador} ({alvo}), '
+    ('Prezada equipe do setor financeiro,\n\nSegue em anexo o boleto de {prestador} ({alvo}), '
      'competência {competencia}, no valor de R$ {valor} — favor efetuar o '
      'pagamento.\n\nAbraço,\nCristiano'),
-    ('Equipe,\n\nEncaminho para pagamento o boleto anexo: {prestador} — '
+    ('Prezada equipe do setor financeiro,\n\nEncaminho para pagamento o boleto anexo: {prestador} — '
      '{alvo} — {competencia} — R$ {valor}. Já conferi.\n\n'
      'Abraço,\nCristiano'),
 ]

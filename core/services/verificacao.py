@@ -47,11 +47,16 @@ def _moeda(v):
 
 def _fatos(boleto):
     posto = boleto.posto_efetivo
+    prest = boleto.prestador
     fatos = {
-        'prestador': boleto.prestador.nome,
-        'contato': boleto.prestador.contato,  # pessoa: "Prezado(a) Guido"
+        'prestador': prest.nome,
+        'contato': prest.contato,  # pessoa: "Prezado(a) Guido"
         'alvo': posto.nome if posto else 'boleto único',
+        # "competencia" = mês do PAGAMENTO (régua/assunto); o serviço pode
+        # ter sido no mês anterior (regime POSTERIOR).
         'competencia': competencia_extenso(boleto.competencia),
+        'servico_prestado_em': competencia_extenso(
+            prest.mes_servico(boleto.competencia)),
         'valor': _moeda(boleto.valor_extraido or boleto.valor_esperado),
     }
     if boleto.parcial:
@@ -121,6 +126,41 @@ def frase_parcial(boleto, sit=None):
             f'R$ {_moeda(sit["falta"])}.')
 
 
+def linha_representante(boleto):
+    """'Representante: <nome social ou representante>' quando a pessoa
+    não é a própria razão social (RABISCO → Guido Cerqueira)."""
+    prest = boleto.prestador
+    if prest.contato and prest.contato != prest.nome:
+        return [f'Representante: {prest.contato}']
+    return []
+
+
+def linhas_competencia(boleto):
+    """Bloco de datas dos e-mails, no vocabulário do Cristiano:
+    'Serviço prestado em' + 'Competência' (= mês do serviço) e, quando o
+    pagamento é no mês seguinte, 'Pagamento em'. Mais o dia previsto de
+    pagamento do contrato, se cadastrado."""
+    prest = boleto.prestador
+    servico = competencia_extenso(prest.mes_servico(boleto.competencia))
+    pagamento = competencia_extenso(boleto.competencia)
+    linhas = [f'Serviço prestado em: {servico}', f'Competência: {servico}']
+    if prest.regime_pagamento == prest.Regime.POSTERIOR:
+        linhas.append(f'Pagamento em: {pagamento}')
+    if prest.dia_pagamento:
+        linhas.append(f'Pagamento previsto: dia {prest.dia_pagamento} '
+                      f'de {pagamento} (contrato)')
+    return linhas
+
+
+def linha_vencimento(boleto):
+    if boleto.vencimento:
+        return [f'Vencimento: {boleto.vencimento:%d/%m/%Y}']
+    if boleto.prestador.dia_vencimento:
+        return [f'Vencimento: dia {boleto.prestador.dia_vencimento} '
+                '(previsto no contrato)']
+    return []
+
+
 def valor_da_linha(linha):
     """Valor embutido no código de barras — conferência 100% determinística.
 
@@ -146,11 +186,11 @@ def dados_pagamento(boleto, fatos):
     """Bloco determinístico com os dados de pagamento — anexado ao corpo do
     e-mail do pagador DEPOIS da redação (a IA nunca toca nesses dados)."""
     partes = ['', '-' * 40,
-              f'Prestador: {fatos["prestador"]} — {fatos["alvo"]}',
-              f'Competência: {fatos["competencia"]}',
-              f'Valor: R$ {fatos["valor"]}']
-    if boleto.vencimento:
-        partes.append(f'Vencimento: {boleto.vencimento:%d/%m/%Y}')
+              f'Prestador: {fatos["prestador"]} — {fatos["alvo"]}']
+    partes.extend(linha_representante(boleto))
+    partes.extend(linhas_competencia(boleto))
+    partes.append(f'Valor: R$ {fatos["valor"]}')
+    partes.extend(linha_vencimento(boleto))
     if boleto.linha_digitavel:
         partes.append(f'Linha digitável: {boleto.linha_digitavel}')
     if boleto.chave_pix:
@@ -199,6 +239,7 @@ def dados_pj(boleto, fatos):
     partes = ['', '-' * 40,
               f'Prestador: {prest.nome}'
               + (f' — CNPJ {prest.cnpj}' if prest.cnpj else '')]
+    partes.extend(linha_representante(boleto))
     posto = boleto.posto_efetivo
     if posto is not None:
         pagador = posto.razao_social or posto.nome
@@ -209,11 +250,10 @@ def dados_pj(boleto, fatos):
         if posto.cnpj:
             linha += f' — CNPJ {posto.cnpj}'
         partes.append(linha)
-    partes.append(f'Competência: {fatos["competencia"]}')
+    partes.extend(linhas_competencia(boleto))
     if fatos.get('valor') and fatos['valor'] != '—':
         partes.append(f'Valor: R$ {fatos["valor"]}')
-    if boleto.vencimento:
-        partes.append(f'Vencimento: {boleto.vencimento:%d/%m/%Y}')
+    partes.extend(linha_vencimento(boleto))
     partes.extend(resumo_parcial(boleto))
     return '\n'.join(partes)
 
@@ -302,14 +342,20 @@ def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
     elif reenviar and ja:
         aviso = (f'⚠️ REENVIO do e-mail de {quando} — é o MESMO boleto, '
                  'pagar UMA vez só.\n\n')
+    # Quem lê este e-mail é o FINANCEIRO — a saudação é para a equipe,
+    # nunca para o prestador (que é o assunto do e-mail, não o leitor).
+    fatos_eq = dict(fatos, contato='equipe do setor financeiro')
     emails.enviar(
         settings.EMAIL_PAGADOR, assunto,
         aviso + frases.corpo(
-            'aprovado_pagador', fatos,
-            instrucao_ia=('Escreva para a equipe de pagamento pedindo '
-                          'para pagar o boleto em anexo, informando que '
-                          'o valor já foi conferido e que os dados de '
-                          'pagamento seguem abaixo da assinatura.'
+            'aprovado_pagador', fatos_eq,
+            instrucao_ia=('Escreva para a EQUIPE DO SETOR FINANCEIRO da '
+                          'CAMIM (o leitor é a equipe, não o prestador): '
+                          'abra com "Prezada equipe do setor financeiro," '
+                          'e peça para pagar o boleto em anexo do '
+                          'prestador informado, dizendo que o valor já foi '
+                          'conferido e que os dados de pagamento seguem '
+                          'abaixo da assinatura.'
                           + _instrucao_parcial(fatos)))
         + dados_pagamento(boleto, fatos),
         boleto=boleto,
