@@ -683,8 +683,12 @@ class FiltroPainelTest(BaseSetup):
                               competencia=mes, status=Boleto.Status.PAGO,
                               valor_extraido=Decimal('2000.00'))
         self.login_admin()
+        self.prestador.representante = 'Ivanildo'
+        self.prestador.representante_nome_social = 'Guido Cerqueira'
+        self.prestador.save()
         resp = self.client.get(f'/painel/?prestador={self.prestador.pk}')
         self.assertContains(resp, '🧮 Limpeza Total LTDA')
+        self.assertContains(resp, '👤 Guido Cerqueira')
         self.assertContains(resp, 'R$ 3.500,00')   # previsto
         self.assertContains(resp, 'R$ 3.499,99')   # até aqui
         self.assertContains(resp, '⏳ R$ 0,01')     # falta

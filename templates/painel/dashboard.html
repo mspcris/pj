@@ -85,7 +85,8 @@
     {% for l in linhas %}
     <tr>
       <td><a href="{% url 'painel_prestador' l.prestador.pk %}">
-        <strong>{{ l.prestador.nome }}</strong></a></td>
+        <strong>{{ l.prestador.nome }}</strong></a>
+        {% if l.prestador.contato != l.prestador.nome %}<div class="sub" style="font-size:.76rem">👤 {{ l.prestador.contato }}</div>{% endif %}</td>
       <td>{{ l.posto|default:"(único)" }}</td>
       <td>R$ {{ l.valor|default:"—" }}</td>
       {% with b=l.boleto %}
