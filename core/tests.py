@@ -1166,6 +1166,18 @@ class TravaCopiasTest(BaseSetup):
         self.assertTrue(ok)
 
 
+class ListaPrestadoresTest(BaseSetup):
+    def test_boleto_unico_mostra_o_posto_de_cobranca(self):
+        self.prestador.modo_boleto = Prestador.ModoBoleto.UNICO
+        self.prestador.posto_cobranca = Posto.objects.get(codigo='R')
+        self.prestador.valor_unico = Decimal('3990.00')
+        self.prestador.save()
+        self.login_admin()
+        resp = self.client.get('/painel/prestadores/')
+        self.assertContains(resp, '<strong>Realengo</strong>')
+        self.assertContains(resp, 'R$ 3.990,00')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale
