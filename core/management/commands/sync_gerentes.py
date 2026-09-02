@@ -4,7 +4,8 @@
 Mesmas regras do sync_gerentes do relatorio_h_t (decisão 10/08/2026):
   * o CRM é a FONTE ÚNICA — edite lá (crm.camim.com.br/admin); aqui espelha;
   * posto com mais de um gestor ativo: ganha o de MENOR id (mais antigo);
-  * falha de conexão NÃO apaga nada — mantém o espelho anterior.
+  * falha de conexão NÃO apaga nada — mantém o espelho anterior;
+  * posto com `gerente_fixo` (definido no painel) fica como está.
 
 Cron sugerido (diário):
     30 7 * * * cd /opt/pj && .venv/bin/python manage.py sync_gerentes
@@ -54,12 +55,17 @@ class Command(BaseCommand):
         n = 0
         for id_posto, (nome, email) in titular.items():
             atualizado = Posto.objects.filter(
-                id_endereco_legado=id_posto).update(
+                id_endereco_legado=id_posto, gerente_fixo=False).update(
                 gerente_nome=(nome or '')[:120],
                 gerente_email=(email or '').strip().lower())
             if atualizado:
                 n += 1
                 self.stdout.write(f'  id_posto {id_posto}: {nome} '
                                   f'<{email}>')
+        fixos = list(Posto.objects.filter(gerente_fixo=True)
+                     .values_list('nome', flat=True))
+        if fixos:
+            self.stdout.write('  fixados no painel (não espelhados): '
+                              + ', '.join(fixos))
         self.stdout.write(self.style.SUCCESS(
             f'{n} posto(s) com gerente espelhado do CRM.'))

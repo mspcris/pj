@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}E-mail · Painel{% endblock %}
+{% block conteudo %}
+<p><a class="btn mini claro" href="{% url 'painel_emails' %}">← E-mails</a></p>
+<h1 style="font-size:1.2rem">{{ e.assunto }}</h1>
+<div class="card">
+  <table>
+    <tr><th style="white-space:nowrap">Quando</th><td>{{ e.criado_em|date:"d/m/Y H:i:s" }}</td></tr>
+    <tr><th>Para</th><td>{{ e.destinatario }}</td></tr>
+    <tr><th>Status</th><td>{% if e.ok %}✅ enviado{% else %}❌ falhou{% if e.erro %} — {{ e.erro }}{% endif %}{% endif %}</td></tr>
+    {% if e.boleto %}<tr><th>Boleto</th><td>
+      <a href="{% url 'painel_boleto_editar' e.boleto.pk %}">#{{ e.boleto.pk }} — {{ e.boleto }}</a></td></tr>{% endif %}
+  </table>
+</div>
+<h2 style="font-size:1rem;margin-top:18px">Como chegou na caixa de entrada</h2>
+<div style="border:1px solid #dfe9e5;border-radius:12px;overflow:hidden">{{ html|safe }}</div>
+<details style="margin-top:14px"><summary class="sub" style="cursor:pointer">Texto puro</summary>
+<pre style="white-space:pre-wrap;font-size:.85rem;background:#f4f8f6;padding:12px;border-radius:8px">{{ e.corpo }}</pre></details>
+{% endblock %}

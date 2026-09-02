@@ -2,18 +2,26 @@
 {% block title %}E-mails · Painel{% endblock %}
 {% block conteudo %}
 <h1>E-mails enviados</h1>
-<p class="sub">Todo e-mail que o sistema mandou (ou tentou mandar).</p>
+<p class="sub">Todo e-mail que o sistema mandou (ou tentou mandar). Clique no
+  assunto para ver o e-mail inteiro.</p>
+<form method="get" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+  <input name="q" value="{{ q }}" list="destinos" placeholder="filtrar por destinatário (para/cc) ou assunto"
+         style="flex:1;min-width:260px" autofocus>
+  <datalist id="destinos">{% for d in destinos %}<option value="{{ d }}">{% endfor %}</datalist>
+  <button class="btn mini" type="submit">🔍 Filtrar</button>
+  {% if q %}<a class="btn mini claro" href="{% url 'painel_emails' %}">✕ limpar</a>{% endif %}
+</form>
 <div class="card"><div class="rolagem"><table>
   <tr><th>Quando</th><th>Para</th><th>Assunto</th><th>OK</th></tr>
   {% for e in lista %}
   <tr>
     <td style="white-space:nowrap">{{ e.criado_em|date:"d/m H:i" }}</td>
     <td>{{ e.destinatario }}</td>
-    <td>{{ e.assunto|truncatechars:60 }}
+    <td><a href="{% url 'painel_email_detalhe' e.pk %}">{{ e.assunto|truncatechars:70 }}</a>
       {% if e.erro %}<div class="errolista">{{ e.erro|truncatechars:100 }}</div>{% endif %}</td>
-    <td>{% if e.ok %}✅{% else %}❌{% endif %}</td>
+    <td><a href="{% url 'painel_email_detalhe' e.pk %}" title="abrir">{% if e.ok %}✅{% else %}❌{% endif %}</a></td>
   </tr>
-  {% empty %}<tr><td colspan="4">Nenhum e-mail ainda.</td></tr>
+  {% empty %}<tr><td colspan="4">{% if q %}Nenhum e-mail com "{{ q }}".{% else %}Nenhum e-mail ainda.{% endif %}</td></tr>
   {% endfor %}
 </table></div></div>
 {% endblock %}

@@ -11,8 +11,9 @@
 <p class="sub">Todo e-mail de boleto sai com o gerente do posto em CC.
   A fonte é o <a href="https://crm.camim.com.br/admin" target="_blank">
   cadastro de gestores do CRM</a> — mudou gerente, edite LÁ (o espelho
-  atualiza todo dia às 7h30, ou no botão acima). Só postos que não existem
-  no CRM são editáveis aqui.</p>
+  atualiza todo dia às 7h30, ou no botão acima). Precisa de exceção
+  (ex.: o CRM lista o subgerente primeiro)? Edite aqui: o posto fica
+  <strong>fixado</strong> e o espelho não sobrescreve mais.</p>
 
 <div class="card"><div class="rolagem"><table>
   <tr><th>Posto</th><th>Gerente</th><th>E-mail (vai em CC)</th><th></th></tr>
@@ -20,12 +21,23 @@
   <tr>
     <td><strong>{{ p.nome }}</strong>
       {% if p.codigo %}<span class="sub" style="font-size:.75rem"> ({{ p.codigo }})</span>{% endif %}</td>
-    {% if p.id_endereco_legado is None %}
     <td>{{ p.gerente_nome|default:"—" }}</td>
     <td>{% if p.gerente_email %}{{ p.gerente_email }}
         {% else %}<span class="chip FALTA">SEM GERENTE</span>{% endif %}</td>
     <td>
+      {% if p.id_endereco_legado is None %}
       <span class="sub" style="font-size:.72rem">manual (não vem do CRM)</span>
+      {% elif p.gerente_fixo %}
+      <span class="chip APROVADO" title="O espelho do CRM não mexe neste posto">📌 fixado no painel</span>
+      <form method="post" style="display:inline;margin-left:6px"
+            onsubmit="return confirm('Voltar a espelhar o CRM? O gerente será o do cadastro de gestores.')">
+        {% csrf_token %}<input type="hidden" name="acao" value="liberar">
+        <input type="hidden" name="pk" value="{{ p.pk }}">
+        <button class="btn mini claro" type="submit">↩ voltar ao CRM</button>
+      </form>
+      {% else %}
+      <span class="sub" style="font-size:.72rem">espelho do CRM</span>
+      {% endif %}
       <details style="display:inline-block;margin-left:6px">
         <summary class="btn mini claro"
                  style="display:inline-block;cursor:pointer;list-style:none">✏️ editar</summary>
@@ -42,12 +54,6 @@
         </form>
       </details>
     </td>
-    {% else %}
-    <td>{{ p.gerente_nome|default:"—" }}</td>
-    <td>{% if p.gerente_email %}{{ p.gerente_email }}
-        {% else %}<span class="chip FALTA">SEM GERENTE</span>{% endif %}</td>
-    <td><span class="sub" style="font-size:.72rem">espelho do CRM</span></td>
-    {% endif %}
   </tr>
   {% endfor %}
 </table></div></div>

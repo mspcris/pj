@@ -141,19 +141,24 @@ def duplicado_de(boleto):
             .first())
 
 
+def parciais_anteriores(boleto):
+    """As OUTRAS parciais já aprovadas/pagas da mesma chave (prestador,
+    posto, competência) — o que já foi entregue antes deste boleto."""
+    return (Boleto.objects
+            .filter(prestador=boleto.prestador, posto=boleto.posto,
+                    competencia=boleto.competencia, parcial=True,
+                    status__in=[Boleto.Status.APROVADO,
+                                Boleto.Status.FIN_RECEBIDO,
+                                Boleto.Status.PAGO])
+            .exclude(pk=boleto.pk)
+            .order_by('criado_em', 'pk'))
+
+
 def soma_parciais(boleto):
-    """Soma dos valores das OUTRAS parciais já aprovadas/pagas da mesma
-    chave (prestador, posto, competência)."""
+    """Soma dos valores das OUTRAS parciais já aprovadas/pagas."""
     from decimal import Decimal
-    outras = (Boleto.objects
-              .filter(prestador=boleto.prestador, posto=boleto.posto,
-                      competencia=boleto.competencia, parcial=True,
-                      status__in=[Boleto.Status.APROVADO,
-                                  Boleto.Status.FIN_RECEBIDO,
-                                  Boleto.Status.PAGO])
-              .exclude(pk=boleto.pk))
-    return sum((b.valor_extraido or Decimal('0') for b in outras),
-               Decimal('0'))
+    return sum((b.valor_extraido or Decimal('0')
+                for b in parciais_anteriores(boleto)), Decimal('0'))
 
 
 _MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
@@ -190,6 +195,7 @@ def localizar_boleto_por_assunto(assunto):
     candidatos = Boleto.objects.filter(
         prestador=prestador, competencia=competencia,
         status__in=[Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO])
+    achados = []
     for b in candidatos:
         nome_alvo = (b.posto_efetivo.nome if b.posto_efetivo
                      else 'boleto único')
@@ -199,5 +205,12 @@ def localizar_boleto_por_assunto(assunto):
         if valor is not None and v is not None and abs(v - valor) > \
                 Decimal('0.01'):
             continue
-        return b
-    return None
+        # Parciais podem diferir por 1 centavo (Elias: 499,93 e 499,94):
+        # o valor EXATO ganha, e o que ainda não foi confirmado ganha do
+        # que já está FIN_RECEBIDO.
+        diff = (abs(v - valor) if valor is not None and v is not None
+                else Decimal('0'))
+        achados.append((diff, b.status != Boleto.Status.APROVADO, b.pk, b))
+    if not achados:
+        return None
+    return min(achados)[-1]

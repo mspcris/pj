@@ -40,6 +40,30 @@ _APROVADO_PAGADOR = [
      'Abraço,\nCristiano'),
 ]
 
+# PARCIAL: o boleto é só uma parte da mensalidade — o modelo não pode dizer
+# que o valor "está de acordo com o contrato"; a frase do "quanto falta"
+# ({parcial_frase}) entra antes da assinatura.
+_APROVADO_PJ_PARCIAL = [
+    ('Prezados,\n\nInformamos que o boleto referente à competência de '
+     '{competencia} ({prestador} — {alvo}), no valor de R$ {valor}, foi '
+     'conferido e já foi encaminhado ao setor financeiro para pagamento. '
+     'Os dados da cobrança seguem abaixo.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+    ('Prezado(a) {prestador},\n\nO boleto de R$ {valor} da competência de '
+     '{competencia} (unidade {alvo}) foi conferido e encaminhado para '
+     'pagamento. Seguem abaixo os dados do documento.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+]
+
+_APROVADO_PAGADOR_PARCIAL = [
+    ('Equipe,\n\nSegue em anexo o boleto de {prestador} ({alvo}), '
+     'competência {competencia}, no valor de R$ {valor} — favor efetuar o '
+     'pagamento.\n\nAbraço,\nCristiano'),
+    ('Equipe,\n\nEncaminho para pagamento o boleto anexo: {prestador} — '
+     '{alvo} — {competencia} — R$ {valor}. Já conferi.\n\n'
+     'Abraço,\nCristiano'),
+]
+
 _FIN_RECEBIDO = [
     ('Prezados,\n\nBoas notícias: o boleto da competência de {competencia} '
      '({prestador} — {alvo}) já está com o nosso setor financeiro para '
@@ -71,7 +95,14 @@ _MANUAL_ADMIN = [
 
 
 def _fallback(pool, fatos):
-    return random.choice(pool).format(**fatos)
+    texto = random.choice(pool).format(**fatos)
+    if fatos.get('parcial_frase'):
+        # Boleto PARCIAL: a frase do "quanto falta" entra como parágrafo
+        # próprio, logo antes da assinatura.
+        cabeca, sep, assinatura = texto.rpartition('\n\n')
+        texto = (f'{cabeca}\n\n{fatos["parcial_frase"]}{sep}{assinatura}'
+                 if sep else f'{texto}\n\n{fatos["parcial_frase"]}')
+    return texto
 
 
 def corpo(tipo, fatos, instrucao_ia=None):
@@ -84,6 +115,9 @@ def corpo(tipo, fatos, instrucao_ia=None):
         'divergente': _DIVERGENTE,
         'manual_admin': _MANUAL_ADMIN,
     }
+    if fatos.get('parcial_frase'):
+        pools['aprovado_pj'] = _APROVADO_PJ_PARCIAL
+        pools['aprovado_pagador'] = _APROVADO_PAGADOR_PARCIAL
     if instrucao_ia:
         try:
             return ia.redigir_email(instrucao_ia, fatos)

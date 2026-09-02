@@ -39,6 +39,10 @@ class Posto(models.Model):
     # única, decisão de 10/08/2026). Editar no CRM; o sync_gerentes espelha.
     gerente_nome = models.CharField(max_length=120, blank=True)
     gerente_email = models.EmailField(blank=True)
+    # Exceção ao espelho: quando o CRM tem mais de um gestor ativo e o
+    # "menor id" não é o gerente de verdade (Anchieta: Elisangela é
+    # subgerente, o gerente é o Júlio). Fixo = o sync NÃO mexe.
+    gerente_fixo = models.BooleanField(default=False)
     ativo = models.BooleanField(default=True)
     # Soft delete — só para postos criados à mão; os 13 canônicos do legado
     # (com id_endereco_legado) nunca são excluídos, no máximo inativados.

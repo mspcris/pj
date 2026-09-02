@@ -27,13 +27,34 @@ def _render_html(corpo):
         if s and set(s) == {'-'} and len(s) >= 10:
             em_tabela = True
             continue
-        if em_tabela and ': ' in s:
-            chave, _, valor = s.partition(': ')
-            tabela.append(
-                '<tr><td style="padding:6px 14px 6px 0;color:#5c6b66;'
-                'font-weight:bold;white-space:nowrap;vertical-align:top">'
-                f'{esc(chave)}</td>'
-                f'<td style="padding:6px 0">{esc(valor)}</td></tr>')
+        if em_tabela and s:
+            if ': ' in s:
+                chave, _, valor = s.partition(': ')
+                destaque = chave.startswith('Ainda falta')
+                tabela.append(
+                    '<tr><td style="padding:6px 14px 6px 0;color:#5c6b66;'
+                    'font-weight:bold;white-space:nowrap;vertical-align:top">'
+                    f'{esc(chave)}</td><td style="padding:6px 0'
+                    + (';font-weight:bold' if destaque else '')
+                    + f'">{esc(valor)}</td></tr>')
+            elif s.endswith(':'):
+                # "🧩 Mensalidade em partes — …:" → título de seção
+                tabela.append(
+                    '<tr><td colspan="2" style="padding:16px 0 6px;'
+                    'font-weight:bold;font-size:15px;color:#15221e;'
+                    f'border-top:1px solid #dfe9e5">{esc(s[:-1])}</td></tr>')
+            else:
+                # linha de veredito (✅ fechou / ⏳ falta) — cartãozinho
+                if s.startswith('✅'):
+                    cor = 'background:#e6f6ee;color:#0b5e3c'
+                elif s.startswith('⏳'):
+                    cor = 'background:#fff4d6;color:#7a4b00'
+                else:
+                    cor = 'background:#f4f8f6;color:#15221e'
+                tabela.append(
+                    '<tr><td colspan="2" style="padding:6px 0"><div style="'
+                    f'{cor};border-radius:8px;padding:10px 14px;'
+                    f'font-weight:bold">{esc(s)}</div></td></tr>')
             continue
         if s:
             paragrafos.append(f'<p style="margin:0 0 10px">{esc(s)}</p>')

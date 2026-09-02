@@ -429,6 +429,59 @@ class BoletoParcialTest(BaseSetup):
                  if c.args[0] == 'equipe@camim.com.br'][-1]
         self.assertIn('PARCIAL', corpo)
         self.assertIn('1.500,00', corpo)
+        self.assertIn('✅ Fechou!', corpo)
+        self.assertIn('Já entregue antes: R$ 500,00 (1 boleto)', corpo)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_emails_do_parcial_dizem_quanto_falta(self, m_mail):
+        """Elias mandou 499,93 + 499,94 p/ combinado de 1.000: os e-mails
+        (recebido, pagador e PJ) têm de dizer o que falta — nos 3 blocos,
+        no assunto e na frase do texto (modelo pronto, IA desligada)."""
+        PrestadorPosto.objects.filter(prestador=self.prestador,
+                                      posto=self.posto1).update(
+            valor_mensal=Decimal('1000.00'))
+        with mock.patch('core.services.ia.redigir_email',
+                        side_effect=RuntimeError('IA off')):
+            b1 = self._parcial(49993)
+            verificacao.enviar_recebido(b1)
+            assunto, corpo = m_mail.call_args.args[1:3]
+            self.assertIn('PARCIAL: R$ 499,93 de R$ 1.000,00 — '
+                          'falta R$ 500,07', assunto)
+            self.assertIn('Valor: R$ 499,93', corpo)   # e NÃO 1.000,00
+            self.assertNotIn('Valor: R$ 1.000,00', corpo)
+            self.assertIn('ainda falta gerar um boleto de R$ 500,07', corpo)
+            self.assertIn('Já entregue antes: R$ 0,00 (nenhum', corpo)
+            self.assertIn('⏳ Ainda NÃO fechou: falta gerar mais um boleto '
+                          'de R$ 500,07', corpo)
+            verificacao.processar(b1.pk)
+            b1.refresh_from_db()
+            self.assertEqual(b1.status, Boleto.Status.APROVADO)
+
+            b2 = self._parcial(49994)
+            verificacao.processar(b2.pk)
+            b2.refresh_from_db()
+            self.assertEqual(b2.status, Boleto.Status.APROVADO)
+            pagador = [c for c in m_mail.call_args_list
+                       if c.args[0] == 'equipe@camim.com.br'][-1]
+            assunto, corpo = pagador.args[1:3]
+            # o prefixo que o financeiro responde continua íntegro
+            self.assertTrue(assunto.startswith(
+                'Pagamento — Limpeza Total LTDA — Anchieta — '
+                'setembro/2026 — R$ 499,94'))
+            self.assertIn('falta R$ 0,13', assunto)
+            self.assertIn('Já entregue antes: R$ 499,93 (1 boleto)', corpo)
+            self.assertIn('Entregue até agora: R$ 999,87', corpo)
+            self.assertIn('Ainda falta: R$ 0,13', corpo)
+            self.assertIn('Já havia R$ 499,93 entregue antes', corpo)
+            pj = [c for c in m_mail.call_args_list
+                  if c.args[0] == ['pj@empresa.com.br']][-1]
+            self.assertIn('falta R$ 0,13', pj.args[1])
+            self.assertIn('Ainda falta: R$ 0,13', pj.args[2])
+            self.assertNotIn('de acordo com o valor contratado', pj.args[2])
+            # a resposta do financeiro ainda casa com o boleto
+            from core.services.boletos import localizar_boleto_por_assunto
+            self.assertEqual(localizar_boleto_por_assunto('Re: ' + assunto),
+                             b2)
 
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_parcial_que_estoura_o_combinado_vira_manual(self, m_mail):
@@ -982,11 +1035,47 @@ class GerentesPainelTest(BaseSetup):
             'gerente_nome': 'Fulano', 'gerente_email': 'fulano@camim.com.br'})
         manual.refresh_from_db()
         self.assertEqual(manual.gerente_email, 'fulano@camim.com.br')
-        # posto do legado NÃO é editável por aqui
-        resp = self.client.post('/painel/gerentes/', {
+        # posto do legado editado aqui vira FIXO: o espelho do CRM não mexe
+        self.client.post('/painel/gerentes/', {
             'acao': 'salvar', 'pk': self.posto1.pk,
-            'gerente_nome': 'X', 'gerente_email': 'x@x.com'})
-        self.assertEqual(resp.status_code, 404)
+            'gerente_nome': 'Júlio Moreira',
+            'gerente_email': 'julio@camim.com.br'})
+        self.posto1.refresh_from_db()
+        self.assertTrue(self.posto1.gerente_fixo)
+        self.assertEqual(self.posto1.gerente_email, 'julio@camim.com.br')
+        resp = self.client.get('/painel/gerentes/')
+        self.assertContains(resp, 'fixado no painel')
+        # o sync pula o fixo (mesmo com o CRM dizendo outra coisa)
+        Posto.objects.filter(pk=self.posto1.pk).exclude(
+            gerente_fixo=True).update(gerente_email='ninguem@x.com')
+        self.posto1.refresh_from_db()
+        self.assertEqual(self.posto1.gerente_email, 'julio@camim.com.br')
+        # "voltar ao CRM" desfixa
+        with mock.patch('django.core.management.call_command'):
+            self.client.post('/painel/gerentes/',
+                             {'acao': 'liberar', 'pk': self.posto1.pk})
+        self.posto1.refresh_from_db()
+        self.assertFalse(self.posto1.gerente_fixo)
+
+
+class EmailsPainelTest(BaseSetup):
+    def test_filtra_por_destinatario_e_abre_o_email(self):
+        from core.models import EmailLog
+        a = EmailLog.objects.create(
+            destinatario='equipe@camim.com.br +cc: leticia@clinicacamim.com.br',
+            assunto='Pagamento — X', corpo='Oi\n' + '-' * 40 + '\nValor: R$ 1,00',
+            ok=True)
+        EmailLog.objects.create(destinatario='elias@clinicacamim.com.br',
+                                assunto='Boleto recebido', corpo='x', ok=True)
+        self.login_admin()
+        resp = self.client.get('/painel/emails/?q=leticia')
+        self.assertContains(resp, 'Pagamento — X')
+        self.assertNotContains(resp, 'Boleto recebido')
+        self.assertContains(resp, 'leticia@clinicacamim.com.br')  # datalist
+        resp = self.client.get(f'/painel/emails/{a.pk}/')
+        self.assertContains(resp, 'Pagamento — X')
+        self.assertContains(resp, 'R$ 1,00')  # HTML renderizado
+        self.assertContains(resp, 'Texto puro')
 
 
 class FinanceiroRecebidoTest(BaseSetup):

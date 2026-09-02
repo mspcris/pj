@@ -3,12 +3,14 @@
 O coração é o dashboard mensal: a RÉGUA (quem deveria mandar boleto e de
 quanto) × o que chegou — para NUNCA esquecer um pagamento.
 """
+import re
 from datetime import date
 from decimal import Decimal
 from functools import wraps
 
 from django.contrib import messages
 from django.db import transaction
+from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -609,18 +611,40 @@ def gerentes(request, up):
                              'Sincronização executada: '
                              + saida.getvalue().strip().splitlines()[-1])
         elif request.POST.get('acao') == 'salvar':
-            posto = get_object_or_404(Posto, pk=request.POST.get('pk'),
-                                      id_endereco_legado__isnull=True)
+            posto = get_object_or_404(Posto, pk=request.POST.get('pk'))
             posto.gerente_nome = (request.POST.get('gerente_nome')
                                   or '')[:120].strip()
             posto.gerente_email = (request.POST.get('gerente_email')
                                    or '').strip().lower()
-            posto.save(update_fields=['gerente_nome', 'gerente_email'])
+            # Posto do CRM editado aqui = exceção FIXA (o espelho diário
+            # não desfaz). Posto manual não tem espelho — nada a fixar.
+            posto.gerente_fixo = posto.id_endereco_legado is not None
+            posto.save(update_fields=['gerente_nome', 'gerente_email',
+                                      'gerente_fixo'])
             AuditLog.registrar(AuditLog.Evento.CRUD, request,
                                detalhe=f'Gerente de {posto.nome}: '
                                        f'{posto.gerente_nome} '
-                                       f'<{posto.gerente_email}>')
-            messages.success(request, f'Gerente de {posto.nome} salvo.')
+                                       f'<{posto.gerente_email}>'
+                                       + (' (fixado — não espelha do CRM)'
+                                          if posto.gerente_fixo else ''))
+            messages.success(request, f'Gerente de {posto.nome} salvo'
+                             + (' e fixado: o espelho do CRM não vai mais '
+                                'sobrescrever.' if posto.gerente_fixo
+                                else '.'))
+        elif request.POST.get('acao') == 'liberar':
+            posto = get_object_or_404(Posto, pk=request.POST.get('pk'),
+                                      id_endereco_legado__isnull=False)
+            posto.gerente_fixo = False
+            posto.save(update_fields=['gerente_fixo'])
+            AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                               detalhe=f'Gerente de {posto.nome} volta a '
+                                       'espelhar o CRM')
+            import io
+            from django.core.management import call_command
+            saida = io.StringIO()
+            call_command('sync_gerentes', stdout=saida, stderr=saida)
+            messages.success(request, f'{posto.nome} voltou a espelhar o '
+                             'CRM.')
         return redirect('painel_gerentes')
     lista = Posto.objects.filter(ativo=True, excluido_em__isnull=True)
     return render(request, 'painel/gerentes.html',
@@ -649,9 +673,29 @@ def configuracoes(request, up):
 
 @admin_required
 def emails_log(request, up):
+    """Lista dos e-mails enviados, com filtro por destinatário (para/cc) e
+    por texto do assunto; clique no assunto abre o e-mail inteiro."""
+    q = (request.GET.get('q') or '').strip()
+    qs = EmailLog.objects.select_related('boleto')
+    if q:
+        qs = qs.filter(Q(destinatario__icontains=q) | Q(assunto__icontains=q))
+    destinos = set()
+    for rot in EmailLog.objects.values_list('destinatario', flat=True):
+        for parte in re.split(r'[,\s]+', rot.replace('+cc:', ' ')):
+            if '@' in parte:
+                destinos.add(parte.strip().lower())
     return render(request, 'painel/emails.html',
-                  {'lista': EmailLog.objects.select_related('boleto')[:150],
+                  {'lista': qs[:150], 'q': q, 'destinos': sorted(destinos),
                    'up': up})
+
+
+@admin_required
+def email_detalhe(request, up, pk):
+    """O e-mail como foi enviado: cabeçalhos, texto e a versão HTML."""
+    from .services.emails import _render_html
+    e = get_object_or_404(EmailLog.objects.select_related('boleto'), pk=pk)
+    return render(request, 'painel/email_detalhe.html',
+                  {'e': e, 'html': _render_html(e.corpo), 'up': up})
 
 
 @admin_required

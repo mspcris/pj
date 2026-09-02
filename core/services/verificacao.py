@@ -47,12 +47,77 @@ def _moeda(v):
 
 def _fatos(boleto):
     posto = boleto.posto_efetivo
-    return {
+    fatos = {
         'prestador': boleto.prestador.nome,
         'alvo': posto.nome if posto else 'boleto único',
         'competencia': competencia_extenso(boleto.competencia),
         'valor': _moeda(boleto.valor_extraido or boleto.valor_esperado),
     }
+    if boleto.parcial:
+        # Boleto PARCIAL: o "valor" é o DESTE boleto (nunca o combinado do
+        # mês, senão o PJ lê "R$ 1.000,00" num boleto de R$ 499,93).
+        sit = situacao_parcial(boleto)
+        fatos['valor'] = _moeda(sit['este'] if sit else None)
+        fatos['parcial_frase'] = frase_parcial(boleto, sit)
+        if sit:
+            fatos['pagamento_parcial'] = {
+                'combinado_do_mes': _moeda(sit['total']),
+                'ja_entregue_antes': _moeda(sit['antes']),
+                'este_boleto': _moeda(sit['este']),
+                'entregue_ate_agora': _moeda(sit['soma']),
+                'ainda_falta': _moeda(sit['falta']),
+                'situacao': ('MENSALIDADE COMPLETA' if sit['completa']
+                             else f'FALTA R$ {_moeda(sit["falta"])}'),
+            }
+    return fatos
+
+
+def situacao_parcial(boleto):
+    """Conta da mensalidade paga em partes: combinado, o que já veio antes,
+    este boleto, soma e o que falta. None se ainda não dá para contar."""
+    if not boleto.parcial:
+        return None
+    total = boleto.valor_esperado
+    if total is None:
+        total = svc_boletos.valor_esperado_para(
+            boleto.prestador, boleto.posto, boleto.competencia)
+    este = boleto.valor_extraido or valor_da_linha(boleto.linha_digitavel)
+    if total is None or este is None:
+        return None
+    anteriores = list(svc_boletos.parciais_anteriores(boleto))
+    antes = sum((b.valor_extraido or Decimal('0') for b in anteriores),
+                Decimal('0'))
+    soma = antes + este
+    falta = max(Decimal('0'), total - soma)
+    return {'total': total, 'antes': antes, 'anteriores': anteriores,
+            'este': este, 'soma': soma, 'falta': falta,
+            'completa': falta <= TOLERANCIA}
+
+
+def frase_parcial(boleto, sit=None):
+    """UMA frase, em português claro, dizendo o que este boleto parcial
+    representa e o que ainda falta — vai no texto do e-mail (IA e modelo
+    pronto) para ninguém precisar deduzir pelos números."""
+    if sit is None:
+        sit = situacao_parcial(boleto)
+    comp = competencia_extenso(boleto.competencia)
+    if sit is None:
+        return (f'Atenção: este boleto é apenas uma PARTE da mensalidade de '
+                f'{comp}; o fechamento do valor será conferido.')
+    if sit['completa']:
+        return (f'Este boleto é a última parte da mensalidade de {comp}: '
+                f'com ele o valor combinado de R$ {_moeda(sit["total"])} '
+                f'fica completo — tudo certo.')
+    if sit['antes'] > 0:
+        return (f'Atenção: este boleto é uma PARTE da mensalidade de {comp} '
+                f'(combinado: R$ {_moeda(sit["total"])}). Já havia '
+                f'R$ {_moeda(sit["antes"])} entregue antes; com este, '
+                f'R$ {_moeda(sit["soma"])}. Ainda falta gerar um boleto de '
+                f'R$ {_moeda(sit["falta"])}.')
+    return (f'Atenção: este boleto é uma PARTE da mensalidade de {comp} '
+            f'(combinado: R$ {_moeda(sit["total"])}). Recebido '
+            f'R$ {_moeda(sit["este"])}; ainda falta gerar um boleto de '
+            f'R$ {_moeda(sit["falta"])}.')
 
 
 def valor_da_linha(linha):
@@ -93,14 +158,8 @@ def dados_pagamento(boleto, fatos):
         partes.append('Obs.: cobrança EXTRA/avulsa — não faz parte da '
                       'mensalidade do posto.')
     if boleto.parcial:
-        soma = svc_boletos.soma_parciais(boleto) + (boleto.valor_extraido
-                                                    or 0)
-        partes.append(
-            f'Obs.: boleto PARCIAL — a mensalidade deste posto está sendo '
-            f'paga em mais de um boleto; soma das parciais até aqui: '
-            f'R$ {_moeda(soma)}'
-            + (f' de R$ {_moeda(boleto.valor_esperado)} contratados.'
-               if boleto.valor_esperado else '.'))
+        partes.append('Obs.: boleto PARCIAL — é só uma parte da mensalidade '
+                      'deste posto; o fechamento do mês está logo abaixo.')
     if (not boleto.extra and not boleto.parcial
             and boleto.valor_esperado is not None
             and boleto.valor_extraido is not None
@@ -121,6 +180,7 @@ def dados_pagamento(boleto, fatos):
                       'valor esperado)')
     if boleto.observacao:
         partes.append(f'Obs. do mês: {boleto.observacao}')
+    partes.extend(resumo_parcial(boleto))
     return '\n'.join(partes)
 
 
@@ -146,7 +206,42 @@ def dados_pj(boleto, fatos):
         partes.append(f'Valor: R$ {fatos["valor"]}')
     if boleto.vencimento:
         partes.append(f'Vencimento: {boleto.vencimento:%d/%m/%Y}')
+    partes.extend(resumo_parcial(boleto))
     return '\n'.join(partes)
+
+
+def resumo_parcial(boleto):
+    """A "continha" da mensalidade paga em partes — bloco determinístico
+    que fecha o e-mail (vira tabela no HTML). Lê-se de cima para baixo:
+    combinado, o que já veio, este boleto, soma, o que falta, veredito."""
+    if not boleto.parcial:
+        return []
+    posto = boleto.posto_efetivo
+    onde = f'{posto.nome}, ' if posto else ''
+    comp = competencia_extenso(boleto.competencia)
+    cab = ['', f'🧩 Mensalidade em partes — {onde}{comp}:']
+    sit = situacao_parcial(boleto)
+    if sit is None:
+        return cab + ['Este boleto é uma PARTE da mensalidade; o valor '
+                      'ainda vai ser conferido para fechar a conta.']
+    n = len(sit['anteriores'])
+    antes = (f'R$ {_moeda(sit["antes"])} ({n} boleto{"s" if n > 1 else ""})'
+             if n else 'R$ 0,00 (nenhum — este é o primeiro)')
+    linhas = cab + [
+        f'Valor combinado do mês: R$ {_moeda(sit["total"])}',
+        f'Já entregue antes: {antes}',
+        f'Este boleto: R$ {_moeda(sit["este"])}',
+        f'Entregue até agora: R$ {_moeda(sit["soma"])}',
+        f'Ainda falta: R$ {_moeda(sit["falta"])}',
+    ]
+    if sit['completa']:
+        linhas.append(f'✅ Fechou! Com este boleto a mensalidade de {comp} '
+                      'está completa. Nada mais a gerar.')
+    else:
+        linhas.append(f'⏳ Ainda NÃO fechou: falta gerar mais um boleto de '
+                      f'R$ {_moeda(sit["falta"])} para completar '
+                      f'R$ {_moeda(sit["total"])}.')
+    return linhas
 
 
 def _mes_seguinte_fim(competencia):
@@ -177,6 +272,33 @@ def destinatarios_pj(boleto):
     return ems or [settings.EMAIL_ADMIN]
 
 
+def _instrucao_parcial(fatos):
+    """Complemento da instrução da IA quando o boleto é PARCIAL: o texto
+    tem de dizer, com todas as letras, o que falta (ou que fechou)."""
+    if not fatos.get('parcial_frase'):
+        return ''
+    return (' IMPORTANTE: este boleto é PARCIAL — cobre só uma PARTE da '
+            'mensalidade (veja "pagamento_parcial" nos fatos). Inclua, '
+            'em uma frase própria e bem clara, exatamente esta informação: '
+            f'"{fatos["parcial_frase"]}" Pode reescrever com suas palavras, '
+            'mas mantenha TODOS os valores iguais. NUNCA diga que o valor '
+            '"está de acordo com o contrato" — o valor do contrato é o do '
+            'mês inteiro.')
+
+
+def assunto_parcial(fatos, base):
+    """Assunto que já conta a história: '(parte: R$ x de R$ y — falta R$ z)'."""
+    sit = fatos.get('pagamento_parcial')
+    if not sit:
+        return base
+    if sit['situacao'] == 'MENSALIDADE COMPLETA':
+        fim = 'mensalidade completa ✅'
+    else:
+        fim = f'falta R$ {sit["ainda_falta"]}'
+    return (f'{base} · PARCIAL: R$ {sit["este_boleto"]} de '
+            f'R$ {sit["combinado_do_mes"]} — {fim}')
+
+
 def enviar_recebido(boleto):
     fatos = _fatos(boleto)
     corpo = frases.corpo(
@@ -184,9 +306,13 @@ def enviar_recebido(boleto):
         instrucao_ia=('Escreva em tom FORMAL confirmando que recebemos o '
                       'boleto do prestador e que ele passará por '
                       'conferência. Diga que os dados do documento seguem '
-                      'abaixo da assinatura. NÃO cite valores no texto.'))
+                      'abaixo da assinatura. NÃO cite valores no texto.'
+                      + (_instrucao_parcial(fatos).replace(
+                          'NÃO cite', 'cite') if fatos.get('parcial_frase')
+                         else '')))
     emails.enviar(destinatarios_pj(boleto),
-                  f'Boleto recebido — {fatos["competencia"]}',
+                  assunto_parcial(fatos,
+                                  f'Boleto recebido — {fatos["competencia"]}'),
                   corpo + dados_pj(boleto, fatos), boleto=boleto,
                   cc=cc_gerente(boleto))
 
@@ -393,8 +519,7 @@ def processar(boleto_pk):
                          f'do combinado (R$ {_moeda(combinado)}) — nada '
                          'enviado')
             return
-        fatos['parcial_soma'] = _moeda(soma)
-        fatos['parcial_combinado'] = _moeda(combinado)
+        fatos = _fatos(boleto)  # refaz a continha com o valor conferido
 
     # Valores podem ter sido cadastrados DEPOIS do boleto chegar — na
     # reverificação, recalcula o esperado em vez de reclamar à toa.
@@ -463,14 +588,20 @@ def processar(boleto_pk):
         _marcar(boleto, Boleto.Status.APROVADO)
         emails.enviar(
             settings.EMAIL_PAGADOR,
-            f'Pagamento — {fatos["prestador"]} — {fatos["alvo"]} — '
-            f'{fatos["competencia"]} — R$ {fatos["valor"]}',
+            # O prefixo 'Pagamento — … — R$ valor' é chave: a resposta do
+            # financeiro é casada por ele (localizar_boleto_por_assunto);
+            # a parte do parcial vai DEPOIS do valor.
+            assunto_parcial(
+                fatos,
+                f'Pagamento — {fatos["prestador"]} — {fatos["alvo"]} — '
+                f'{fatos["competencia"]} — R$ {fatos["valor"]}'),
             frases.corpo(
                 'aprovado_pagador', fatos,
                 instrucao_ia=('Escreva para a equipe de pagamento pedindo '
                               'para pagar o boleto em anexo, informando que '
                               'o valor já foi conferido e que os dados de '
-                              'pagamento seguem abaixo da assinatura.'))
+                              'pagamento seguem abaixo da assinatura.'
+                              + _instrucao_parcial(fatos)))
             + dados_pagamento(boleto, fatos),
             boleto=boleto,
             anexo_field=boleto.arquivo if boleto.arquivo else None,
@@ -478,17 +609,26 @@ def processar(boleto_pk):
                       boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
                     if boleto.nota_fiscal else None),
             de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
+        if boleto.parcial:
+            instr_pj = ('Escreva em tom FORMAL para o prestador, informando '
+                        'que o boleto foi conferido e já foi encaminhado ao '
+                        'setor financeiro para pagamento. Diga que os dados '
+                        'da cobrança seguem abaixo da assinatura.'
+                        + _instrucao_parcial(fatos))
+        else:
+            instr_pj = ('Escreva em tom FORMAL para o prestador, '
+                        'informando que o boleto foi conferido, o '
+                        'valor está de acordo com o contratado e o '
+                        'documento já foi encaminhado ao setor '
+                        'financeiro para pagamento. Diga que os dados '
+                        'da cobrança seguem abaixo da assinatura.')
         emails.enviar(
             destinatarios_pj(boleto),
-            f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',
-            frases.corpo(
-                'aprovado_pj', fatos,
-                instrucao_ia=('Escreva em tom FORMAL para o prestador, '
-                              'informando que o boleto foi conferido, o '
-                              'valor está de acordo com o contratado e o '
-                              'documento já foi encaminhado ao setor '
-                              'financeiro para pagamento. Diga que os dados '
-                              'da cobrança seguem abaixo da assinatura.'))
+            assunto_parcial(
+                fatos,
+                f'Boleto aprovado e enviado p/ pagamento — '
+                f'{fatos["competencia"]}'),
+            frases.corpo('aprovado_pj', fatos, instrucao_ia=instr_pj)
             + dados_pj(boleto, fatos),
             boleto=boleto, cc=cc_gerente(boleto))
     else:
