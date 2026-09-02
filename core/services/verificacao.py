@@ -160,6 +160,13 @@ def dados_pagamento(boleto, fatos):
     if boleto.parcial:
         partes.append('Obs.: boleto PARCIAL — é só uma parte da mensalidade '
                       'deste posto; o fechamento do mês está logo abaixo.')
+    dif = diferenca_do_combinado(boleto)
+    if dif is not None and boleto.valor_livre:
+        sinal = '+' if dif > 0 else '−'
+        partes.append(
+            f'Obs.: valor DIFERENTE do combinado (R$ '
+            f'{_moeda(boleto.valor_esperado)}): {sinal}R$ {_moeda(abs(dif))} '
+            f'— aceito pelo admin no cadastro ("aceitar este valor").')
     if (not boleto.extra and not boleto.parcial
             and boleto.valor_esperado is not None
             and boleto.valor_extraido is not None
@@ -242,6 +249,137 @@ def resumo_parcial(boleto):
                       f'R$ {_moeda(sit["falta"])} para completar '
                       f'R$ {_moeda(sit["total"])}.')
     return linhas
+
+
+def diferenca_do_combinado(boleto):
+    """valor − combinado, ou None quando não há discrepância (ou não dá
+    para comparar: parcial/extra/sem valor)."""
+    if boleto.parcial or boleto.extra:
+        return None
+    if boleto.valor_esperado is None or boleto.valor_extraido is None:
+        return None
+    dif = boleto.valor_extraido - boleto.valor_esperado
+    return dif if abs(dif) > TOLERANCIA else None
+
+
+def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
+    """ÚNICO caminho do e-mail "Pagamento — …" para a equipe@ (+ aviso ao
+    PJ). TRAVA contra pagar duas vezes: se este boleto JÁ foi ao financeiro
+    com o mesmo valor, não vai de novo (só com reenviar=True — o botão
+    "Reenviar e-mails"). Valor diferente do já enviado → vai como CORREÇÃO,
+    com aviso ao admin. Retorna a frase do que aconteceu."""
+    fatos = fatos or _fatos(boleto)
+    valor = boleto.valor_extraido or boleto.valor_esperado
+    fatos['valor'] = _moeda(valor)
+    ja = boleto.pagamento_enviado_em is not None
+    mesmo = (ja and boleto.pagamento_enviado_valor is not None
+             and valor is not None
+             and abs(boleto.pagamento_enviado_valor - valor) <= TOLERANCIA)
+    quando = (timezone.localtime(boleto.pagamento_enviado_em)
+              .strftime('%d/%m/%Y %H:%M') if ja else '')
+    if ja and mesmo and not reenviar:
+        AuditLog.registrar(
+            AuditLog.Evento.STATUS, ator='sistema',
+            detalhe=f'Boleto #{boleto.pk} reaprovado, mas JÁ estava com o '
+                    f'financeiro desde {quando} (R$ {fatos["valor"]}) — '
+                    'nada reenviado (trava contra pagar 2x)')
+        return (f'já estava com o financeiro desde {quando} com o mesmo '
+                'valor — NADA foi reenviado, para não pagar duas vezes. '
+                'Se precisar mesmo, use "Reenviar e-mails".')
+    correcao = ja and not mesmo
+
+    assunto = assunto_parcial(
+        fatos,
+        f'Pagamento — {fatos["prestador"]} — {fatos["alvo"]} — '
+        f'{fatos["competencia"]} — R$ {fatos["valor"]}')
+    aviso = ''
+    if correcao:
+        assunto = f'CORREÇÃO — {assunto}'
+        aviso = (f'⚠️ ATENÇÃO: este e-mail SUBSTITUI o enviado em {quando} '
+                 f'com R$ {_moeda(boleto.pagamento_enviado_valor)} para este '
+                 'mesmo boleto. Pagar SOMENTE este valor, uma vez só.\n\n')
+    elif reenviar and ja:
+        aviso = (f'⚠️ REENVIO do e-mail de {quando} — é o MESMO boleto, '
+                 'pagar UMA vez só.\n\n')
+    emails.enviar(
+        settings.EMAIL_PAGADOR, assunto,
+        aviso + frases.corpo(
+            'aprovado_pagador', fatos,
+            instrucao_ia=('Escreva para a equipe de pagamento pedindo '
+                          'para pagar o boleto em anexo, informando que '
+                          'o valor já foi conferido e que os dados de '
+                          'pagamento seguem abaixo da assinatura.'
+                          + _instrucao_parcial(fatos)))
+        + dados_pagamento(boleto, fatos),
+        boleto=boleto,
+        anexo_field=boleto.arquivo if boleto.arquivo else None,
+        anexos=([(boleto.nota_fiscal,
+                  boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
+                if boleto.nota_fiscal else None),
+        de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
+    boleto.pagamento_enviado_em = timezone.now()
+    boleto.pagamento_enviado_valor = valor
+    boleto.save(update_fields=['pagamento_enviado_em',
+                               'pagamento_enviado_valor'])
+
+    if boleto.parcial:
+        instr_pj = ('Escreva em tom FORMAL para o prestador, informando '
+                    'que o boleto foi conferido e já foi encaminhado ao '
+                    'setor financeiro para pagamento. Diga que os dados '
+                    'da cobrança seguem abaixo da assinatura.'
+                    + _instrucao_parcial(fatos))
+    else:
+        instr_pj = ('Escreva em tom FORMAL para o prestador, '
+                    'informando que o boleto foi conferido, o '
+                    'valor está de acordo com o contratado e o '
+                    'documento já foi encaminhado ao setor '
+                    'financeiro para pagamento. Diga que os dados '
+                    'da cobrança seguem abaixo da assinatura.')
+    if not (reenviar and ja) and not correcao:
+        emails.enviar(
+            destinatarios_pj(boleto),
+            assunto_parcial(
+                fatos,
+                f'Boleto aprovado e enviado p/ pagamento — '
+                f'{fatos["competencia"]}'),
+            frases.corpo('aprovado_pj', fatos, instrucao_ia=instr_pj)
+            + dados_pj(boleto, fatos),
+            boleto=boleto, cc=cc_gerente(boleto))
+
+    _alertar_discrepancia(boleto, fatos, correcao, quando)
+    if correcao:
+        return (f'CORREÇÃO enviada ao financeiro (o valor mudou: antes '
+                f'R$ {_moeda(boleto.pagamento_enviado_valor)}, agora '
+                f'R$ {fatos["valor"]}).')
+    if reenviar and ja:
+        return 'e-mail de pagamento REENVIADO à equipe (marcado como reenvio).'
+    return 'enviado p/ pagamento (equipe e prestador avisados).'
+
+
+def _alertar_discrepancia(boleto, fatos, correcao=False, quando=''):
+    """Aviso ao admin sempre que o dinheiro sai diferente do combinado:
+    valor MAIOR aceito à mão, ou CORREÇÃO de um envio anterior."""
+    motivos = []
+    dif = diferenca_do_combinado(boleto)
+    if dif is not None and dif > 0:
+        motivos.append(f'o valor pago (R$ {fatos["valor"]}) é MAIOR que o '
+                       f'combinado (R$ {_moeda(boleto.valor_esperado)}): '
+                       f'+R$ {_moeda(dif)}')
+    if correcao:
+        motivos.append(f'este boleto já tinha ido ao financeiro em {quando} '
+                       'com outro valor — foi enviada uma CORREÇÃO; confira '
+                       'com a equipe@ que só um pagamento será feito')
+    if not motivos:
+        return
+    emails.enviar(
+        settings.EMAIL_ADMIN,
+        f'⚠️ Discrepância no pagamento — {fatos["prestador"]} — '
+        f'{fatos["alvo"]} — {fatos["competencia"]}',
+        'Cristiano,\n\nO boleto abaixo foi para pagamento, mas atenção:\n'
+        + '\n'.join(f'• {m}' for m in motivos)
+        + '\n\nPainel: https://pj.camim.com.br/painel/\n\n— Controle dos PJs'
+        + dados_pagamento(boleto, fatos),
+        boleto=boleto)
 
 
 def _mes_seguinte_fim(competencia):
@@ -586,51 +724,7 @@ def processar(boleto_pk):
 
     if aprovaria:
         _marcar(boleto, Boleto.Status.APROVADO)
-        emails.enviar(
-            settings.EMAIL_PAGADOR,
-            # O prefixo 'Pagamento — … — R$ valor' é chave: a resposta do
-            # financeiro é casada por ele (localizar_boleto_por_assunto);
-            # a parte do parcial vai DEPOIS do valor.
-            assunto_parcial(
-                fatos,
-                f'Pagamento — {fatos["prestador"]} — {fatos["alvo"]} — '
-                f'{fatos["competencia"]} — R$ {fatos["valor"]}'),
-            frases.corpo(
-                'aprovado_pagador', fatos,
-                instrucao_ia=('Escreva para a equipe de pagamento pedindo '
-                              'para pagar o boleto em anexo, informando que '
-                              'o valor já foi conferido e que os dados de '
-                              'pagamento seguem abaixo da assinatura.'
-                              + _instrucao_parcial(fatos)))
-            + dados_pagamento(boleto, fatos),
-            boleto=boleto,
-            anexo_field=boleto.arquivo if boleto.arquivo else None,
-            anexos=([(boleto.nota_fiscal,
-                      boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
-                    if boleto.nota_fiscal else None),
-            de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
-        if boleto.parcial:
-            instr_pj = ('Escreva em tom FORMAL para o prestador, informando '
-                        'que o boleto foi conferido e já foi encaminhado ao '
-                        'setor financeiro para pagamento. Diga que os dados '
-                        'da cobrança seguem abaixo da assinatura.'
-                        + _instrucao_parcial(fatos))
-        else:
-            instr_pj = ('Escreva em tom FORMAL para o prestador, '
-                        'informando que o boleto foi conferido, o '
-                        'valor está de acordo com o contratado e o '
-                        'documento já foi encaminhado ao setor '
-                        'financeiro para pagamento. Diga que os dados '
-                        'da cobrança seguem abaixo da assinatura.')
-        emails.enviar(
-            destinatarios_pj(boleto),
-            assunto_parcial(
-                fatos,
-                f'Boleto aprovado e enviado p/ pagamento — '
-                f'{fatos["competencia"]}'),
-            frases.corpo('aprovado_pj', fatos, instrucao_ia=instr_pj)
-            + dados_pj(boleto, fatos),
-            boleto=boleto, cc=cc_gerente(boleto))
+        enviar_para_pagamento(boleto, fatos)
     else:
         fatos['valor_esperado'] = _moeda(boleto.valor_esperado)
         _marcar(boleto, Boleto.Status.DIVERGENTE)

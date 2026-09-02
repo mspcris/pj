@@ -104,16 +104,42 @@ def dashboard(request, up):
                                              Boleto.Status.FIN_RECEBIDO,
                                              Boleto.Status.PAGO)),
                             Decimal('0'))
-            linhas.append({'prestador': prestador, 'posto': posto,
-                           'valor': valor, 'boleto': achado,
-                           'parciais': parciais_linha,
-                           'parciais_soma': soma_parc})
+            aprov = (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO,
+                     Boleto.Status.PAGO)
+            linhas.append({
+                'prestador': prestador, 'posto': posto,
+                'valor': valor, 'boleto': achado,
+                'parciais': parciais_linha,
+                'parciais_soma': soma_parc,
+                'parciais_falta': (max(Decimal('0'), valor - soma_parc)
+                                   if valor is not None else None),
+                'parciais_valores': ' + '.join(
+                    f'{b.valor_extraido:.2f}'.replace('.', ',')
+                    for b in parciais_linha
+                    if b.status in aprov and b.valor_extraido is not None),
+                'parciais_pendentes': [b for b in parciais_linha
+                                       if b.status not in aprov],
+                'diferenca': (achado.valor_extraido - valor
+                              if achado is not None and valor is not None
+                              and achado.valor_extraido is not None
+                              and not achado.extra
+                              and abs(achado.valor_extraido - valor)
+                              > Decimal('0.01') else None),
+            })
 
     sobras = [b for b in boletos_mes if b.pk not in casados]
     # Extras e parciais são cobranças LEGÍTIMAS — seções próprias, sem tom
     # de anomalia; "fora da régua" fica só para o que não casou mesmo.
     extras = [b for b in sobras if b.extra]
     parciais_mes = [b for b in sobras if b.parcial and not b.extra]
+    # Parciais AGRUPADAS por prestador/posto: cabeçalho com "já entrou X de
+    # Y, falta Z" e os boletos embaixo — sem ter que somar de cabeça.
+    grupos_parciais = []
+    for l in linhas:
+        if l['parciais']:
+            grupos_parciais.append(l)
+    soltas = [b for b in parciais_mes
+              if not any(b in l['parciais'] for l in grupos_parciais)]
     fora_da_regua = [b for b in sobras if not b.extra and not b.parcial]
 
     def peso(linha):  # pendências primeiro
@@ -143,7 +169,8 @@ def dashboard(request, up):
         if b.status in (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO))
     resumo['pagos'] += sum(1 for b in (extras + parciais_mes)
                            if b.status == Boleto.Status.PAGO)
-    return render(request, 'painel/dashboard.html', {
+    return render(request, 'painel/dashboard.html', {'grupos_parciais': grupos_parciais, 'parciais_soltas': soltas,
+                   
         'mes': mes, 'mes_extenso': competencia_extenso(mes).capitalize(),
         'ant': ant, 'prox': prox, 'linhas': linhas, 'extras': extras,
         'parciais_mes': parciais_mes,
@@ -188,37 +215,19 @@ def boleto_acao(request, up, pk, acao):
                                                  Boleto.Status.DIVERGENTE,
                                                  Boleto.Status.RECEBIDO,
                                                  Boleto.Status.APROVADO):
-        # Aprovação manual (o Cristiano conferiu no olho) OU reenvio de um
-        # aprovado cujo e-mail não chegou → envia p/ pagamento + avisa o PJ.
-        from django.conf import settings
-        from .services import emails, frases
-        from .services.verificacao import (_fatos, _moeda, cc_gerente,
-                                           dados_pagamento, dados_pj,
-                                           destinatarios_pj)
+        # Aprovação manual (o Cristiano conferiu no olho) OU "Reenviar
+        # e-mails" de um já aprovado. O caminho é único e tem a trava
+        # contra mandar o mesmo boleto duas vezes ao financeiro.
+        from .services.verificacao import enviar_para_pagamento
+        reenviar = boleto.status == Boleto.Status.APROVADO
         boleto.status = Boleto.Status.APROVADO
         boleto.verificado_em = timezone.now()
         boleto.save(update_fields=['status', 'verificado_em'])
-        fatos = _fatos(boleto)
-        fatos['valor'] = _moeda(boleto.valor_extraido or boleto.valor_esperado)
-        emails.enviar(
-            settings.EMAIL_PAGADOR,
-            f'Pagamento — {fatos["prestador"]} — {fatos["alvo"]} — '
-            f'{fatos["competencia"]} — R$ {fatos["valor"]}',
-            frases.corpo('aprovado_pagador', fatos)
-            + dados_pagamento(boleto, fatos),
-            boleto=boleto,
-            anexo_field=boleto.arquivo if boleto.arquivo else None,
-            anexos=([(boleto.nota_fiscal,
-                      boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
-                    if boleto.nota_fiscal else None),
-            de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
-        emails.enviar(
-            destinatarios_pj(boleto),
-            f'Boleto aprovado e enviado p/ pagamento — {fatos["competencia"]}',
-            frases.corpo('aprovado_pj', fatos) + dados_pj(boleto, fatos),
-            boleto=boleto, cc=cc_gerente(boleto))
-        messages.success(request, f'{boleto} enviado p/ pagamento '
-                                  '(equipe e prestador avisados).')
+        resultado = enviar_para_pagamento(boleto, reenviar=reenviar)
+        if 'NADA' in resultado:
+            messages.warning(request, f'{boleto}: {resultado}')
+        else:
+            messages.success(request, f'{boleto} — {resultado}')
     else:
         messages.error(request, 'Ação não permitida para este status.')
     AuditLog.registrar(AuditLog.Evento.STATUS, request,
@@ -257,8 +266,104 @@ def boleto_novo(request, up):
                              'entrou na fila de verificação.')
             return redirect('painel_dashboard')
     else:
-        form = BoletoAdminForm()
+        # Pré-preenchido pelo botão "➕ parcial" da régua
+        ini = {}
+        g = request.GET
+        if g.get('prestador', '').isdigit():
+            ini['prestador'] = int(g['prestador'])
+        if g.get('posto', '').isdigit():
+            ini['posto'] = int(g['posto'])
+        if g.get('competencia'):
+            ini['competencia'] = g['competencia'][:7] + '-01'
+        if g.get('parcial'):
+            ini['parcial'] = True
+            ini['valor_livre'] = True
+        form = BoletoAdminForm(initial=ini)
     return render(request, 'painel/boleto_form.html', {'form': form, 'up': up})
+
+
+@admin_required
+def parciais_status(request, up):
+    """JSON p/ o cadastro: quanto JÁ entrou deste prestador/posto/mês, quanto
+    falta e como fica com o boleto que está sendo digitado (pela linha
+    digitável). É o "quanto já coloquei e quanto falta" ao vivo."""
+    from django.http import JsonResponse
+    from .services import boletos as svc_boletos
+    from .services.verificacao import _moeda, valor_da_linha
+    g = request.GET
+    try:
+        prestador = Prestador.objects.get(pk=int(g.get('prestador') or 0))
+    except (Prestador.DoesNotExist, ValueError):
+        return JsonResponse({'texto': ''})
+    posto = None
+    if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
+        posto = Posto.objects.filter(pk=g.get('posto') or 0).first()
+        if posto is None:
+            return JsonResponse({'texto': 'Escolha o posto para ver quanto '
+                                          'já entrou e quanto falta.'})
+    try:
+        comp = date.fromisoformat((g.get('competencia') or '')[:10])
+    except ValueError:
+        return JsonResponse({'texto': ''})
+    comp = comp.replace(day=1)
+    combinado = svc_boletos.valor_esperado_para(prestador, posto, comp)
+    bs = list(Boleto.objects.filter(prestador=prestador, posto=posto,
+                                    competencia=comp, extra=False)
+              .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
+                                   Boleto.Status.DESCARTADO,
+                                   Boleto.Status.DUPLICADO])
+              .order_by('criado_em'))
+    ok = (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO,
+          Boleto.Status.PAGO)
+    entrou = sum((b.valor_extraido or Decimal('0') for b in bs
+                  if b.status in ok), Decimal('0'))
+    pendentes = [b for b in bs if b.status not in ok]
+    este = valor_da_linha(g.get('linha') or '')
+    alvo = posto.nome if posto else prestador.nome
+    mes = f'{comp:%m/%Y}'
+    if combinado is None:
+        return JsonResponse({'texto': f'{alvo} {mes}: sem valor combinado '
+                                      'cadastrado.', 'nivel': 'ruim'})
+    partes = [f'{alvo} {mes} — combinado R$ {_moeda(combinado)}.']
+    if bs:
+        lista = ', '.join(
+            f'R$ {_moeda(b.valor_extraido)}' if b.valor_extraido
+            else b.get_status_display().lower()
+            for b in bs if b.status in ok)
+        partes.append(f'Já entrou R$ {_moeda(entrou)}'
+                      + (f' ({lista})' if lista else '') + '.')
+        if pendentes:
+            partes.append(f'{len(pendentes)} boleto(s) ainda em verificação/'
+                          'pendente(s) — não contam ainda.')
+    else:
+        partes.append('Nenhum boleto deste mês ainda.')
+    falta = max(Decimal('0'), combinado - entrou)
+    nivel = 'ok'
+    if este is not None:
+        depois = entrou + este
+        partes.append(f'Este boleto (pela linha digitável): R$ {_moeda(este)} '
+                      f'→ ficará R$ {_moeda(depois)} de R$ {_moeda(combinado)}.')
+        if depois - combinado > Decimal('0.01'):
+            partes.append(f'⚠️ PASSA do combinado em R$ '
+                          f'{_moeda(depois - combinado)} — vai cair em '
+                          'verificação manual.')
+            nivel = 'ruim'
+        elif combinado - depois > Decimal('0.01'):
+            partes.append(f'⏳ Ainda faltará R$ {_moeda(combinado - depois)}.')
+            nivel = 'medio'
+        else:
+            partes.append('✅ Fecha a mensalidade.')
+        if entrou > 0 and not any(b.parcial for b in bs if b.status in ok):
+            partes.append('⚠️ Já existe boleto CHEIO aprovado neste mês — '
+                          'este seria duplicidade (marque PARCIAL ou EXTRA '
+                          'se for o caso).')
+            nivel = 'ruim'
+    else:
+        partes.append(f'Falta R$ {_moeda(falta)}.' if falta > 0
+                      else '✅ Mensalidade já completa — um boleto a mais '
+                           'seria duplicidade (ou marque EXTRA).')
+        nivel = 'medio' if falta > 0 else 'ok'
+    return JsonResponse({'texto': ' '.join(partes), 'nivel': nivel})
 
 
 @admin_required

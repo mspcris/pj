@@ -296,6 +296,12 @@ class Boleto(models.Model):
                               default=Status.RECEBIDO)
     # Quando o financeiro respondeu "recebido" ao e-mail de pagamento
     fin_recebido_em = models.DateTimeField(null=True, blank=True)
+    # TRAVA contra pagar duas vezes: quando (e com que valor) o e-mail
+    # "Pagamento — …" foi à equipe@. Reaprovação com o mesmo valor NÃO
+    # reenvia; valor diferente vai como CORREÇÃO.
+    pagamento_enviado_em = models.DateTimeField(null=True, blank=True)
+    pagamento_enviado_valor = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True)
     valor_esperado = models.DecimalField(max_digits=12, decimal_places=2,
                                          null=True, blank=True)
     valor_extraido = models.DecimalField(max_digits=12, decimal_places=2,

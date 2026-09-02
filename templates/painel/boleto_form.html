@@ -25,6 +25,8 @@ mesmo fluxo: IA confere o valor e, se bater, vai para o pagamento.</p>
     {% if form.non_field_errors %}<ul class="errolista">
       {% for e in form.non_field_errors %}<li>⚠️ {{ e }}</li>{% endfor %}
     </ul>{% endif %}
+    <div id="quanto-falta" hidden style="margin-top:14px;padding:12px 14px;
+         border-radius:10px;font-weight:600;line-height:1.45"></div>
     <p class="sub" style="font-size:.82rem;margin-top:14px">
       Linha digitável e chave PIX vão junto no e-mail para a equipe de
       pagamento. Se você deixar em branco, a IA tenta ler a linha digitável
@@ -36,6 +38,39 @@ mesmo fluxo: IA confere o valor e, se bater, vai para o pagamento.</p>
   </form>
 </div>
 <script>
+// "Quanto já coloquei e quanto falta" — ao vivo, conforme escolhe
+// prestador/posto/mês e cola a linha digitável.
+(function(){
+  var box = document.getElementById('quanto-falta');
+  var cores = {ok: 'background:#e6f6ee;color:#0b5e3c',
+               medio: 'background:#fff4d6;color:#7a4b00',
+               ruim: 'background:#fde8e8;color:#8a1c1c'};
+  function campo(n){ return document.querySelector('[name=' + n + ']'); }
+  function atualizar(){
+    var p = campo('prestador'), po = campo('posto'), c = campo('competencia'),
+        l = campo('linha_digitavel');
+    if (!p || !p.value){ box.hidden = true; return; }
+    var qs = 'prestador=' + encodeURIComponent(p.value)
+           + '&posto=' + encodeURIComponent(po ? po.value : '')
+           + '&competencia=' + encodeURIComponent(c ? c.value : '')
+           + '&linha=' + encodeURIComponent(l ? l.value : '');
+    fetch('{% url 'painel_parciais_status' %}?' + qs, {credentials: 'same-origin'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d.texto){ box.hidden = true; return; }
+        box.textContent = '🧮 ' + d.texto;
+        box.setAttribute('style', 'margin-top:14px;padding:12px 14px;border-radius:10px;font-weight:600;line-height:1.45;' + (cores[d.nivel] || cores.ok));
+        box.hidden = false;
+      }).catch(function(){ box.hidden = true; });
+  }
+  ['prestador', 'posto', 'competencia'].forEach(function(n){
+    var el = campo(n); if (el) el.addEventListener('change', atualizar);
+  });
+  var ld = campo('linha_digitavel');
+  if (ld){ ld.addEventListener('input', atualizar); ld.addEventListener('change', atualizar); }
+  window.atualizarQuantoFalta = atualizar;
+  atualizar();
+})();
 document.addEventListener('paste', function(e){
   var feedback = document.getElementById('colar-feedback');
   var itens = (e.clipboardData || {}).items || [];
@@ -61,6 +96,7 @@ document.addEventListener('paste', function(e){
     document.querySelector('input[name=linha_digitavel]').value = digitos;
     feedback.textContent = '✅ Código de barras colado na linha digitável (' +
       digitos.length + ' dígitos).';
+    if (window.atualizarQuantoFalta) window.atualizarQuantoFalta();
     e.preventDefault();
   }
 });

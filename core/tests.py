@@ -516,6 +516,153 @@ class BoletoParcialTest(BaseSetup):
         self.assertContains(resp, 'Parciais: R$ 500,00 de R$ 1.500,00')
 
 
+class TravaReenvioTest(BaseSetup):
+    """Nova Iguaçu 01/09: editar um boleto já APROVADO mandava-o de novo ao
+    financeiro (2 boletos, 4 e-mails). Agora: mesmo valor → nada reenviado;
+    valor diferente → CORREÇÃO; "Reenviar e-mails" → reenvio marcado."""
+
+    def _boleto(self, centavos, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=date(2026, 9, 1), arquivo=None,
+                    linha_digitavel=_linha_47(centavos), valor_livre=True,
+                    enviado_por='cristiano@camim.com.br')
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    def _pagamentos(self, m_mail):
+        return [c for c in m_mail.call_args_list
+                if c.args[0] == 'equipe@camim.com.br']
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_reaprovacao_apos_edicao_nao_reenvia(self, m_mail):
+        b = self._boleto(150000)
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertIsNotNone(b.pagamento_enviado_em)
+        self.assertEqual(b.pagamento_enviado_valor, Decimal('1500.00'))
+        self.assertEqual(len(self._pagamentos(m_mail)), 1)
+        # edição que muda algo → volta p/ verificação → aprova de novo
+        self.login_admin()
+        with mock.patch('core.services.verificacao.processar_async'):
+            self.client.post(f'/painel/boleto/{b.pk}/editar/', {
+                'posto': self.posto1.pk, 'competencia': '2026-09-01',
+                'linha_digitavel': b.linha_digitavel, 'chave_pix': '',
+                'observacao': 'ajuste'})  # tirou o "valor livre" → mudou
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.RECEBIDO)
+        b.valor_livre = True
+        b.save(update_fields=['valor_livre'])
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertEqual(len(self._pagamentos(m_mail)), 1)  # NÃO reenviou
+        # e ficou registrado na auditoria
+        from core.models import AuditLog
+        self.assertTrue(AuditLog.objects.filter(
+            detalhe__contains='nada reenviado').exists())
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_valor_diferente_vai_como_correcao_e_avisa_admin(self, m_mail):
+        b = self._boleto(150000)
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        b.linha_digitavel = _linha_47(160000)  # trocou o boleto
+        b.status = Boleto.Status.RECEBIDO
+        b.tentativas = 0
+        b.valor_extraido = None
+        b.save()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        pags = self._pagamentos(m_mail)
+        self.assertEqual(len(pags), 2)
+        self.assertTrue(pags[-1].args[1].startswith('CORREÇÃO — Pagamento — '))
+        self.assertIn('SUBSTITUI o enviado em', pags[-1].args[2])
+        self.assertIn('R$ 1.500,00', pags[-1].args[2])
+        self.assertEqual(b.pagamento_enviado_valor, Decimal('1600.00'))
+        # o financeiro ainda casa a resposta (prefixo preservado)
+        from core.services.boletos import localizar_boleto_por_assunto
+        self.assertEqual(localizar_boleto_por_assunto(
+            'Re: ' + pags[-1].args[1]), b)
+        # admin avisado: correção + valor MAIOR que o combinado
+        avisos = [c for c in m_mail.call_args_list
+                  if c.args[0] == 'cristiano@camim.com.br'
+                  and 'Discrepância' in c.args[1]]
+        self.assertEqual(len(avisos), 1)
+        self.assertIn('MAIOR', avisos[0].args[2])
+        self.assertIn('CORREÇÃO', avisos[0].args[2])
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_botao_reenviar_manda_de_novo_marcado(self, m_mail):
+        b = self._boleto(150000)
+        verificacao.processar(b.pk)
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/aprovar/')
+        pags = self._pagamentos(m_mail)
+        self.assertEqual(len(pags), 2)
+        self.assertIn('REENVIO', pags[-1].args[2])
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_valor_menor_aceito_aparece_no_email_e_na_regua(self, m_mail):
+        b = self._boleto(149997)  # 1.499,97 × 1.500,00
+        verificacao.processar(b.pk)
+        corpo = self._pagamentos(m_mail)[-1].args[2]
+        self.assertIn('valor DIFERENTE do combinado (R$ 1.500,00): −R$ 0,03',
+                      corpo)
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-09')
+        self.assertContains(resp, '≠ combinado')
+        # centavos a menos NÃO viram e-mail de alerta (só valor MAIOR)
+        self.assertFalse([c for c in m_mail.call_args_list
+                          if 'Discrepância' in c.args[1]])
+
+
+class QuantoFaltaTest(BaseSetup):
+    """"EU SEMPRE PRECISO VER QUANTO JÁ COLOQUEI E QUANTO FALTA."""
+
+    def test_endpoint_do_cadastro(self):
+        Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), parcial=True,
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('500.00'))
+        self.login_admin()
+        base = {'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+                'competencia': '2026-09-01'}
+        d = self.client.get('/painel/parciais-status/', base).json()
+        self.assertIn('Já entrou R$ 500,00', d['texto'])
+        self.assertIn('Falta R$ 1.000,00', d['texto'])
+        d = self.client.get('/painel/parciais-status/',
+                            dict(base, linha=_linha_47(99998))).json()
+        self.assertIn('ficará R$ 1.499,98 de R$ 1.500,00', d['texto'])
+        self.assertIn('faltará R$ 0,02', d['texto'])
+        d = self.client.get('/painel/parciais-status/',
+                            dict(base, linha=_linha_47(100000))).json()
+        self.assertIn('✅ Fecha', d['texto'])
+        d = self.client.get('/painel/parciais-status/',
+                            dict(base, linha=_linha_47(100100))).json()
+        self.assertIn('PASSA do combinado em R$ 1,00', d['texto'])
+        self.assertEqual(d['nivel'], 'ruim')
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_regua_e_secao_mostram_falta_e_botao_parcial(self, m_async):
+        Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date.today().replace(day=1), parcial=True,
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('500.00'))
+        self.login_admin()
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'falta R$ 1.000,00')
+        self.assertContains(resp, 'cadastrar parcial')
+        self.assertContains(resp, 'já entrou <strong>R$ 500,00')
+        # botão pré-preenche o cadastro
+        resp = self.client.get(
+            f'/painel/boleto/novo/?prestador={self.prestador.pk}'
+            f'&posto={self.posto1.pk}&competencia=2026-09&parcial=1')
+        import re as _re
+        self.assertTrue(_re.search(r'name="parcial"[^>]*checked',
+                                   resp.content.decode()))
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

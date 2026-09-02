@@ -16,6 +16,8 @@ urlpatterns = [
     path('api/boletos/', api.boletos, name='api_boletos'),
 
     path('painel/', views_painel.dashboard, name='painel_dashboard'),
+    path('painel/parciais-status/', views_painel.parciais_status,
+         name='painel_parciais_status'),
     path('painel/boleto/novo/', views_painel.boleto_novo,
          name='painel_boleto_novo'),
     path('painel/boleto/<int:pk>/editar/', views_painel.boleto_editar,
