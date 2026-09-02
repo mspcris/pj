@@ -305,8 +305,9 @@ class PrestadorForm(forms.ModelForm):
     class Meta:
         model = Prestador
         fields = ['nome', 'representante', 'representante_nome_social',
-                  'representante_cpf', 'cnpj', 'endereco', 'bairro', 'cidade',
-                  'uf', 'cep', 'modo_boleto', 'posto_cobranca',
+                  'representante_cpf', 'cnpj', 'razao_social', 'nome_fantasia',
+                  'endereco', 'bairro', 'cidade', 'uf', 'cep', 'telefone',
+                  'email_empresa', 'modo_boleto', 'posto_cobranca',
                   'valor_unico', 'regime_pagamento', 'dia_pagamento',
                   'dia_vencimento', 'exige_nf', 'ativo', 'emails_aviso',
                   'observacao']
@@ -353,6 +354,15 @@ class PrestadorForm(forms.ModelForm):
         if d is not None and not 1 <= d <= 31:
             raise forms.ValidationError('Dia entre 1 e 31.')
         return d
+
+    def clean_cnpj(self):
+        d = ''.join(c for c in (self.cleaned_data.get('cnpj') or '')
+                    if c.isdigit())
+        if not d:
+            return ''
+        if len(d) != 14:
+            raise forms.ValidationError('CNPJ com 14 dígitos.')
+        return f'{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}'
 
     def clean_cep(self):
         d = ''.join(c for c in (self.cleaned_data.get('cep') or '')

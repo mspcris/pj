@@ -1,12 +1,50 @@
 {% extends 'base.html' %}
 {% block title %}{{ prestador.nome }} · Painel{% endblock %}
 {% block conteudo %}
-<h1>{{ prestador.nome }}</h1>
 <p class="sub"><a href="{% url 'painel_prestadores' %}">← todos os prestadores</a></p>
 
-<div class="card">
-  <h2 style="font-size:1.05rem">Dados</h2>
-  <form method="post">
+{# ===== FICHA DA EMPRESA — o que interessa, com contraste ===== #}
+<style>
+.ficha{background:linear-gradient(135deg,#0f3d31,#0b5e48);color:#fff;border-radius:var(--raio);
+  padding:22px 24px;margin-bottom:18px;box-shadow:var(--sombra)}
+.ficha a{color:#a8e6cf}
+.ficha .titulo{font-size:1.45rem;font-weight:800;line-height:1.2}
+.ficha .sit{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.78rem;font-weight:700;margin-left:8px;vertical-align:middle}
+.ficha .sit.ok{background:#1e9d6d;color:#fff}.ficha .sit.ruim{background:#c0392b;color:#fff}.ficha .sit.nada{background:rgba(255,255,255,.18);color:#fff}
+.ficha .grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:6px 28px;margin-top:14px;font-size:.95rem}
+.ficha .grade div{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.12)}
+.ficha .rot{color:#a8e6cf;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;display:block}
+.ficha .vazio{color:rgba(255,255,255,.45);font-style:italic}
+.ficha .chips span{display:inline-block;background:rgba(255,255,255,.14);border-radius:8px;padding:3px 9px;margin:4px 6px 0 0;font-size:.82rem}
+.ficha .rodape{margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:.78rem;color:#a8e6cf}
+</style>
+<div class="ficha">
+  <div class="titulo">{{ prestador.razao_social|default:prestador.nome }}
+    {% if prestador.situacao_cadastral %}<span class="sit {% if prestador.situacao_cadastral|upper == 'ATIVA' %}ok{% else %}ruim{% endif %}">{{ prestador.situacao_cadastral }}</span>
+    {% elif not prestador.ativo %}<span class="sit ruim">inativo aqui</span>{% endif %}</div>
+  {% if prestador.nome_fantasia and prestador.nome_fantasia|upper != prestador.razao_social|upper %}<div style="color:#a8e6cf;margin-top:2px">{{ prestador.nome_fantasia }}</div>{% endif %}
+  {% if prestador.razao_social and prestador.razao_social|upper != prestador.nome|upper %}<div style="color:#a8e6cf;font-size:.85rem;margin-top:2px">no sistema: {{ prestador.nome }}</div>{% endif %}
+  <div class="grade">
+    <div><span class="rot">CNPJ</span>{% if prestador.cnpj %}{{ prestador.cnpj_formatado }}{% else %}<span class="vazio">não informado</span>{% endif %}</div>
+    <div><span class="rot">Representante legal</span>{{ prestador.contato }}{% if prestador.representante_nome_social %} <span style="opacity:.75">({{ prestador.representante }})</span>{% endif %}{% if prestador.representante_cpf %} · CPF {{ prestador.representante_cpf }}{% endif %}</div>
+    <div><span class="rot">Endereço</span>{% if prestador.endereco_completo %}{{ prestador.endereco_completo }}{% else %}<span class="vazio">não informado</span>{% endif %}</div>
+    <div><span class="rot">Contato</span>{% if prestador.telefone %}{{ prestador.telefone }}{% endif %}{% if prestador.telefone and prestador.email_empresa %} · {% endif %}{% if prestador.email_empresa %}{{ prestador.email_empresa }}{% endif %}{% if not prestador.telefone and not prestador.email_empresa %}<span class="vazio">não informado</span>{% endif %}</div>
+    <div><span class="rot">Avisos vão para</span>{% for u in prestador.usuarios.all %}{% if u.ativo %}{{ u.email }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}{% for e in prestador.lista_emails_aviso %}, {{ e }} <span style="opacity:.7">(sem login)</span>{% endfor %}</div>
+    <div><span class="rot">Boleto</span>{{ prestador.get_modo_boleto_display }}{% if prestador.posto_cobranca %} — contra {{ prestador.posto_cobranca.nome }}{% endif %}{% if prestador.valor_esperado_unico %} — R$ {{ prestador.valor_esperado_unico }}{% endif %}</div>
+    <div><span class="rot">Pagamento</span>{{ prestador.get_regime_pagamento_display }}{% if prestador.dia_pagamento %} · previsto dia {{ prestador.dia_pagamento }}{% endif %}{% if prestador.dia_vencimento %} · vencimento dia {{ prestador.dia_vencimento }}{% endif %}</div>
+    <div><span class="rot">Abertura</span>{% if prestador.abertura %}{{ prestador.abertura|date:"d/m/Y" }}{% else %}<span class="vazio">—</span>{% endif %}{% if prestador.exige_nf %} · <strong>exige NF</strong>{% endif %}</div>
+  </div>
+  {% if prestador.lista_socios %}<div class="chips" style="margin-top:10px"><span class="rot" style="display:block">Sócios e administradores</span>{% for s in prestador.lista_socios %}<span>{{ s }}</span>{% endfor %}</div>{% endif %}
+  <div class="rodape">
+    <form method="post" style="margin:0">{% csrf_token %}<input type="hidden" name="qual" value="receita">
+      <button class="btn mini dourado" type="submit" {% if not prestador.cnpj %}disabled title="Informe o CNPJ primeiro"{% endif %}>🔎 Buscar na Receita pelo CNPJ</button></form>
+    {% if prestador.receita_consultado_em %}<span>consultado em {{ prestador.receita_consultado_em|date:"d/m/Y H:i" }}</span>{% else %}<span>ainda não consultado — preenche razão social, endereço, contato, sócios e situação (só o que estiver em branco)</span>{% endif %}
+  </div>
+</div>
+
+<details class="card" {% if form.errors %}open{% endif %}>
+  <summary style="cursor:pointer;font-size:1.05rem;font-weight:700">✏️ Editar cadastro</summary>
+  <form method="post" style="margin-top:12px">
     {% csrf_token %}<input type="hidden" name="qual" value="dados">
     {% for campo in form %}
       <label>{{ campo.label }}</label>{{ campo }}
@@ -14,7 +52,7 @@
     {% endfor %}
     <button class="btn" type="submit" style="margin-top:18px">Salvar dados</button>
   </form>
-</div>
+</details>
 
 <div class="card">
   <h2 style="font-size:1.05rem">Postos e valores combinados</h2>

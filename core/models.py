@@ -79,6 +79,34 @@ class Prestador(models.Model):
     uf = models.CharField(max_length=2, blank=True, verbose_name='UF')
     cep = models.CharField(max_length=9, blank=True, verbose_name='CEP')
 
+    # Ficha da Receita (BrasilAPI, pelo CNPJ) — botão "Buscar na Receita".
+    razao_social = models.CharField(max_length=200, blank=True,
+                                    verbose_name='Razão social')
+    nome_fantasia = models.CharField(max_length=200, blank=True)
+    telefone = models.CharField(max_length=40, blank=True)
+    email_empresa = models.EmailField(blank=True,
+                                      verbose_name='E-mail da empresa')
+    situacao_cadastral = models.CharField(max_length=60, blank=True)
+    abertura = models.DateField(null=True, blank=True)
+    socios = models.TextField(blank=True, help_text='um por linha')
+    receita_consultado_em = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def cnpj_digitos(self):
+        return ''.join(c for c in (self.cnpj or '') if c.isdigit())
+
+    @property
+    def cnpj_formatado(self):
+        d = self.cnpj_digitos
+        if len(d) != 14:
+            return self.cnpj
+        return f'{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:]}'
+
+    @property
+    def lista_socios(self):
+        return [l.strip() for l in (self.socios or '').splitlines()
+                if l.strip()]
+
     @property
     def endereco_completo(self):
         partes = [self.endereco, self.bairro,

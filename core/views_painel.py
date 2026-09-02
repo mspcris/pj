@@ -614,6 +614,22 @@ def prestador_detalhe(request, up, pk):
                 AuditLog.registrar(AuditLog.Evento.CRUD, request,
                                    detalhe=f'Prestador editado: {prestador}')
                 return redirect('painel_prestador', pk=pk)
+        elif qual == 'receita':
+            from .services import receita
+            try:
+                dados = receita.consultar_cnpj(prestador.cnpj)
+                alterados = receita.aplicar(prestador, dados, ator=up.email)
+                messages.success(
+                    request,
+                    f'Receita: {dados["razao_social"]} — '
+                    f'{dados["situacao_cadastral"]}. '
+                    + (f'Preenchidos: {", ".join(alterados)}.' if alterados
+                       else 'Nada em branco para preencher; situação e '
+                            'sócios atualizados.'))
+            except Exception as e:
+                messages.error(request, f'Não consegui consultar a Receita: '
+                                        f'{e}')
+            return redirect('painel_prestador', pk=pk)
         elif qual == 'valores':
             campo = ValorBRField(required=False)
             with transaction.atomic():

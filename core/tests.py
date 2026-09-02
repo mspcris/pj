@@ -1095,6 +1095,55 @@ class ContratoBoletoUnicoTest(BaseSetup):
         self.assertContains(resp, self.prestador.posto_cobranca.nome)
 
 
+class ReceitaTest(BaseSetup):
+    RESP = {'razao_social': 'MRF INFORMATICA LTDA', 'nome_fantasia': 'MRF Solution',
+            'descricao_tipo_de_logradouro': 'Avenida',
+            'logradouro': 'Ernani do Amaral Peixoto', 'numero': '300',
+            'complemento': 'Sala 1021', 'bairro': 'Centro',
+            'municipio': 'Niterói', 'uf': 'RJ', 'cep': '24020076',
+            'ddd_telefone_1': '2122102114', 'email': 'ROBSON@GMAIL.COM',
+            'descricao_situacao_cadastral': 'Ativa',
+            'data_inicio_atividade': '2000-06-21',
+            'qsa': [{'nome_socio': 'MILENA MACIEL DE CARVALHO',
+                     'qualificacao_socio': 'Sócio'},
+                    {'nome_socio': 'ROBSON DE JESUS FERNANDES',
+                     'qualificacao_socio': 'Sócio-Administrador'}]}
+
+    def test_ficha_preenche_so_o_que_esta_em_branco(self):
+        self.prestador.cnpj = '03894412000100'
+        self.prestador.cidade = 'Rio'  # já digitado: fica
+        self.prestador.representante = self.prestador.nome  # = vazio
+        self.prestador.save()
+        self.login_admin()
+        fake = mock.Mock(status_code=200, json=lambda: self.RESP)
+        fake.raise_for_status = lambda: None
+        with mock.patch('core.services.receita.requests.get',
+                        return_value=fake):
+            resp = self.client.post(f'/painel/prestadores/{self.prestador.pk}/',
+                                    {'qual': 'receita'}, follow=True)
+        p = Prestador.objects.get(pk=self.prestador.pk)
+        self.assertEqual(p.cnpj, '03.894.412/0001-00')
+        self.assertEqual(p.razao_social, 'MRF INFORMATICA LTDA')
+        self.assertEqual(p.endereco, 'Avenida Ernani do Amaral Peixoto nº 300 Sala 1021')
+        self.assertEqual(p.cidade, 'Rio')
+        self.assertEqual(p.cep, '24020-076')
+        self.assertEqual(p.telefone, '(21) 22102114')
+        self.assertEqual(p.email_empresa, 'robson@gmail.com')
+        self.assertEqual(p.situacao_cadastral, 'Ativa')
+        self.assertEqual(p.abertura, date(2000, 6, 21))
+        self.assertEqual(p.representante, 'Robson De Jesus Fernandes')
+        self.assertIn('MILENA MACIEL DE CARVALHO — Sócio', p.lista_socios)
+        self.assertContains(resp, 'MRF INFORMATICA LTDA')
+        self.assertContains(resp, 'Sócios e administradores')
+        self.assertContains(resp, 'Ativa')
+        # API fora: mensagem, nada quebra
+        with mock.patch('core.services.receita.requests.get',
+                        side_effect=RuntimeError('timeout')):
+            resp = self.client.post(f'/painel/prestadores/{self.prestador.pk}/',
+                                    {'qual': 'receita'}, follow=True)
+        self.assertContains(resp, 'Não consegui consultar a Receita')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale
