@@ -24,6 +24,8 @@ urlpatterns = [
          name='painel_boleto_editar'),
     path('painel/ver-como/<int:pk>/', views_painel.ver_como,
          name='painel_ver_como'),
+    path('painel/ajuste-diferenca/', views_painel.ajuste_diferenca,
+         name='painel_ajuste_diferenca'),
     path('painel/boleto/<int:pk>/<str:acao>/', views_painel.boleto_acao,
          name='painel_boleto_acao'),
     path('painel/prestadores/', views_painel.prestadores,

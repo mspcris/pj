@@ -45,6 +45,7 @@
   <div style="display:flex;gap:26px;flex-wrap:wrap;margin-top:8px;font-size:1rem">
     <div><span class="sub">Previsto ({{ resumo_filtro.postos }} linha{{ resumo_filtro.postos|pluralize }})</span><br><strong>R$ {{ resumo_filtro.previsto }}</strong></div>
     <div><span class="sub">Boletos até aqui</span><br><strong>R$ {{ resumo_filtro.entrou }}</strong></div>
+    {% if resumo_filtro.ajustado %}<div><span class="sub">Em dinheiro / não pago</span><br><strong>R$ {{ resumo_filtro.ajustado }}</strong></div>{% endif %}
     <div>
       {% if resumo_filtro.passou %}<span class="sub">PASSOU do previsto</span><br><strong style="color:#8a1c1c">⚠️ +R$ {{ resumo_filtro.passou }}</strong>
       {% elif resumo_filtro.falta %}<span class="sub">Falta</span><br><strong style="color:#7a4b00">⏳ R$ {{ resumo_filtro.falta }}</strong>
@@ -107,8 +108,35 @@
         {% endif %}
         {% if l.diferenca %}<div class="sub" style="font-size:.72rem;color:#7a4b00;font-weight:700"
           title="Valor do boleto diferente do combinado">≠ combinado: {{ l.diferenca_txt }}</div>{% endif %}
+        {% if l.ajuste %}<div style="font-size:.78rem;font-weight:700;color:#0b5e3c">✅ R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }} — quitado</div>{% endif %}
         {% if b.observacao %}<span title="{{ b.observacao }}">📝</span>{% endif %}</td>
       <td><div class="acoes">
+        {% if l.falta_pequena %}
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Diferença de R$ {{ l.falta_pequena }} PAGA EM DINHEIRO? A linha fica quitada.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+          <input type="hidden" name="modo" value="DINHEIRO">
+          <button class="btn mini">💵 Pagar em dinheiro</button></form>
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Diferença de R$ {{ l.falta_pequena }} NÃO será paga? A linha fica quitada.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+          <input type="hidden" name="modo" value="NAO_PAGO">
+          <button class="btn mini claro">🚫 Não será pago</button></form>
+        {% elif l.ajuste %}
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Desfazer? A diferença volta a aparecer como pendente.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="0"><input type="hidden" name="modo" value="DESFAZER">
+          <button class="btn mini claro">↩ desfazer ajuste</button></form>
+        {% endif %}
         <a class="btn mini claro" title="Editar posto/mês/observação"
            href="{% url 'painel_boleto_editar' b.pk %}">✏️ Editar</a>
         {% if b.status == 'APROVADO' %}
@@ -144,9 +172,35 @@
       <td><span class="chip {% if l.parciais_falta == 0 %}APROVADO{% else %}RECEBIDO{% endif %}">
         Parciais: R$ {{ l.parciais_soma }} de R$ {{ l.valor }}</span>
         <div style="font-size:.8rem;font-weight:700;margin-top:3px;{% if l.parciais_falta == 0 %}color:#0b5e3c{% else %}color:#7a4b00{% endif %}">
-          {% if l.parciais_falta == 0 %}✅ completa{% else %}⏳ falta R$ {{ l.parciais_falta }}{% endif %}</div>
+          {% if l.ajuste %}✅ completa — R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }}{% elif l.parciais_falta == 0 %}✅ completa{% else %}⏳ falta R$ {{ l.parciais_falta }}{% endif %}</div>
         {% if l.parciais_pendentes %}<div class="sub" style="font-size:.72rem">{{ l.parciais_pendentes|length }} ainda em verificação (não conta)</div>{% endif %}</td>
       <td><div class="acoes">
+        {% if l.falta_pequena %}
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Diferença de R$ {{ l.falta_pequena }} PAGA EM DINHEIRO? A linha fica quitada.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+          <input type="hidden" name="modo" value="DINHEIRO">
+          <button class="btn mini">💵 Pagar em dinheiro</button></form>
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Diferença de R$ {{ l.falta_pequena }} NÃO será paga? A linha fica quitada.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+          <input type="hidden" name="modo" value="NAO_PAGO">
+          <button class="btn mini claro">🚫 Não será pago</button></form>
+        {% elif l.ajuste %}
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Desfazer? A diferença volta a aparecer como pendente.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="0"><input type="hidden" name="modo" value="DESFAZER">
+          <button class="btn mini claro">↩ desfazer ajuste</button></form>
+        {% endif %}
         {% if l.parciais_falta != 0 %}
         <a class="btn mini dourado" href="{% url 'painel_boleto_novo' %}?prestador={{ l.prestador.pk }}{% if l.posto %}&posto={{ l.posto.pk }}{% endif %}&competencia={{ mes|date:'Y-m' }}&parcial=1">➕ parcial</a>
         {% endif %}
@@ -154,8 +208,37 @@
       </div></td>
       {% else %}
       <td>—</td>
-      <td><span class="chip FALTA">SEM BOLETO</span></td>
-      <td></td>
+      <td>{% if l.ajuste %}<span class="chip APROVADO">QUITADO</span>
+        <div style="font-size:.78rem;font-weight:700;color:#0b5e3c">R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }}</div>
+        {% else %}<span class="chip FALTA">SEM BOLETO</span>{% endif %}</td>
+      <td><div class="acoes">
+        {% if l.falta_pequena %}
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Diferença de R$ {{ l.falta_pequena }} PAGA EM DINHEIRO? A linha fica quitada.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+          <input type="hidden" name="modo" value="DINHEIRO">
+          <button class="btn mini">💵 Pagar em dinheiro</button></form>
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Diferença de R$ {{ l.falta_pequena }} NÃO será paga? A linha fica quitada.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+          <input type="hidden" name="modo" value="NAO_PAGO">
+          <button class="btn mini claro">🚫 Não será pago</button></form>
+        {% elif l.ajuste %}
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}"
+              onsubmit="return confirm('Desfazer? A diferença volta a aparecer como pendente.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="0"><input type="hidden" name="modo" value="DESFAZER">
+          <button class="btn mini claro">↩ desfazer ajuste</button></form>
+        {% endif %}
+      </div></td>
       {% endif %}
       {% endwith %}
     </tr>

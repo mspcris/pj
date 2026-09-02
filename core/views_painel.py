@@ -17,8 +17,9 @@ from django.views.decorators.http import require_POST
 
 from .forms import (BoletoAdminForm, ContratoAdminForm, PostoForm,
                     PrestadorForm, UsuarioForm, ValeForm, ValorBRField)
-from .models import (AuditLog, Boleto, Configuracao, Contrato, EmailLog,
-                     Posto, Prestador, PrestadorPosto, UsuarioPermitido, Vale)
+from .models import (AjusteDiferenca, AuditLog, Boleto, Configuracao,
+                     Contrato, EmailLog, Posto, Prestador, PrestadorPosto,
+                     UsuarioPermitido, Vale)
 from django.contrib.auth.decorators import login_required
 
 from .views import _usuario_real, com_usuario
@@ -69,6 +70,8 @@ def dashboard(request, up):
         .select_related('prestador', 'posto', 'prestador__posto_cobranca'))
 
     from .services import boletos as svc_boletos
+    ajustes = {(a.prestador_id, a.posto_id): a
+               for a in AjusteDiferenca.objects.filter(competencia=mes)}
     linhas, casados = [], set()
     for prestador in (Prestador.objects.filter(ativo=True)
                       .prefetch_related('vinculos__posto')):
@@ -126,11 +129,32 @@ def dashboard(request, up):
                               and abs(achado.valor_extraido - valor)
                               > Decimal('0.01') else None),
             })
-            if linhas[-1]['diferenca'] is not None:
-                from .services.verificacao import _moeda
-                d = linhas[-1]['diferenca']
-                linhas[-1]['diferenca_txt'] = (
-                    ('+' if d > 0 else '−') + 'R$ ' + _moeda(abs(d)))
+            l = linhas[-1]
+            from .services.verificacao import _moeda
+            if l['diferenca'] is not None:
+                d = l['diferenca']
+                l['diferenca_txt'] = (('+' if d > 0 else '−') + 'R$ '
+                                      + _moeda(abs(d)))
+            # Diferença PEQUENA (< R$ 5) que falta: parciais que não
+            # fecharam, ou boleto único abaixo do combinado. Dá para
+            # resolver em dinheiro / não pagar — e a linha fica quitada.
+            falta = None
+            if l['parciais'] and l['parciais_falta']:
+                falta = l['parciais_falta']
+            elif (achado is not None and achado.status in aprov
+                  and l['diferenca'] is not None and l['diferenca'] < 0):
+                falta = -l['diferenca']
+            elif (achado is None and not l['parciais']
+                  and valor is not None):
+                falta = valor  # SEM BOLETO com combinado ínfimo (R$ 0,40)
+            l['ajuste'] = ajustes.get((prestador.pk,
+                                       posto.pk if posto else None))
+            l['falta_pequena'] = (falta if falta is not None
+                                  and Decimal('0') < falta
+                                  < AjusteDiferenca.LIMITE
+                                  and l['ajuste'] is None else None)
+            if l['ajuste'] is not None:
+                l['parciais_falta'] = Decimal('0')
 
     # FILTRO por prestador ou posto: a régua vira uma tela de conferência
     # ("Elias: previsto 9.000, boletos até aqui 8.999,40, falta 0,60").
@@ -172,14 +196,17 @@ def dashboard(request, up):
                 pendentes_valor += 1
         entrou += l['parciais_soma']
         pendentes_valor += len(l['parciais_pendentes'])
+    ajustado = sum((l['ajuste'].valor for l in linhas if l.get('ajuste')),
+                   Decimal('0'))
     resumo_filtro = {
-        'previsto': previsto, 'entrou': entrou,
-        'falta': max(Decimal('0'), previsto - entrou),
+        'previsto': previsto, 'entrou': entrou, 'ajustado': ajustado,
+        'falta': max(Decimal('0'), previsto - entrou - ajustado),
         'passou': max(Decimal('0'), entrou - previsto),
         'pendentes': pendentes_valor,
         'postos': len(linhas),
         'sem_boleto': sum(1 for l in linhas
-                          if l['boleto'] is None and not l['parciais']),
+                          if l['boleto'] is None and not l['parciais']
+                          and not l.get('ajuste')),
     }
 
     sobras = [b for b in boletos_mes if b.pk not in casados]
@@ -209,7 +236,8 @@ def dashboard(request, up):
 
     resumo = {
         'faltando': sum(1 for l in linhas
-                        if l['boleto'] is None and not l['parciais']),
+                        if l['boleto'] is None and not l['parciais']
+                        and not l.get('ajuste')),
         'atencao': sum(1 for l in linhas if l['boleto'] and l['boleto'].status
                        in (Boleto.Status.DIVERGENTE, Boleto.Status.MANUAL)),
         'aguardando_pgto': sum(1 for l in linhas if l['boleto'] and
@@ -239,6 +267,50 @@ def dashboard(request, up):
         'pendentes_baixo': len(parciais_mes) + len(fora_da_regua)
                            + len(extras),
         'fora_da_regua': fora_da_regua, 'resumo': resumo, 'up': up})
+
+
+@admin_required
+@require_POST
+def ajuste_diferenca(request, up):
+    """Botões "Pagar em dinheiro" / "Não será pago" (diferença < R$ 5) e
+    "desfazer". Resolve a linha (prestador, posto, mês) sem boleto novo."""
+    g = request.POST
+    prestador = get_object_or_404(Prestador, pk=g.get('prestador'))
+    posto = (get_object_or_404(Posto, pk=g['posto'])
+             if g.get('posto') else None)
+    try:
+        competencia = date.fromisoformat(g.get('competencia', ''))
+        competencia = competencia.replace(day=1)
+        valor = Decimal(str(g.get('valor', '')).replace(',', '.'))
+    except (ValueError, ArithmeticError):
+        messages.error(request, 'Pedido inválido.')
+        return redirect('painel_dashboard')
+    voltar = f'/painel/?m={competencia:%Y-%m}'
+    modo = g.get('modo')
+    if modo == 'DESFAZER':
+        n, _ = AjusteDiferenca.objects.filter(
+            prestador=prestador, posto=posto, competencia=competencia
+        ).delete()
+        AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                           detalhe=f'Ajuste desfeito: {prestador} — '
+                                   f'{posto or "único"} — {competencia:%m/%Y}')
+        messages.success(request, 'Ajuste desfeito — a diferença volta a '
+                                  'aparecer como pendente.')
+        return redirect(voltar)
+    if modo not in AjusteDiferenca.Modo.values or not (
+            Decimal('0') < valor < AjusteDiferenca.LIMITE):
+        messages.error(request, 'Só diferenças menores que R$ 5,00 podem '
+                                'ser resolvidas assim.')
+        return redirect(voltar)
+    a, _ = AjusteDiferenca.objects.update_or_create(
+        prestador=prestador, posto=posto, competencia=competencia,
+        defaults={'valor': valor, 'modo': modo, 'por': up.email})
+    AuditLog.registrar(AuditLog.Evento.CRUD, request, detalhe=f'Ajuste: {a}')
+    messages.success(request, f'{prestador.nome} — {posto or "único"}: '
+                              f'diferença de R$ {valor} '
+                              f'{a.get_modo_display().lower()}. '
+                              'Linha quitada.')
+    return redirect(voltar)
 
 
 @admin_required

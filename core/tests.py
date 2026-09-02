@@ -873,6 +873,78 @@ class RegimePagamentoTest(BaseSetup):
             self.assertEqual(aplicar_prazos(c), {})
 
 
+class AjusteDiferencaTest(BaseSetup):
+    """Diferença < R$ 5: 'Pagar em dinheiro' / 'Não será pago' quitam a
+    linha; 'desfazer' reabre."""
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_parciais_quase_fechando(self, m_async):
+        mes = date.today().replace(day=1)
+        for v in ('500.00', '499.99'):
+            Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=mes, parcial=True,
+                                  status=Boleto.Status.APROVADO,
+                                  valor_extraido=Decimal(v))
+        # Bangu: boleto único 1.999,90 × 2.000 → falta 0,10
+        Boleto.objects.create(prestador=self.prestador, posto=self.posto2,
+                              competencia=mes, status=Boleto.Status.APROVADO,
+                              valor_extraido=Decimal('1999.90'))
+        self.login_admin()
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'falta R$ 500,01')
+        self.assertContains(resp, '💵 Pagar em dinheiro', count=1)  # só Bangu
+        resp = self.client.post('/painel/ajuste-diferenca/', {
+            'prestador': self.prestador.pk, 'posto': self.posto2.pk,
+            'competencia': mes.isoformat(), 'valor': '0.10',
+            'modo': 'NAO_PAGO'}, follow=True)
+        self.assertContains(resp, 'R$ 0,10 não será pago — quitado')
+        self.assertContains(resp, 'desfazer ajuste')
+        self.assertNotContains(resp, '💵 Pagar em dinheiro')
+        # > R$ 5 não passa
+        resp = self.client.post('/painel/ajuste-diferenca/', {
+            'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+            'competencia': mes.isoformat(), 'valor': '500.01',
+            'modo': 'DINHEIRO'}, follow=True)
+        self.assertContains(resp, 'menores que R$ 5,00')
+        # parciais chegando a 0,01 de falta → botões
+        Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                              competencia=mes, parcial=True,
+                              status=Boleto.Status.APROVADO,
+                              valor_extraido=Decimal('500.00'))
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'falta R$ 0,01')
+        self.assertContains(resp, '💵 Pagar em dinheiro', count=1)
+        resp = self.client.post('/painel/ajuste-diferenca/', {
+            'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+            'competencia': mes.isoformat(), 'valor': '0.01',
+            'modo': 'DINHEIRO'}, follow=True)
+        self.assertContains(resp, '✅ completa — R$ 0,01 pago em dinheiro')
+        self.assertNotContains(resp, '➕ parcial')
+        # resumo do filtro conta o ajuste
+        resp = self.client.get(f'/painel/?prestador={self.prestador.pk}')
+        self.assertContains(resp, 'Em dinheiro / não pago')
+        self.assertContains(resp, '✅ R$ 0,00 — completo')
+        # desfazer
+        self.client.post('/painel/ajuste-diferenca/', {
+            'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+            'competencia': mes.isoformat(), 'valor': '0', 'modo': 'DESFAZER'})
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'falta R$ 0,01')
+        # SEM BOLETO com combinado ínfimo (Salliseg: R$ 0,40)
+        sal = Prestador.objects.create(nome='Salliseg')
+        PrestadorPosto.objects.create(prestador=sal, posto=self.posto2,
+                                      valor_mensal=Decimal('0.40'))
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'SEM BOLETO')
+        self.assertContains(resp, '🚫 Não será pago', count=2)
+        resp = self.client.post('/painel/ajuste-diferenca/', {
+            'prestador': sal.pk, 'posto': self.posto2.pk,
+            'competencia': mes.isoformat(), 'valor': '0.40',
+            'modo': 'NAO_PAGO'}, follow=True)
+        self.assertContains(resp, 'QUITADO')
+        self.assertNotContains(resp, 'SEM BOLETO')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

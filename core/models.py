@@ -172,6 +172,35 @@ class PrestadorPosto(models.Model):
         return f'{self.prestador} @ {self.posto}'
 
 
+class AjusteDiferenca(models.Model):
+    """Diferença pequena (< R$ 5) entre o combinado e o que veio em boleto,
+    resolvida fora do boleto: paga em DINHEIRO ou simplesmente NÃO paga.
+    Fecha a pendência da linha (prestador, posto, mês) na régua."""
+    LIMITE = Decimal('5.00')
+
+    class Modo(models.TextChoices):
+        DINHEIRO = 'DINHEIRO', 'Pago em dinheiro'
+        NAO_PAGO = 'NAO_PAGO', 'Não será pago'
+
+    prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
+                                  related_name='ajustes')
+    posto = models.ForeignKey(Posto, null=True, blank=True,
+                              on_delete=models.CASCADE, related_name='+')
+    competencia = models.DateField()
+    valor = models.DecimalField(max_digits=12, decimal_places=2)
+    modo = models.CharField(max_length=10, choices=Modo.choices)
+    por = models.EmailField(blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('prestador', 'posto', 'competencia')]
+
+    def __str__(self):
+        return (f'{self.prestador} — {self.posto or "único"} — '
+                f'{self.competencia:%m/%Y}: R$ {self.valor} '
+                f'{self.get_modo_display().lower()}')
+
+
 class Vale(models.Model):
     """Adiantamento/empréstimo descontado em parcelas do boleto mensal.
     Ex.: notebook que a Camim pagou pela GP5, descontado em 7× de R$ 600.
