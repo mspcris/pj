@@ -7,7 +7,8 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
-from .models import Boleto, Posto, Prestador, PrestadorPosto, UsuarioPermitido
+from .models import (Boleto, Contrato, Posto, Prestador, PrestadorPosto,
+                     UsuarioPermitido)
 from .services import verificacao
 
 User = get_user_model()
@@ -1050,6 +1051,27 @@ class AnexarPorPostoTest(BaseSetup):
         resp = self.client.get('/boleto/')
         self.assertContains(resp, 'ENVIAR BOLETO')
         self.assertNotContains(resp, 'Falta anexar')
+
+
+class ContratoBoletoUnicoTest(BaseSetup):
+    def test_pj_de_boleto_unico_ve_o_posto_de_cobranca(self):
+        self.prestador.modo_boleto = Prestador.ModoBoleto.UNICO
+        self.prestador.posto_cobranca = Posto.objects.get(codigo='C')
+        self.prestador.save()
+        PrestadorPosto.objects.filter(prestador=self.prestador).delete()
+        self.login_pj()
+        resp = self.client.get('/contratos/', follow=True)
+        self.assertNotContains(resp, 'Nenhum posto vinculado')
+        self.assertContains(resp, self.prestador.posto_cobranca.nome)
+        with mock.patch('core.services.contratos.aplicar_dados',
+                        return_value={}) as m_ap:
+            resp = self.client.post(
+                f'/contratos/{self.prestador.posto_cobranca.pk}/',
+                {'arquivo': _pdf('contrato.pdf'),
+                 'vigencia_inicio': '2026-01-01', 'vigencia_fim': ''})
+        self.assertTrue(m_ap.called)
+        self.assertEqual(Contrato.objects.filter(
+            prestador=self.prestador).count(), 1)
 
 
 class ValeTest(BaseSetup):

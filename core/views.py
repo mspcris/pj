@@ -162,11 +162,19 @@ def anexar_boleto(request, up):
                    'varios': varios})
 
 
+def _postos_para_contrato(prestador):
+    """Postos onde o PJ pode ver/anexar contrato: os vinculados e, no modo
+    boleto ÚNICO, o posto de cobrança (Caio: Realengo)."""
+    from django.db.models import Q
+    filtro = Q(vinculos__prestador=prestador, vinculos__ativo=True)
+    if prestador.posto_cobranca_id:
+        filtro |= Q(pk=prestador.posto_cobranca_id)
+    return Posto.objects.filter(filtro, ativo=True).distinct().order_by('nome')
+
+
 @prestador_required
 def contratos_postos(request, up):
-    postos = Posto.objects.filter(
-        vinculos__prestador=up.prestador, vinculos__ativo=True,
-        ativo=True).distinct()
+    postos = _postos_para_contrato(up.prestador)
     if postos.count() == 1:
         return redirect('contratos_lista', posto_id=postos.first().pk)
     return render(request, 'contrato_postos.html',
@@ -175,17 +183,21 @@ def contratos_postos(request, up):
 
 @prestador_required
 def contratos_lista(request, up, posto_id):
-    posto = get_object_or_404(
-        Posto, pk=posto_id, vinculos__prestador=up.prestador)
+    posto = get_object_or_404(_postos_para_contrato(up.prestador),
+                              pk=posto_id)
     if request.method == 'POST':
         form = ContratoForm(request.POST, request.FILES)
         if form.is_valid():
             arq = form.cleaned_data['arquivo']
-            Contrato.objects.create(
+            contrato = Contrato.objects.create(
                 prestador=up.prestador, posto=posto, arquivo=arq,
                 nome_original=arq.name[:255], enviado_por=up.email,
                 vigencia_inicio=form.cleaned_data['vigencia_inicio'],
                 vigencia_fim=form.cleaned_data['vigencia_fim'])
+            # Aproveita o contrato para completar o cadastro (só o que
+            # está em branco), igual ao anexo pelo painel.
+            from .services.contratos import aplicar_dados
+            aplicar_dados(contrato)
             AuditLog.registrar(AuditLog.Evento.UPLOAD_CONTRATO, request,
                                detalhe=f'{up.prestador} @ {posto}')
             messages.success(request, 'Contrato anexado com sucesso!')
