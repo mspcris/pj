@@ -727,6 +727,44 @@ class EmailsAvisoTest(BaseSetup):
         self.assertEqual(f.cleaned_data['emails_aviso'], 'a@b.com, c@d.com')
 
 
+class RoboEmailRemetenteTest(BaseSetup):
+    """Guido não tem idCamim: o e-mail dele, cadastrado no prestador, vale
+    como remetente; qualquer outro continua "sem cadastro"."""
+
+    def test_remetente_sem_login_cadastrado_no_prestador(self):
+        from core.management.commands.importar_emails_pj import (
+            competencia_do_texto, prestador_do_remetente)
+        self.assertEqual(prestador_do_remetente('pj@empresa.com.br'),
+                         self.prestador)
+        self.assertIsNone(prestador_do_remetente('euguidocerqueira@gmail.com'))
+        self.prestador.emails_aviso = 'euguidocerqueira@gmail.com'
+        self.prestador.save()
+        self.assertEqual(prestador_do_remetente('euguidocerqueira@gmail.com'),
+                         self.prestador)
+        self.assertIsNone(prestador_do_remetente('outro@gmail.com'))
+        # competência pelo assunto
+        hoje = date(2026, 9, 2)
+        self.assertEqual(competencia_do_texto('Fwd: NF Guido Agosto', hoje),
+                         date(2026, 8, 1))
+        self.assertEqual(competencia_do_texto('boleto 08/2026', hoje),
+                         date(2026, 8, 1))
+        self.assertEqual(competencia_do_texto('Setembro/2026', hoje),
+                         date(2026, 9, 1))
+        self.assertEqual(competencia_do_texto('NF dezembro', hoje),
+                         date(2025, 12, 1))
+        self.assertIsNone(competencia_do_texto('NF Guido', hoje))
+        self.assertIsNone(competencia_do_texto('Boleto Marcos', hoje))
+
+    def test_nf_escaneada_reconhecida_pelo_nome(self):
+        from core.management.commands.importar_emails_pj import classificar_pdf
+        self.assertEqual(classificar_pdf('NF Agosto Guido.pdf', ''), 'nf')
+        self.assertEqual(classificar_pdf('nota-fiscal.pdf', ' '), 'nf')
+        self.assertEqual(classificar_pdf('BOLETO GUIDO AGOSTO .pdf', ''),
+                         'boleto')
+        self.assertEqual(classificar_pdf('NF.pdf', 'Boleto Pix R$ 13.700,00'),
+                         'boleto')  # com texto, o texto manda
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

@@ -294,8 +294,9 @@ class PrestadorForm(forms.ModelForm):
         widgets = {'observacao': forms.Textarea(attrs={'rows': 2}),
                    'emails_aviso': forms.TextInput(attrs={
                        'placeholder': 'fulano@gmail.com, outro@x.com'})}
-        labels = {'emails_aviso': 'E-mails para avisos SEM login (recebido/'
-                                  'aprovado/financeiro) — vírgula separa'}
+        labels = {'emails_aviso': 'E-mails do prestador SEM login (idCamim): '
+                                  'recebem os avisos E podem mandar boleto '
+                                  'por e-mail — vírgula separa'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

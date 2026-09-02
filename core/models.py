@@ -78,9 +78,9 @@ class Prestador(models.Model):
         default=False, verbose_name='Exigir nota fiscal anexa')
     ativo = models.BooleanField(default=True)
     observacao = models.TextField(blank=True)
-    # Quem recebe os avisos (recebido/aprovado/financeiro) SEM ter login —
-    # ex.: Rosana, que manda boleto pelo zap e só quer o e-mail de retorno.
-    # Vários: separados por vírgula. Somam-se aos usuários ativos.
+    # E-mails do prestador SEM login (sem idCamim): recebem os avisos E o
+    # robô aceita boleto vindo deles (Rosana, Guido). Vírgula separa.
+    # Somam-se aos usuários ativos.
     emails_aviso = models.CharField(
         max_length=300, blank=True,
         help_text='Separe vários por vírgula')

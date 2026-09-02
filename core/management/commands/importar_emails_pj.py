@@ -12,8 +12,10 @@ a PESSOAL do Cristiano, não é caixa de robô):
     a caixa inteira é seguro por construção.
 
 O que faz com cada e-mail novo:
-  * Remetente precisa estar na whitelist (UsuarioPermitido ativo com
-    prestador) — senão avisa o admin e registra SEM_PRESTADOR.
+  * Remetente precisa ser conhecido: UsuarioPermitido ativo com prestador
+    OU e-mail em Prestador.emails_aviso (gente sem idCamim) — senão avisa
+    o admin e registra SEM_PRESTADOR.
+  * Competência: mês citado no assunto ("NF Guido Agosto"); senão, o atual.
   * Anexos PDF → um boleto por PDF, competência do mês atual.
   * Sem PDF → procura linha digitável no corpo (47/48 dígitos) → boleto sem
     arquivo. Sem nada → avisa o admin (SEM_CONTEUDO).
@@ -48,6 +50,61 @@ def _decodificar(valor):
         return str(make_header(decode_header(valor or '')))
     except Exception:
         return valor or ''
+
+
+def prestador_do_remetente(remetente):
+    """Quem pode mandar boleto por e-mail: usuário ativo com login OU
+    e-mail cadastrado em "e-mails do prestador sem login" (Guido, Rosana —
+    gente sem idCamim). Qualquer outro remetente → aviso ao admin."""
+    from core.models import Prestador
+    up = (UsuarioPermitido.objects
+          .filter(email=remetente, ativo=True, prestador__isnull=False,
+                  prestador__ativo=True)
+          .select_related('prestador').first())
+    if up is not None:
+        return up.prestador
+    for p in Prestador.objects.filter(ativo=True, excluido_em__isnull=True,
+                                      emails_aviso__icontains='@'):
+        if remetente in p.lista_emails_aviso():
+            return p
+    return None
+
+
+_MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+          'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+
+def competencia_do_texto(texto, hoje=None):
+    """Mês citado no assunto ("NF Guido Agosto", "boleto 08/2026",
+    "setembro/2026") → dia 1 daquele mês. Sem ano → o mais recente que não
+    esteja no futuro. None se não achar."""
+    hoje = hoje or timezone.localdate()
+    t = (texto or '').lower()
+    m = re.search(r'\b(0?[1-9]|1[0-2])\s*/\s*(20\d{2})\b', t)
+    if m:
+        return timezone.datetime(int(m.group(2)), int(m.group(1)), 1).date()
+    for i, nome in enumerate(_MESES, start=1):
+        # nome completo ou abreviação de 3 letras como PALAVRA inteira
+        # ("ago", "agosto" — mas não "Marcos" → março)
+        padrao = rf'\b(?:{nome}|{nome[:3]})\b'
+        if re.search(padrao, t):
+            m = re.search(padrao + r'\W*(?:de\s+)?(20\d{2})', t)
+            ano = int(m.group(1)) if m else hoje.year
+            if not m and i > hoje.month:
+                ano -= 1
+            return timezone.datetime(ano, i, 1).date()
+    return None
+
+
+def classificar_pdf(nome, texto):
+    """'nf' ou 'boleto'. Pelo texto (NFS-e) e, quando o PDF é escaneado
+    (sem texto), pelo nome do arquivo ("NF Agosto Guido.pdf")."""
+    if svc_boletos.eh_nota_fiscal(texto):
+        return 'nf'
+    if not (texto or '').strip() and re.search(
+            r'\b(nf|nfs|nfe|nfs-e|nota)\b', nome or '', re.I):
+        return 'nf'
+    return 'boleto'
 
 
 def _linha_do_texto(texto):
@@ -215,11 +272,8 @@ class Command(BaseCommand):
             self.stdout.write(f'[probe] {remetente} — {assunto}')
             return
 
-        up = (UsuarioPermitido.objects
-              .filter(email=remetente, ativo=True, prestador__isnull=False,
-                      prestador__ativo=True)
-              .select_related('prestador').first())
-        if up is None:
+        prestador = prestador_do_remetente(remetente)
+        if prestador is None:
             if registro:
                 return  # já avisado antes; segue aguardando cadastro
             EmailRecebido.objects.create(
@@ -236,20 +290,31 @@ class Command(BaseCommand):
             self.stdout.write(f'  SEM_PRESTADOR: {remetente}')
             return
 
-        prestador = up.prestador
         vinculos = list(prestador.vinculos_ativos())
         posto = vinculos[0].posto if len(vinculos) == 1 else None
-        competencia = timezone.localdate().replace(day=1)
+        # Competência: se o assunto diz o mês ("NF Guido Agosto"), é esse;
+        # senão, o mês atual.
+        competencia = (competencia_do_texto(assunto)
+                       or timezone.localdate().replace(day=1))
         criados = []
 
         # Separa boletos de notas fiscais (quem manda, manda os dois juntos)
         pdfs_boleto, pdfs_nf = [], []
         for nome, conteudo in _pdfs(msg):
             texto = svc_pdf.extrair_texto_bytes(conteudo)
-            if svc_boletos.eh_nota_fiscal(texto):
+            if classificar_pdf(nome, texto) == 'nf':
                 pdfs_nf.append((nome, conteudo, texto))
             else:
-                pdfs_boleto.append((nome, conteudo))
+                pdfs_boleto.append((nome, conteudo, texto.strip()))
+        # PDF escaneado (sem texto) junto de um boleto legível: é a NF
+        # (Guido manda "NF Agosto.pdf" escaneada + boleto).
+        if pdfs_boleto and len(pdfs_boleto) > 1:
+            legiveis = [x for x in pdfs_boleto if x[2]]
+            if legiveis:
+                for x in [x for x in pdfs_boleto if not x[2]]:
+                    pdfs_nf.append((x[0], x[1], ''))
+                pdfs_boleto = legiveis
+        pdfs_boleto = [(n, c) for n, c, _ in pdfs_boleto]
 
         for nome, conteudo in pdfs_boleto:
             b = svc_boletos.registrar(
