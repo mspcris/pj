@@ -401,9 +401,12 @@ def cc_gerente(boleto):
 
 def destinatarios_pj(boleto):
     """Para quem vão os avisos do prestador: TODOS os usuários ativos do PJ
-    (não quem apertou o botão — se o admin cadastrar, o PJ é avisado do
-    mesmo jeito). Quem enviou também entra, se for outro endereço."""
+    + os "e-mails para avisos" do cadastro (quem não tem login, ex.:
+    Rosana). Quem enviou também entra, se for outro endereço."""
     ems = [u.email for u in boleto.prestador.usuarios.filter(ativo=True)]
+    for e in boleto.prestador.lista_emails_aviso():  # avisos sem login
+        if e not in ems:
+            ems.append(e)
     extra = (boleto.enviado_por or '').lower()
     if extra and extra != settings.EMAIL_ADMIN.lower() and extra not in ems:
         ems.append(extra)

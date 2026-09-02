@@ -78,6 +78,16 @@ class Prestador(models.Model):
         default=False, verbose_name='Exigir nota fiscal anexa')
     ativo = models.BooleanField(default=True)
     observacao = models.TextField(blank=True)
+    # Quem recebe os avisos (recebido/aprovado/financeiro) SEM ter login —
+    # ex.: Rosana, que manda boleto pelo zap e só quer o e-mail de retorno.
+    # Vários: separados por vírgula. Somam-se aos usuários ativos.
+    emails_aviso = models.CharField(
+        max_length=300, blank=True,
+        help_text='Separe vários por vírgula')
+
+    def lista_emails_aviso(self):
+        return [e.strip().lower() for e in (self.emails_aviso or '')
+                .replace(';', ',').split(',') if '@' in e]
     criado_em = models.DateTimeField(auto_now_add=True)
     # Soft delete (regra do projeto: NUNCA delete físico — histórico de
     # pagamento é auditável para sempre). Excluído some das listas, mas

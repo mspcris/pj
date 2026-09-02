@@ -289,8 +289,13 @@ class PrestadorForm(forms.ModelForm):
     class Meta:
         model = Prestador
         fields = ['nome', 'cnpj', 'modo_boleto', 'posto_cobranca',
-                  'valor_unico', 'exige_nf', 'ativo', 'observacao']
-        widgets = {'observacao': forms.Textarea(attrs={'rows': 2})}
+                  'valor_unico', 'exige_nf', 'ativo', 'emails_aviso',
+                  'observacao']
+        widgets = {'observacao': forms.Textarea(attrs={'rows': 2}),
+                   'emails_aviso': forms.TextInput(attrs={
+                       'placeholder': 'fulano@gmail.com, outro@x.com'})}
+        labels = {'emails_aviso': 'E-mails para avisos SEM login (recebido/'
+                                  'aprovado/financeiro) — vírgula separa'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -300,6 +305,18 @@ class PrestadorForm(forms.ModelForm):
             'Posto cobrança (só no modo boleto ÚNICO)'
         self.fields['valor_unico'].label = \
             'Valor do boleto único (só no modo ÚNICO; vazio = soma dos postos)'
+
+    def clean_emails_aviso(self):
+        from django.core.validators import validate_email
+        bruto = self.cleaned_data.get('emails_aviso') or ''
+        ems = [e.strip().lower() for e in bruto.replace(';', ',').split(',')
+               if e.strip()]
+        for e in ems:
+            try:
+                validate_email(e)
+            except forms.ValidationError:
+                raise forms.ValidationError(f'E-mail inválido: {e}')
+        return ', '.join(ems)
 
     def clean(self):
         dados = super().clean()

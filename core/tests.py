@@ -697,6 +697,36 @@ class FiltroPainelTest(BaseSetup):
         self.assertContains(resp, f'&amp;posto={self.posto2.pk}">→</a>')
 
 
+class EmailsAvisoTest(BaseSetup):
+    """Rosana não tem login, mas precisa receber os avisos."""
+
+    def test_emails_aviso_entram_nos_destinatarios(self):
+        self.prestador.emails_aviso = 'Profissionaledfisica10@gmail.com; x@y.com'
+        self.prestador.save()
+        b = Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=date(2026, 9, 1))
+        dest = verificacao.destinatarios_pj(b)
+        self.assertIn('profissionaledfisica10@gmail.com', dest)
+        self.assertIn('x@y.com', dest)
+        self.assertIn('pj@empresa.com.br', dest)  # usuário continua
+        # prestador SEM usuário nenhum: só o e-mail de aviso (não cai no admin)
+        self.up.delete()
+        self.assertEqual(verificacao.destinatarios_pj(b),
+                         ['profissionaledfisica10@gmail.com', 'x@y.com'])
+
+    def test_form_valida_e_normaliza(self):
+        from core.forms import PrestadorForm
+        f = PrestadorForm({'nome': 'Rosana', 'modo_boleto': 'UNICO',
+                           'ativo': 'on',
+                           'emails_aviso': ' A@B.com ,inválido '})
+        self.assertFalse(f.is_valid())
+        self.assertIn('inválido', str(f.errors))
+        f = PrestadorForm({'nome': 'Rosana', 'modo_boleto': 'UNICO',
+                           'ativo': 'on', 'emails_aviso': ' A@B.com ; c@d.com'})
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertEqual(f.cleaned_data['emails_aviso'], 'a@b.com, c@d.com')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale
