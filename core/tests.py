@@ -765,6 +765,29 @@ class RoboEmailRemetenteTest(BaseSetup):
                          'boleto')  # com texto, o texto manda
 
 
+class RepresentanteTest(BaseSetup):
+    def test_contato_e_saudacao(self):
+        from core.forms import PrestadorForm
+        from core.services import frases
+        self.assertEqual(self.prestador.contato, 'Limpeza Total LTDA')
+        self.prestador.representante = 'Guido Cerqueira'
+        self.assertEqual(self.prestador.contato, 'Guido Cerqueira')
+        self.prestador.representante_nome_social = 'Gui'
+        self.assertEqual(self.prestador.contato, 'Gui')
+        b = Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=date(2026, 9, 1))
+        fatos = verificacao._fatos(b)
+        self.assertEqual(fatos['contato'], 'Gui')
+        with mock.patch('random.choice', side_effect=lambda pool: pool[1]):
+            corpo = frases.corpo('aprovado_pj', fatos)
+        self.assertTrue(corpo.startswith('Prezado(a) Gui,'), corpo)
+        # form: representante vazio vira o nome da empresa
+        f = PrestadorForm({'nome': 'Empresa X', 'modo_boleto': 'UNICO',
+                           'ativo': 'on', 'representante': ''})
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertEqual(f.cleaned_data['representante'], 'Empresa X')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

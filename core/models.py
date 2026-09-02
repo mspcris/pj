@@ -63,6 +63,11 @@ class Prestador(models.Model):
         UNICO = 'UNICO', 'Um boleto único (contra um posto)'
 
     nome = models.CharField(max_length=160)
+    # Pessoa por trás da empresa (quem a gente trata nos e-mails). Nos
+    # cadastros antigos é igual ao nome; RABISCO → Guido Cerqueira.
+    representante = models.CharField(max_length=120, blank=True)
+    # Nome social do representante: se preenchido, é como a pessoa é chamada.
+    representante_nome_social = models.CharField(max_length=120, blank=True)
     cnpj = models.CharField(max_length=20, blank=True)
     modo_boleto = models.CharField(max_length=10, choices=ModoBoleto.choices,
                                    default=ModoBoleto.POR_POSTO)
@@ -84,6 +89,13 @@ class Prestador(models.Model):
     emails_aviso = models.CharField(
         max_length=300, blank=True,
         help_text='Separe vários por vírgula')
+
+    @property
+    def contato(self):
+        """Como chamar a pessoa nos e-mails: nome social > representante >
+        nome da empresa."""
+        return (self.representante_nome_social or self.representante
+                or self.nome)
 
     def lista_emails_aviso(self):
         return [e.strip().lower() for e in (self.emails_aviso or '')

@@ -25,7 +25,7 @@ _APROVADO_PJ = [
      'com o valor contratado e já foi encaminhado ao setor financeiro para '
      'pagamento. Os dados da cobrança seguem abaixo.\n\n'
      'Atenciosamente,\nCristiano — CAMIM'),
-    ('Prezado(a) {prestador},\n\nApós conferência, o boleto da competência '
+    ('Prezado(a) {contato},\n\nApós conferência, o boleto da competência '
      'de {competencia} apresentou o valor acordado em contrato e foi '
      'encaminhado para pagamento. Seguem abaixo os dados do documento.\n\n'
      'Atenciosamente,\nCristiano — CAMIM'),
@@ -49,7 +49,7 @@ _APROVADO_PJ_PARCIAL = [
      'conferido e já foi encaminhado ao setor financeiro para pagamento. '
      'Os dados da cobrança seguem abaixo.\n\n'
      'Atenciosamente,\nCristiano — CAMIM'),
-    ('Prezado(a) {prestador},\n\nO boleto de R$ {valor} da competência de '
+    ('Prezado(a) {contato},\n\nO boleto de R$ {valor} da competência de '
      '{competencia} (unidade {alvo}) foi conferido e encaminhado para '
      'pagamento. Seguem abaixo os dados do documento.\n\n'
      'Atenciosamente,\nCristiano — CAMIM'),
@@ -70,7 +70,7 @@ _FIN_RECEBIDO = [
      'processamento do pagamento. Nenhuma ação é necessária da sua parte — '
      'é só aguardar a compensação. Os dados do documento seguem abaixo.\n\n'
      'Atenciosamente,\nCristiano — CAMIM'),
-    ('Prezado(a) {prestador},\n\nInformamos que o setor financeiro da CAMIM '
+    ('Prezado(a) {contato},\n\nInformamos que o setor financeiro da CAMIM '
      'confirmou o recebimento do boleto da competência de {competencia} e o '
      'pagamento está em processamento. Não é preciso fazer nada — '
      'avisaremos se houver qualquer novidade.\n\n'
@@ -95,6 +95,8 @@ _MANUAL_ADMIN = [
 
 
 def _fallback(pool, fatos):
+    fatos = dict(fatos)
+    fatos.setdefault('contato', fatos.get('prestador', ''))
     texto = random.choice(pool).format(**fatos)
     if fatos.get('parcial_frase'):
         # Boleto PARCIAL: a frase do "quanto falta" entra como parágrafo

@@ -9,7 +9,8 @@
     <tr><th>Prestador</th><th>Modo</th><th>Postos</th><th>Usuários</th><th>Ativo</th><th></th></tr>
     {% for p in lista %}
     <tr>
-      <td><a href="{% url 'painel_prestador' p.pk %}"><strong>{{ p.nome }}</strong></a></td>
+      <td><a href="{% url 'painel_prestador' p.pk %}"><strong>{{ p.nome }}</strong></a>
+        {% if p.representante and p.representante != p.nome %}<div class="sub" style="font-size:.78rem">👤 {{ p.contato }}</div>{% endif %}</td>
       <td>{{ p.get_modo_boleto_display }}</td>
       <td>{% for v in p.vinculos.all %}{% if v.ativo %}{{ v.posto.nome }}{% if not forloop.last %}, {% endif %}{% endif %}{% endfor %}</td>
       <td>{{ p.usuarios.count }}</td>

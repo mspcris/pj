@@ -288,13 +288,19 @@ class PrestadorForm(forms.ModelForm):
 
     class Meta:
         model = Prestador
-        fields = ['nome', 'cnpj', 'modo_boleto', 'posto_cobranca',
+        fields = ['nome', 'representante', 'representante_nome_social',
+                  'cnpj', 'modo_boleto', 'posto_cobranca',
                   'valor_unico', 'exige_nf', 'ativo', 'emails_aviso',
                   'observacao']
         widgets = {'observacao': forms.Textarea(attrs={'rows': 2}),
                    'emails_aviso': forms.TextInput(attrs={
                        'placeholder': 'fulano@gmail.com, outro@x.com'})}
-        labels = {'emails_aviso': 'E-mails do prestador SEM login (idCamim): '
+        labels = {'representante': 'Representante (a pessoa — é quem os '
+                                   'e-mails tratam por "Prezado(a)")',
+                  'representante_nome_social': 'Representante — Nome social '
+                                               '(se preenchido, é assim que '
+                                               'a pessoa é chamada)',
+                  'emails_aviso': 'E-mails do prestador SEM login (idCamim): '
                                   'recebem os avisos E podem mandar boleto '
                                   'por e-mail — vírgula separa'}
 
@@ -306,6 +312,11 @@ class PrestadorForm(forms.ModelForm):
             'Posto cobrança (só no modo boleto ÚNICO)'
         self.fields['valor_unico'].label = \
             'Valor do boleto único (só no modo ÚNICO; vazio = soma dos postos)'
+
+    def clean_representante(self):
+        # Vazio = a própria empresa (cadastros antigos: nome == representante)
+        return (self.cleaned_data.get('representante') or '').strip() \
+            or (self.cleaned_data.get('nome') or '').strip()
 
     def clean_emails_aviso(self):
         from django.core.validators import validate_email

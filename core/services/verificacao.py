@@ -49,6 +49,7 @@ def _fatos(boleto):
     posto = boleto.posto_efetivo
     fatos = {
         'prestador': boleto.prestador.nome,
+        'contato': boleto.prestador.contato,  # pessoa: "Prezado(a) Guido"
         'alvo': posto.nome if posto else 'boleto único',
         'competencia': competencia_extenso(boleto.competencia),
         'valor': _moeda(boleto.valor_extraido or boleto.valor_esperado),
