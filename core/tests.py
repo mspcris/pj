@@ -949,6 +949,24 @@ class AjusteDiferencaTest(BaseSetup):
         self.assertNotContains(resp, 'SEM BOLETO')
 
 
+class CpfRepresentanteTest(BaseSetup):
+    def test_valida_e_formata(self):
+        from core.forms import validar_cpf
+        from django import forms as djforms
+        self.assertEqual(validar_cpf('02930362413'), '029.303.624-13')
+        self.assertEqual(validar_cpf(' 029.303.624-13 '), '029.303.624-13')
+        self.assertEqual(validar_cpf(''), '')
+        for ruim in ('123', '111.111.111-11', '029.303.624-14'):
+            with self.assertRaises(djforms.ValidationError):
+                validar_cpf(ruim)
+        from core.forms import PrestadorForm
+        f = PrestadorForm({'nome': 'X', 'modo_boleto': 'UNICO', 'ativo': 'on',
+                           'representante_cpf': '029.303.624-13'})
+        self.assertTrue(f.is_valid(), f.errors)
+        self.assertEqual(f.cleaned_data['representante_cpf'],
+                         '029.303.624-13')
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

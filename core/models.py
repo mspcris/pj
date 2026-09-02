@@ -68,6 +68,8 @@ class Prestador(models.Model):
     representante = models.CharField(max_length=120, blank=True)
     # Nome social do representante: se preenchido, é como a pessoa é chamada.
     representante_nome_social = models.CharField(max_length=120, blank=True)
+    # CPF do representante legal (só no cadastro — nunca vai em e-mail).
+    representante_cpf = models.CharField(max_length=14, blank=True)
     cnpj = models.CharField(max_length=20, blank=True)
     modo_boleto = models.CharField(max_length=10, choices=ModoBoleto.choices,
                                    default=ModoBoleto.POR_POSTO)

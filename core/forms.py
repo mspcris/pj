@@ -283,13 +283,29 @@ class ValorBRField(forms.Field):
             raise forms.ValidationError('Valor inválido. Ex.: 1.234,56')
 
 
+def validar_cpf(bruto):
+    """Normaliza para 000.000.000-00 e confere os dígitos verificadores.
+    Vazio é aceito (campo opcional)."""
+    d = ''.join(c for c in (bruto or '') if c.isdigit())
+    if not d:
+        return ''
+    if len(d) != 11 or d == d[0] * 11:
+        raise forms.ValidationError('CPF inválido.')
+    for n in (9, 10):
+        soma = sum(int(d[i]) * ((n + 1) - i) for i in range(n))
+        dv = (soma * 10) % 11 % 10
+        if dv != int(d[n]):
+            raise forms.ValidationError('CPF inválido (dígito verificador).')
+    return f'{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}'
+
+
 class PrestadorForm(forms.ModelForm):
     valor_unico = ValorBRField(required=False, label='Valor do boleto único')
 
     class Meta:
         model = Prestador
         fields = ['nome', 'representante', 'representante_nome_social',
-                  'cnpj', 'modo_boleto', 'posto_cobranca',
+                  'representante_cpf', 'cnpj', 'modo_boleto', 'posto_cobranca',
                   'valor_unico', 'regime_pagamento', 'dia_pagamento',
                   'dia_vencimento', 'exige_nf', 'ativo', 'emails_aviso',
                   'observacao']
@@ -306,6 +322,7 @@ class PrestadorForm(forms.ModelForm):
                   'representante_nome_social': 'Representante — Nome social '
                                                '(se preenchido, é assim que '
                                                'a pessoa é chamada)',
+                  'representante_cpf': 'CPF do representante legal',
                   'emails_aviso': 'E-mails do prestador SEM login (idCamim): '
                                   'recebem os avisos E podem mandar boleto '
                                   'por e-mail — vírgula separa'}
@@ -335,6 +352,9 @@ class PrestadorForm(forms.ModelForm):
         if d is not None and not 1 <= d <= 31:
             raise forms.ValidationError('Dia entre 1 e 31.')
         return d
+
+    def clean_representante_cpf(self):
+        return validar_cpf(self.cleaned_data.get('representante_cpf'))
 
     def clean_representante(self):
         # Vazio = a própria empresa (cadastros antigos: nome == representante)
