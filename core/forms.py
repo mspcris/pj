@@ -305,7 +305,8 @@ class PrestadorForm(forms.ModelForm):
     class Meta:
         model = Prestador
         fields = ['nome', 'representante', 'representante_nome_social',
-                  'representante_cpf', 'cnpj', 'modo_boleto', 'posto_cobranca',
+                  'representante_cpf', 'cnpj', 'endereco', 'bairro', 'cidade',
+                  'uf', 'cep', 'modo_boleto', 'posto_cobranca',
                   'valor_unico', 'regime_pagamento', 'dia_pagamento',
                   'dia_vencimento', 'exige_nf', 'ativo', 'emails_aviso',
                   'observacao']
@@ -352,6 +353,21 @@ class PrestadorForm(forms.ModelForm):
         if d is not None and not 1 <= d <= 31:
             raise forms.ValidationError('Dia entre 1 e 31.')
         return d
+
+    def clean_cep(self):
+        d = ''.join(c for c in (self.cleaned_data.get('cep') or '')
+                    if c.isdigit())
+        if not d:
+            return ''
+        if len(d) != 8:
+            raise forms.ValidationError('CEP com 8 dígitos.')
+        return f'{d[:5]}-{d[5:]}'
+
+    def clean_uf(self):
+        uf = (self.cleaned_data.get('uf') or '').strip().upper()
+        if uf and len(uf) != 2:
+            raise forms.ValidationError('UF com 2 letras (ex.: RJ).')
+        return uf
 
     def clean_representante_cpf(self):
         return validar_cpf(self.cleaned_data.get('representante_cpf'))

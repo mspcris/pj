@@ -687,16 +687,16 @@ def prestador_detalhe(request, up, pk):
                 AuditLog.registrar(AuditLog.Evento.UPLOAD_CONTRATO, request,
                                    detalhe=f'(painel) {prestador} — '
                                            f'{arq.name[:60]}')
-                from .services.contratos import aplicar_prazos
-                lidos = aplicar_prazos(contrato)
+                from .services.contratos import aplicar_dados
+                lidos = aplicar_dados(contrato)
                 aviso = ''
-                if lidos.get('dia_pagamento') or lidos.get('dia_vencimento'):
-                    aviso += (' Lido do contrato:'
-                              + (f' pagamento dia {lidos["dia_pagamento"]};'
-                                 if lidos.get('dia_pagamento') else '')
-                              + (f' vencimento dia {lidos["dia_vencimento"]};'
-                                 if lidos.get('dia_vencimento') else '')
-                              + ' confira no cadastro.')
+                campos = {k: v for k, v in lidos.items()
+                          if k != 'regime_sugerido'}
+                if campos:
+                    aviso += (' Lido do contrato e preenchido: '
+                              + ', '.join(f'{k} = {v}'
+                                          for k, v in campos.items())
+                              + '. Confira no cadastro.')
                 if lidos.get('regime_sugerido') and \
                         lidos['regime_sugerido'] != prestador.regime_pagamento:
                     aviso += (f' O contrato sugere regime '

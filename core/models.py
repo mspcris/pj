@@ -71,6 +71,20 @@ class Prestador(models.Model):
     # CPF do representante legal (só no cadastro — nunca vai em e-mail).
     representante_cpf = models.CharField(max_length=14, blank=True)
     cnpj = models.CharField(max_length=20, blank=True)
+    # Endereço da sede (a IA lê do contrato ao anexar; editável).
+    endereco = models.CharField(max_length=200, blank=True,
+                                verbose_name='Endereço (rua, nº, compl.)')
+    bairro = models.CharField(max_length=80, blank=True)
+    cidade = models.CharField(max_length=80, blank=True)
+    uf = models.CharField(max_length=2, blank=True, verbose_name='UF')
+    cep = models.CharField(max_length=9, blank=True, verbose_name='CEP')
+
+    @property
+    def endereco_completo(self):
+        partes = [self.endereco, self.bairro,
+                  ' / '.join(x for x in (self.cidade, self.uf) if x),
+                  f'CEP {self.cep}' if self.cep else '']
+        return ' — '.join(x for x in partes if x)
     modo_boleto = models.CharField(max_length=10, choices=ModoBoleto.choices,
                                    default=ModoBoleto.POR_POSTO)
     # Modo UNICO: contra qual posto o boleto único é emitido e, se preenchido,

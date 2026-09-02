@@ -856,30 +856,48 @@ class RegimePagamentoTest(BaseSetup):
 
     def test_contrato_preenche_so_o_que_esta_em_branco(self):
         from core.models import Contrato
-        from core.services.contratos import aplicar_prazos
+        from core.services.contratos import aplicar_dados
         self.prestador.dia_vencimento = 20  # já digitado: não mexe
+        self.prestador.representante = self.prestador.nome  # backfill = vazio
+        self.prestador.cidade = 'Niterói'  # já digitado: não mexe
         self.prestador.save()
         c = Contrato.objects.create(prestador=self.prestador,
                                     arquivo=_pdf('contrato.pdf'),
                                     nome_original='contrato.pdf')
+        lido = {'dia_pagamento': 10, 'dia_vencimento': 5,
+                'regime': 'POSTERIOR', 'trecho': 'até o dia 10',
+                'cnpj': '31.603.189/0001-30',
+                'endereco': 'Avenida das Américas nº 4200 Bloco 1 Sala 305',
+                'bairro': 'Barra da Tijuca', 'cidade': 'Rio de Janeiro',
+                'uf': 'RJ', 'cep': '22640907',
+                'representante': 'Vinícius Correa Albuquerque',
+                'representante_cpf': '134.595.677-08'}
         with mock.patch('core.services.pdf.extrair_texto',
-                        return_value='pagamento até o dia 10 do mês '
-                                     'subsequente'), \
-             mock.patch('core.services.ia.extrair_prazos_contrato',
-                        return_value={'dia_pagamento': 10,
-                                      'dia_vencimento': 5,
-                                      'regime': 'POSTERIOR',
-                                      'trecho': 'até o dia 10'}):
-            lidos = aplicar_prazos(c)
-        self.prestador.refresh_from_db()
-        self.assertEqual(self.prestador.dia_pagamento, 10)
-        self.assertEqual(self.prestador.dia_vencimento, 20)
+                        return_value='JRA CONSULTORIA ...'), \
+             mock.patch('core.services.ia.extrair_dados_contrato',
+                        return_value=lido):
+            lidos = aplicar_dados(c)
+        p = Prestador.objects.get(pk=self.prestador.pk)
+        self.assertEqual(p.dia_pagamento, 10)
+        self.assertEqual(p.dia_vencimento, 20)
+        self.assertEqual(p.cidade, 'Niterói')
+        self.assertEqual(p.endereco,
+                         'Avenida das Américas nº 4200 Bloco 1 Sala 305')
+        self.assertEqual(p.bairro, 'Barra da Tijuca')
+        self.assertEqual(p.uf, 'RJ')
+        self.assertEqual(p.cep, '22640-907')
+        self.assertEqual(p.cnpj, '31.603.189/0001-30')
+        self.assertEqual(p.representante, 'Vinícius Correa Albuquerque')
+        self.assertEqual(p.representante_cpf, '134.595.677-08')
         self.assertEqual(lidos['regime_sugerido'], 'POSTERIOR')
+        self.assertIn('Barra da Tijuca', p.endereco_completo)
         # IA fora do ar: nada quebra, nada muda
+        p.cidade = ''
+        p.save()
         with mock.patch('core.services.pdf.extrair_texto', return_value='x'), \
-             mock.patch('core.services.ia.extrair_prazos_contrato',
+             mock.patch('core.services.ia.extrair_dados_contrato',
                         side_effect=RuntimeError('off')):
-            self.assertEqual(aplicar_prazos(c), {})
+            self.assertEqual(aplicar_dados(c), {})
 
 
 class AjusteDiferencaTest(BaseSetup):
