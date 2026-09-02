@@ -671,22 +671,67 @@ def configuracoes(request, up):
         'limiar': Configuracao.get_int('limiar_confianca', 99), 'up': up})
 
 
+# Tipo do e-mail pelo começo do assunto (o assunto é nosso e determinístico)
+TIPOS_EMAIL = [
+    ('recebido', 'Boleto recebido', 'Boleto recebido'),
+    ('pagamento', 'Pagamento (equipe@)', 'Pagamento — '),
+    ('aprovado', 'Aprovado (aviso ao PJ)', 'Boleto aprovado'),
+    ('financeiro', 'Financeiro recebeu', 'Boleto com o financeiro'),
+    ('divergente', 'Valor a confirmar', 'valor a confirmar'),
+    ('manual', 'Verificar manualmente', 'Verificar boleto manualmente'),
+    ('lembrete', 'Lembrete diário', 'Lembrete'),
+]
+
+
 @admin_required
 def emails_log(request, up):
-    """Lista dos e-mails enviados, com filtro por destinatário (para/cc) e
-    por texto do assunto; clique no assunto abre o e-mail inteiro."""
-    q = (request.GET.get('q') or '').strip()
-    qs = EmailLog.objects.select_related('boleto')
-    if q:
-        qs = qs.filter(Q(destinatario__icontains=q) | Q(assunto__icontains=q))
+    """Lista dos e-mails enviados com filtros COMBINÁVEIS: destinatário
+    (para/cc), prestador, posto, tipo, competência, status e texto livre.
+    Ex.: tudo que foi para equipe@ do prestador X. Clique abre o e-mail."""
+    g = request.GET
+    f = {k: (g.get(k) or '').strip()
+         for k in ('q', 'para', 'prestador', 'posto', 'tipo', 'mes', 'ok')}
+    qs = EmailLog.objects.select_related('boleto', 'boleto__prestador',
+                                         'boleto__posto')
+    if f['q']:
+        qs = qs.filter(Q(destinatario__icontains=f['q'])
+                       | Q(assunto__icontains=f['q'])
+                       | Q(corpo__icontains=f['q']))
+    if f['para']:
+        qs = qs.filter(destinatario__icontains=f['para'])
+    if f['prestador']:
+        qs = qs.filter(boleto__prestador_id=f['prestador'])
+    if f['posto']:
+        qs = qs.filter(boleto__posto_id=f['posto'])
+    if f['tipo']:
+        prefixo = {t[0]: t[2] for t in TIPOS_EMAIL}.get(f['tipo'])
+        if prefixo:
+            qs = qs.filter(assunto__icontains=prefixo)
+    if f['mes']:  # YYYY-MM da competência do boleto
+        try:
+            ano, mes = (int(x) for x in f['mes'].split('-'))
+            qs = qs.filter(boleto__competencia=date(ano, mes, 1))
+        except ValueError:
+            pass
+    if f['ok'] == 'sim':
+        qs = qs.filter(ok=True)
+    elif f['ok'] == 'nao':
+        qs = qs.filter(ok=False)
+
     destinos = set()
     for rot in EmailLog.objects.values_list('destinatario', flat=True):
         for parte in re.split(r'[,\s]+', rot.replace('+cc:', ' ')):
             if '@' in parte:
                 destinos.add(parte.strip().lower())
-    return render(request, 'painel/emails.html',
-                  {'lista': qs[:150], 'q': q, 'destinos': sorted(destinos),
-                   'up': up})
+    ativo = any(f.values())
+    return render(request, 'painel/emails.html', {
+        'lista': qs[:200], 'f': f, 'ativo': ativo,
+        'destinos': sorted(destinos),
+        'prestadores': Prestador.objects.filter(excluido_em__isnull=True)
+                                        .order_by('nome'),
+        'postos': Posto.objects.filter(ativo=True, excluido_em__isnull=True)
+                               .order_by('nome'),
+        'tipos': TIPOS_EMAIL, 'up': up})
 
 
 @admin_required

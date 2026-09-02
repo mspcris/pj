@@ -2,26 +2,53 @@
 {% block title %}E-mails · Painel{% endblock %}
 {% block conteudo %}
 <h1>E-mails enviados</h1>
-<p class="sub">Todo e-mail que o sistema mandou (ou tentou mandar). Clique no
+<p class="sub">Todo e-mail que o sistema mandou (ou tentou mandar). Os filtros
+  se combinam (ex.: <em>Para</em> equipe@ + <em>Prestador</em> X). Clique no
   assunto para ver o e-mail inteiro.</p>
-<form method="get" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
-  <input name="q" value="{{ q }}" list="destinos" placeholder="filtrar por destinatário (para/cc) ou assunto"
-         style="flex:1;min-width:260px" autofocus>
+<form method="get" class="card" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:end;margin-bottom:12px">
+  <label class="sub" style="font-size:.78rem">Para / CC
+    <input name="para" value="{{ f.para }}" list="destinos" placeholder="equipe@camim.com.br" style="width:100%"></label>
   <datalist id="destinos">{% for d in destinos %}<option value="{{ d }}">{% endfor %}</datalist>
-  <button class="btn mini" type="submit">🔍 Filtrar</button>
-  {% if q %}<a class="btn mini claro" href="{% url 'painel_emails' %}">✕ limpar</a>{% endif %}
+  <label class="sub" style="font-size:.78rem">Prestador
+    <select name="prestador" style="width:100%"><option value="">todos</option>
+      {% for p in prestadores %}<option value="{{ p.pk }}" {% if f.prestador == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.nome }}</option>{% endfor %}
+    </select></label>
+  <label class="sub" style="font-size:.78rem">Posto
+    <select name="posto" style="width:100%"><option value="">todos</option>
+      {% for p in postos %}<option value="{{ p.pk }}" {% if f.posto == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.nome }}</option>{% endfor %}
+    </select></label>
+  <label class="sub" style="font-size:.78rem">Tipo
+    <select name="tipo" style="width:100%"><option value="">todos</option>
+      {% for t in tipos %}<option value="{{ t.0 }}" {% if f.tipo == t.0 %}selected{% endif %}>{{ t.1 }}</option>{% endfor %}
+    </select></label>
+  <label class="sub" style="font-size:.78rem">Competência
+    <input type="month" name="mes" value="{{ f.mes }}" style="width:100%"></label>
+  <label class="sub" style="font-size:.78rem">Status
+    <select name="ok" style="width:100%"><option value="">todos</option>
+      <option value="sim" {% if f.ok == "sim" %}selected{% endif %}>✅ enviados</option>
+      <option value="nao" {% if f.ok == "nao" %}selected{% endif %}>❌ com erro</option>
+    </select></label>
+  <label class="sub" style="font-size:.78rem;grid-column:span 2">Texto (assunto, destinatário ou corpo)
+    <input name="q" value="{{ f.q }}" placeholder="ex.: 499,93" style="width:100%"></label>
+  <div style="display:flex;gap:6px">
+    <button class="btn mini" type="submit">🔍 Filtrar</button>
+    {% if ativo %}<a class="btn mini claro" href="{% url 'painel_emails' %}">✕ limpar</a>{% endif %}
+  </div>
 </form>
 <div class="card"><div class="rolagem"><table>
-  <tr><th>Quando</th><th>Para</th><th>Assunto</th><th>OK</th></tr>
+  <tr><th>Quando</th><th>Para</th><th>Prestador / posto</th><th>Assunto</th><th>OK</th></tr>
   {% for e in lista %}
   <tr>
     <td style="white-space:nowrap">{{ e.criado_em|date:"d/m H:i" }}</td>
     <td>{{ e.destinatario }}</td>
-    <td><a href="{% url 'painel_email_detalhe' e.pk %}">{{ e.assunto|truncatechars:70 }}</a>
+    <td>{% if e.boleto %}{{ e.boleto.prestador.nome }}
+      {% if e.boleto.posto %}<div class="sub" style="font-size:.78rem">{{ e.boleto.posto.nome }} · {{ e.boleto.competencia|date:"m/Y" }}</div>{% endif %}
+      {% else %}—{% endif %}</td>
+    <td><a href="{% url 'painel_email_detalhe' e.pk %}">{{ e.assunto|truncatechars:80 }}</a>
       {% if e.erro %}<div class="errolista">{{ e.erro|truncatechars:100 }}</div>{% endif %}</td>
     <td><a href="{% url 'painel_email_detalhe' e.pk %}" title="abrir">{% if e.ok %}✅{% else %}❌{% endif %}</a></td>
   </tr>
-  {% empty %}<tr><td colspan="4">{% if q %}Nenhum e-mail com "{{ q }}".{% else %}Nenhum e-mail ainda.{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="5">{% if ativo %}Nenhum e-mail com esses filtros.{% else %}Nenhum e-mail ainda.{% endif %}</td></tr>
   {% endfor %}
 </table></div></div>
 {% endblock %}

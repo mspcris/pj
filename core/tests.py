@@ -1066,12 +1066,38 @@ class EmailsPainelTest(BaseSetup):
             assunto='Pagamento — X', corpo='Oi\n' + '-' * 40 + '\nValor: R$ 1,00',
             ok=True)
         EmailLog.objects.create(destinatario='elias@clinicacamim.com.br',
-                                assunto='Boleto recebido', corpo='x', ok=True)
+                                assunto='Recebido do Elias', corpo='x', ok=True)
         self.login_admin()
         resp = self.client.get('/painel/emails/?q=leticia')
         self.assertContains(resp, 'Pagamento — X')
-        self.assertNotContains(resp, 'Boleto recebido')
+        self.assertNotContains(resp, 'Recebido do Elias')
         self.assertContains(resp, 'leticia@clinicacamim.com.br')  # datalist
+        # filtros combinados: para equipe@ + prestador X
+        outro = Prestador.objects.create(nome='Outro PJ')
+        b_x = Boleto.objects.create(prestador=self.prestador,
+                                    posto=self.posto1,
+                                    competencia=date(2026, 9, 1))
+        b_o = Boleto.objects.create(prestador=outro, posto=self.posto2,
+                                    competencia=date(2026, 8, 1))
+        EmailLog.objects.create(destinatario='equipe@camim.com.br',
+                                assunto='Pagamento — Limpeza', corpo='x',
+                                ok=True, boleto=b_x)
+        EmailLog.objects.create(destinatario='equipe@camim.com.br',
+                                assunto='Pagamento — Outro', corpo='x',
+                                ok=False, boleto=b_o)
+        resp = self.client.get('/painel/emails/', {
+            'para': 'equipe@camim.com.br', 'prestador': self.prestador.pk})
+        self.assertContains(resp, 'Pagamento — Limpeza')
+        self.assertNotContains(resp, 'Pagamento — Outro')
+        self.assertNotContains(resp, 'Recebido do Elias')
+        resp = self.client.get('/painel/emails/', {'tipo': 'pagamento',
+                                                   'ok': 'nao'})
+        self.assertContains(resp, 'Pagamento — Outro')
+        self.assertNotContains(resp, 'Pagamento — Limpeza')
+        resp = self.client.get('/painel/emails/', {'posto': self.posto2.pk,
+                                                   'mes': '2026-08'})
+        self.assertContains(resp, 'Pagamento — Outro')
+        self.assertNotContains(resp, 'Pagamento — Limpeza')
         resp = self.client.get(f'/painel/emails/{a.pk}/')
         self.assertContains(resp, 'Pagamento — X')
         self.assertContains(resp, 'R$ 1,00')  # HTML renderizado
