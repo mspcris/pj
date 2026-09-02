@@ -307,13 +307,12 @@ class PrestadorForm(forms.ModelForm):
         fields = ['nome', 'representante', 'representante_nome_social',
                   'representante_cpf', 'cnpj', 'razao_social', 'nome_fantasia',
                   'endereco', 'bairro', 'cidade', 'uf', 'cep', 'telefone',
-                  'email_empresa', 'modo_boleto', 'posto_cobranca',
-                  'valor_unico', 'regime_pagamento', 'dia_pagamento',
-                  'dia_vencimento', 'exige_nf', 'ativo', 'emails_aviso',
-                  'observacao']
+                  'emails_aviso', 'email_empresa', 'modo_boleto',
+                  'posto_cobranca', 'valor_unico', 'regime_pagamento',
+                  'dia_pagamento', 'exige_nf', 'ativo', 'observacao']
         widgets = {'observacao': forms.Textarea(attrs={'rows': 2}),
                    'emails_aviso': forms.TextInput(attrs={
-                       'placeholder': 'fulano@gmail.com, outro@x.com'})}
+                       'placeholder': 'fulano@gmail.com'})}
         labels = {'regime_pagamento': 'Regime de pagamento',
                   'dia_pagamento': 'Data prevista para pagamento — dia do '
                                    'mês (lido do contrato; pode mudar)',
@@ -325,9 +324,11 @@ class PrestadorForm(forms.ModelForm):
                                                '(se preenchido, é assim que '
                                                'a pessoa é chamada)',
                   'representante_cpf': 'CPF do representante legal',
-                  'emails_aviso': 'E-mails do prestador SEM login (idCamim): '
-                                  'recebem os avisos E podem mandar boleto '
-                                  'por e-mail — vírgula separa'}
+                  'emails_aviso': 'E-mail do prestador (recebe os avisos e '
+                                  'pode mandar boleto por e-mail — vários: '
+                                  'separe por vírgula)',
+                  'email_empresa': 'E-mail que consta na Receita (só '
+                                   'referência — não recebe avisos)'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
