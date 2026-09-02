@@ -202,21 +202,27 @@ def localizar_boleto_por_assunto(assunto):
             prestador=prestador,
             status__in=[Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO])
     achados = []
-    for b in candidatos:
-        nome_alvo = (b.posto_efetivo.nome if b.posto_efetivo
-                     else 'boleto único')
-        if nome_alvo.lower() != alvo.strip().lower():
-            continue
-        v = b.valor_extraido or b.valor_esperado
-        if valor is not None and v is not None and abs(v - valor) > \
-                Decimal('0.01'):
-            continue
-        # Parciais podem diferir por 1 centavo (Elias: 499,93 e 499,94):
-        # o valor EXATO ganha, e o que ainda não foi confirmado ganha do
-        # que já está FIN_RECEBIDO.
-        diff = (abs(v - valor) if valor is not None and v is not None
-                else Decimal('0'))
-        achados.append((diff, b.status != Boleto.Status.APROVADO, b.pk, b))
+    for tentativa in ('posto', 'sem_posto'):
+        for b in candidatos:
+            nome_alvo = (b.posto_efetivo.nome if b.posto_efetivo
+                         else 'boleto único')
+            # 2ª passada: o boleto mudou de posto depois do envio (LUTI →
+            # Ronald) — casa pelo prestador + competência + valor exato.
+            if (tentativa == 'posto'
+                    and nome_alvo.lower() != alvo.strip().lower()):
+                continue
+            v = b.valor_extraido or b.valor_esperado
+            if valor is not None and v is not None and abs(v - valor) > \
+                    (Decimal('0.01') if tentativa == 'posto'
+                     else Decimal('0')):
+                continue
+            if tentativa == 'sem_posto' and valor is None:
+                continue
+            achados.append((abs(v - valor) if valor is not None
+                            and v is not None else Decimal('0'),
+                            b.status != Boleto.Status.APROVADO, b.pk, b))
+        if achados:
+            break
     if not achados:
         return None
     return min(achados)[-1]

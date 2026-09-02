@@ -748,6 +748,21 @@ class RoboEmailRemetenteTest(BaseSetup):
                          self.prestador)
         self.assertIsNone(prestador_do_remetente('outro@gmail.com'))
 
+    def test_resposta_do_financeiro_casa_mesmo_se_o_posto_mudou(self):
+        from core.services.boletos import localizar_boleto_por_assunto
+        b = Boleto.objects.create(prestador=self.prestador, posto=self.posto2,
+                                  competencia=date(2026, 9, 1),
+                                  status=Boleto.Status.APROVADO,
+                                  valor_extraido=Decimal('499.93'))
+        # e-mail saiu como "Anchieta", boleto foi movido para Bangu
+        self.assertEqual(localizar_boleto_por_assunto(
+            'Re: Pagamento — Limpeza Total LTDA — Anchieta — setembro/2026 '
+            '— R$ 499,93'), b)
+        # sem valor exato, não arrisca
+        self.assertIsNone(localizar_boleto_por_assunto(
+            'Re: Pagamento — Limpeza Total LTDA — Anchieta — setembro/2026 '
+            '— R$ 499,94'))
+
     def test_resposta_do_financeiro_casa_mesmo_se_o_mes_mudou(self):
         from core.services.boletos import localizar_boleto_por_assunto
         b = Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
