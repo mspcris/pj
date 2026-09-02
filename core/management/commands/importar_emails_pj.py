@@ -15,7 +15,8 @@ O que faz com cada e-mail novo:
   * Remetente precisa ser conhecido: UsuarioPermitido ativo com prestador
     OU e-mail em Prestador.emails_aviso (gente sem idCamim) — senão avisa
     o admin e registra SEM_PRESTADOR.
-  * Competência: mês citado no assunto ("NF Guido Agosto"); senão, o atual.
+  * Competência: SEMPRE o mês atual (mês do pagamento), mesmo que o
+    assunto cite o mês do serviço ("NF Guido Agosto" chega em setembro).
   * Anexos PDF → um boleto por PDF, competência do mês atual.
   * Sem PDF → procura linha digitável no corpo (47/48 dígitos) → boleto sem
     arquivo. Sem nada → avisa o admin (SEM_CONTEUDO).
@@ -67,32 +68,6 @@ def prestador_do_remetente(remetente):
                                       emails_aviso__icontains='@'):
         if remetente in p.lista_emails_aviso():
             return p
-    return None
-
-
-_MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
-          'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
-
-
-def competencia_do_texto(texto, hoje=None):
-    """Mês citado no assunto ("NF Guido Agosto", "boleto 08/2026",
-    "setembro/2026") → dia 1 daquele mês. Sem ano → o mais recente que não
-    esteja no futuro. None se não achar."""
-    hoje = hoje or timezone.localdate()
-    t = (texto or '').lower()
-    m = re.search(r'\b(0?[1-9]|1[0-2])\s*/\s*(20\d{2})\b', t)
-    if m:
-        return timezone.datetime(int(m.group(2)), int(m.group(1)), 1).date()
-    for i, nome in enumerate(_MESES, start=1):
-        # nome completo ou abreviação de 3 letras como PALAVRA inteira
-        # ("ago", "agosto" — mas não "Marcos" → março)
-        padrao = rf'\b(?:{nome}|{nome[:3]})\b'
-        if re.search(padrao, t):
-            m = re.search(padrao + r'\W*(?:de\s+)?(20\d{2})', t)
-            ano = int(m.group(1)) if m else hoje.year
-            if not m and i > hoje.month:
-                ano -= 1
-            return timezone.datetime(ano, i, 1).date()
     return None
 
 
@@ -292,10 +267,9 @@ class Command(BaseCommand):
 
         vinculos = list(prestador.vinculos_ativos())
         posto = vinculos[0].posto if len(vinculos) == 1 else None
-        # Competência: se o assunto diz o mês ("NF Guido Agosto"), é esse;
-        # senão, o mês atual.
-        competencia = (competencia_do_texto(assunto)
-                       or timezone.localdate().replace(day=1))
+        # Competência = mês em que o boleto chega (é o mês do PAGAMENTO —
+        # "NF Guido Agosto" que chega em setembro é a régua de setembro).
+        competencia = timezone.localdate().replace(day=1)
         criados = []
 
         # Separa boletos de notas fiscais (quem manda, manda os dois juntos)

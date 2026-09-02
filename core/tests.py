@@ -733,7 +733,7 @@ class RoboEmailRemetenteTest(BaseSetup):
 
     def test_remetente_sem_login_cadastrado_no_prestador(self):
         from core.management.commands.importar_emails_pj import (
-            competencia_do_texto, prestador_do_remetente)
+            prestador_do_remetente)
         self.assertEqual(prestador_do_remetente('pj@empresa.com.br'),
                          self.prestador)
         self.assertIsNone(prestador_do_remetente('euguidocerqueira@gmail.com'))
@@ -742,18 +742,16 @@ class RoboEmailRemetenteTest(BaseSetup):
         self.assertEqual(prestador_do_remetente('euguidocerqueira@gmail.com'),
                          self.prestador)
         self.assertIsNone(prestador_do_remetente('outro@gmail.com'))
-        # competência pelo assunto
-        hoje = date(2026, 9, 2)
-        self.assertEqual(competencia_do_texto('Fwd: NF Guido Agosto', hoje),
-                         date(2026, 8, 1))
-        self.assertEqual(competencia_do_texto('boleto 08/2026', hoje),
-                         date(2026, 8, 1))
-        self.assertEqual(competencia_do_texto('Setembro/2026', hoje),
-                         date(2026, 9, 1))
-        self.assertEqual(competencia_do_texto('NF dezembro', hoje),
-                         date(2025, 12, 1))
-        self.assertIsNone(competencia_do_texto('NF Guido', hoje))
-        self.assertIsNone(competencia_do_texto('Boleto Marcos', hoje))
+
+    def test_resposta_do_financeiro_casa_mesmo_se_o_mes_mudou(self):
+        from core.services.boletos import localizar_boleto_por_assunto
+        b = Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=date(2026, 9, 1),
+                                  status=Boleto.Status.APROVADO,
+                                  valor_extraido=Decimal('13700.00'))
+        self.assertEqual(localizar_boleto_por_assunto(
+            'Re: Pagamento — Limpeza Total LTDA — Anchieta — agosto/2026 — '
+            'R$ 13.700,00'), b)
 
     def test_nf_escaneada_reconhecida_pelo_nome(self):
         from core.management.commands.importar_emails_pj import classificar_pdf

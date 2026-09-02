@@ -195,6 +195,12 @@ def localizar_boleto_por_assunto(assunto):
     candidatos = Boleto.objects.filter(
         prestador=prestador, competencia=competencia,
         status__in=[Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO])
+    if not candidatos.exists():
+        # Boleto mudou de competência depois do envio (Guido: saiu como
+        # agosto, foi movido para setembro): casa pelo resto da chave.
+        candidatos = Boleto.objects.filter(
+            prestador=prestador,
+            status__in=[Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO])
     achados = []
     for b in candidatos:
         nome_alvo = (b.posto_efetivo.nome if b.posto_efetivo
