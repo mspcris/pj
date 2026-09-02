@@ -160,24 +160,31 @@ class Command(BaseCommand):
             detalhe = f'#{boleto.pk}'
             # Avisa o PJ: está com o financeiro, é só aguardar.
             from core.services import frases
-            from core.services.verificacao import (_fatos, _moeda,
+            from core.services.verificacao import (_fatos, _instrucao_parcial,
+                                                   _moeda, assunto_parcial,
                                                    cc_gerente, dados_pj,
                                                    destinatarios_pj)
             fatos = _fatos(boleto)
-            fatos['valor'] = _moeda(boleto.valor_extraido
-                                    or boleto.valor_esperado)
+            if not boleto.parcial:
+                fatos['valor'] = _moeda(boleto.valor_extraido
+                                        or boleto.valor_esperado)
             svc_emails.enviar(
                 destinatarios_pj(boleto),
-                f'Boleto com o financeiro — {fatos["competencia"]}',
+                assunto_parcial(
+                    fatos,
+                    f'Boleto com o financeiro — {fatos["competencia"]}'),
                 frases.corpo(
                     'fin_recebido', fatos,
                     instrucao_ia=('Escreva em tom FORMAL e positivo '
-                                  'informando que o setor financeiro '
-                                  'confirmou o recebimento do boleto e o '
-                                  'pagamento está em processamento — '
-                                  'nenhuma ação é necessária, é só '
-                                  'aguardar. Diga que os dados seguem '
-                                  'abaixo da assinatura.'))
+                                  'informando ao PRESTADOR que o setor '
+                                  'financeiro da CAMIM confirmou o '
+                                  'recebimento do boleto dele e que o '
+                                  'pagamento (da CAMIM para o prestador) '
+                                  'está em processamento — nenhuma ação é '
+                                  'necessária, é só aguardar. NÃO cite '
+                                  'valores no texto. Diga que os dados '
+                                  'seguem abaixo da assinatura.'
+                                  + _instrucao_parcial(fatos)))
                 + dados_pj(boleto, fatos),
                 boleto=boleto, cc=cc_gerente(boleto))
             self.stdout.write(self.style.SUCCESS(

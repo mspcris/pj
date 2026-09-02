@@ -119,8 +119,14 @@ def redigir_email(instrucao, fatos):
         'datas nem promessas. O campo "alvo"/"posto" é o nome de uma '
         'UNIDADE (posto) da CAMIM, batizada pelo bairro do Rio de Janeiro '
         'onde fica — refira-se a ela como "unidade X" ou "posto X", NUNCA '
-        'como município, cidade ou região. Varie a redação a cada vez, '
-        'mantendo o tom profissional.')
+        'como município, cidade ou região. SENTIDO DO DINHEIRO: a CAMIM '
+        '(a clínica/unidade) é quem PAGA; o prestador é quem RECEBE — '
+        'nunca escreva que o valor será creditado, pago ou repassado '
+        '"para a unidade"; se citar o pagamento, é a CAMIM pagando o '
+        'prestador pelo serviço na unidade. NÃO repita no texto os dados '
+        'do bloco (competência, valor, vencimento) em formato "Campo: '
+        'valor" — o bloco de dados vai abaixo da assinatura. Varie a '
+        'redação a cada vez, mantendo o tom profissional.')
     user = f'{instrucao}\n\nFatos:\n{json.dumps(fatos, ensure_ascii=False)}'
     corpo = _chamar(
         [{'role': 'system', 'content': system},
