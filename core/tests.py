@@ -1078,8 +1078,7 @@ class ContratoBoletoUnicoTest(BaseSetup):
         resp = self.client.get('/contratos/', follow=True)
         self.assertNotContains(resp, 'Nenhum posto vinculado')
         self.assertContains(resp, self.prestador.posto_cobranca.nome)
-        with mock.patch('core.services.contratos.aplicar_dados',
-                        return_value={}) as m_ap:
+        with mock.patch('core.services.contratos.aplicar_dados_async') as m_ap:
             resp = self.client.post(
                 f'/contratos/{self.prestador.posto_cobranca.pk}/',
                 {'arquivo': _pdf('contrato.pdf'),

@@ -724,23 +724,15 @@ def prestador_detalhe(request, up, pk):
                 AuditLog.registrar(AuditLog.Evento.UPLOAD_CONTRATO, request,
                                    detalhe=f'(painel) {prestador} — '
                                            f'{arq.name[:60]}')
-                from .services.contratos import aplicar_dados
-                lidos = aplicar_dados(contrato)
-                aviso = ''
-                campos = {k: v for k, v in lidos.items()
-                          if k != 'regime_sugerido'}
-                if campos:
-                    aviso += (' Lido do contrato e preenchido: '
-                              + ', '.join(f'{k} = {v}'
-                                          for k, v in campos.items())
-                              + '. Confira no cadastro.')
-                if lidos.get('regime_sugerido') and \
-                        lidos['regime_sugerido'] != prestador.regime_pagamento:
-                    aviso += (f' O contrato sugere regime '
-                              f'{lidos["regime_sugerido"]} — o cadastro está '
-                              f'{prestador.regime_pagamento}; ajuste se for '
-                              'o caso.')
-                messages.success(request, 'Contrato anexado.' + aviso)
+                from .services.contratos import aplicar_dados_async
+                aplicar_dados_async(contrato.pk)
+                messages.success(
+                    request,
+                    'Contrato anexado. Estou lendo o PDF em segundo plano '
+                    'para completar o cadastro (endereço, representante, '
+                    'prazos) — só o que estiver em branco; em até 1 minuto '
+                    'recarregue a página e confira a ficha. O que foi '
+                    'preenchido fica na Auditoria.')
             else:
                 messages.error(request, f'Contrato inválido: {cform.errors}')
             return redirect('painel_prestador', pk=pk)

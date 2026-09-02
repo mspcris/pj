@@ -69,3 +69,24 @@ def aplicar_dados(contrato):
 
 
 aplicar_prazos = aplicar_dados  # nome antigo
+
+
+def aplicar_dados_async(contrato_pk):
+    """Leitura do contrato em segundo plano: o anexo responde na hora; a
+    IA (até ~1 min) preenche o cadastro depois e registra na auditoria."""
+    import threading
+
+    from django.db import close_old_connections
+
+    from ..models import Contrato
+
+    def _run():
+        close_old_connections()
+        try:
+            c = Contrato.objects.select_related('prestador').get(pk=contrato_pk)
+            aplicar_dados(c)
+        except Exception:
+            log.exception('leitura do contrato #%s falhou', contrato_pk)
+        finally:
+            close_old_connections()
+    threading.Thread(target=_run, daemon=True).start()

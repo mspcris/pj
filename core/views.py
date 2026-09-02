@@ -198,8 +198,8 @@ def contratos_lista(request, up, posto_id):
                 vigencia_fim=form.cleaned_data['vigencia_fim'])
             # Aproveita o contrato para completar o cadastro (só o que
             # está em branco), igual ao anexo pelo painel.
-            from .services.contratos import aplicar_dados
-            aplicar_dados(contrato)
+            from .services.contratos import aplicar_dados_async
+            aplicar_dados_async(contrato.pk)
             AuditLog.registrar(AuditLog.Evento.UPLOAD_CONTRATO, request,
                                detalhe=f'{up.prestador} @ {posto}')
             messages.success(request, 'Contrato anexado com sucesso!')
