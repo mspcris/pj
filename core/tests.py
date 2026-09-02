@@ -1144,6 +1144,28 @@ class ReceitaTest(BaseSetup):
         self.assertContains(resp, 'Não consegui consultar a Receita')
 
 
+class TravaCopiasTest(BaseSetup):
+    """01/09/2026: um script mandou UM e-mail com os 9 boletos da GP5 em
+    cópia para os 9 gerentes — cada gerente viu o valor dos outros postos
+    (empresas e sócios diferentes). Nunca mais: mais de 1 cc = recusado."""
+
+    @mock.patch('core.services.emails.EmailMultiAlternatives')
+    def test_mais_de_um_cc_e_recusado(self, m_msg):
+        from core.models import EmailLog
+        from core.services import emails
+        ok = emails.enviar(['pj@x.com'], 'Boletos', 'corpo',
+                           cc=['g1@camim.com.br', 'g2@camim.com.br'])
+        self.assertFalse(ok)
+        self.assertFalse(m_msg.called)  # nada saiu
+        log = EmailLog.objects.get()
+        self.assertFalse(log.ok)
+        self.assertIn('RECUSADO', log.assunto)
+        # um gerente em cópia continua normal
+        ok = emails.enviar(['pj@x.com'], 'Boleto', 'corpo',
+                           cc=['g1@camim.com.br'])
+        self.assertTrue(ok)
+
+
 class ValeTest(BaseSetup):
     def _vale(self, **kw):
         from core.models import Vale

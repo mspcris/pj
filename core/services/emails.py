@@ -93,6 +93,20 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
     if not dests:
         dests = [settings.EMAIL_ADMIN]
     copias = [c for c in (cc or []) if c and c not in dests]
+    # TRAVA (02/09/2026): cada posto é uma empresa com sócios diferentes.
+    # Um e-mail de boleto leva em cópia NO MÁXIMO o gerente de UM posto —
+    # nunca uma lista de gerentes vendo valores uns dos outros. Se alguém
+    # (script, rotina nova) tentar, o envio é recusado e o admin avisado.
+    if len(copias) > 1:
+        log.error('E-mail RECUSADO: %d endereços em cópia (%s) — assunto %s',
+                  len(copias), ', '.join(copias), assunto)
+        EmailLog.objects.create(
+            destinatario=(', '.join(dests) + ' +cc: ' + ', '.join(copias))[:255],
+            assunto=f'[RECUSADO — {len(copias)} em cópia] {assunto}'[:255],
+            corpo=corpo, boleto=boleto, ok=False,
+            erro='Recusado pela trava: mais de um endereço em cópia. '
+                 'Cada gerente só pode ver o boleto do próprio posto.')
+        return False
     if settings.EMAIL_MODO_TESTE:
         assunto = f'[TESTE p/ {", ".join(dests)}] {assunto}'
         dests = [settings.EMAIL_ADMIN]
