@@ -892,14 +892,14 @@ class AjusteDiferencaTest(BaseSetup):
         self.login_admin()
         resp = self.client.get('/painel/')
         self.assertContains(resp, 'falta R$ 500,01')
-        self.assertContains(resp, '💵 Pagar em dinheiro', count=1)  # só Bangu
+        self.assertContains(resp, '💵 R$ 0,10 em dinheiro', count=1)  # só Bangu
         resp = self.client.post('/painel/ajuste-diferenca/', {
             'prestador': self.prestador.pk, 'posto': self.posto2.pk,
             'competencia': mes.isoformat(), 'valor': '0.10',
             'modo': 'NAO_PAGO'}, follow=True)
         self.assertContains(resp, 'R$ 0,10 não será pago — quitado')
-        self.assertContains(resp, 'desfazer ajuste')
-        self.assertNotContains(resp, '💵 Pagar em dinheiro')
+        self.assertContains(resp, '↩ desfazer')
+        self.assertNotContains(resp, 'em dinheiro</button>')
         # > R$ 5 não passa
         resp = self.client.post('/painel/ajuste-diferenca/', {
             'prestador': self.prestador.pk, 'posto': self.posto1.pk,
@@ -913,7 +913,7 @@ class AjusteDiferencaTest(BaseSetup):
                               valor_extraido=Decimal('500.00'))
         resp = self.client.get('/painel/')
         self.assertContains(resp, 'falta R$ 0,01')
-        self.assertContains(resp, '💵 Pagar em dinheiro', count=1)
+        self.assertContains(resp, 'Resolver os R$ 0,01:', count=1)
         resp = self.client.post('/painel/ajuste-diferenca/', {
             'prestador': self.prestador.pk, 'posto': self.posto1.pk,
             'competencia': mes.isoformat(), 'valor': '0.01',
@@ -936,7 +936,7 @@ class AjusteDiferencaTest(BaseSetup):
                                       valor_mensal=Decimal('0.40'))
         resp = self.client.get('/painel/')
         self.assertContains(resp, 'SEM BOLETO')
-        self.assertContains(resp, '🚫 Não será pago', count=2)
+        self.assertContains(resp, '🚫 R$ 0,40 não será pago', count=1)
         resp = self.client.post('/painel/ajuste-diferenca/', {
             'prestador': sal.pk, 'posto': self.posto2.pk,
             'competencia': mes.isoformat(), 'valor': '0.40',
