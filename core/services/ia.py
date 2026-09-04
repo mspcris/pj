@@ -31,12 +31,22 @@ def _chamar(mensagens, temperature=0.2, json_mode=False, max_tokens=1200):
     }
     if json_mode:
         payload['response_format'] = {'type': 'json_object'}
-    resp = requests.post(
-        URL, timeout=60,
-        headers={'Authorization': f'Bearer {settings.GROQ_API_KEY}'},
-        json=payload)
-    resp.raise_for_status()
-    return resp.json()['choices'][0]['message']['content']
+    # O Groq devolve 400 "json_validate_failed" de forma ALEATÓRIA em modo
+    # JSON (o modelo gera JSON inválido de vez em quando; o mesmo boleto
+    # passa na chamada seguinte — 04/09/2026, 3 de 8 boletos da JRA). Não é
+    # culpa do prompt: retenta antes de travar o boleto.
+    for tentativa in range(3):
+        resp = requests.post(
+            URL, timeout=60,
+            headers={'Authorization': f'Bearer {settings.GROQ_API_KEY}'},
+            json=payload)
+        if resp.status_code == 400 and tentativa < 2 and \
+                'json_validate_failed' in resp.text:
+            log.warning('Groq json_validate_failed (tentativa %s); '
+                        'retentando', tentativa + 1)
+            continue
+        resp.raise_for_status()
+        return resp.json()['choices'][0]['message']['content']
 
 
 def extrair_valor(texto_pdf):

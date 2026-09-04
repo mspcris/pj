@@ -1959,3 +1959,51 @@ class PainelAcaoTest(BaseSetup):
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.PAGO)
         self.assertIsNotNone(b.pago_em)
+
+
+class GroqRetryTest(TestCase):
+    """Groq devolve 400 json_validate_failed de forma aleatória em modo
+    JSON (04/09/2026: 3 de 8 boletos da JRA). O cliente retenta em vez
+    de travar o boleto."""
+
+    def _resp(self, status, texto):
+        import requests
+        r = mock.Mock()
+        r.status_code = status
+        r.text = texto
+        r.json.return_value = {'choices': [{'message': {'content': texto}}]}
+        if status >= 400:
+            r.raise_for_status.side_effect = requests.HTTPError(texto)
+        else:
+            r.raise_for_status.return_value = None
+        return r
+
+    @override_settings(GROQ_API_KEY='x', GROQ_MODEL='m')
+    def test_retenta_json_validate_failed(self):
+        from .services import ia
+        erro = '{"error":{"code":"json_validate_failed"}}'
+        ok = '{"valor":"887.86","confianca":95}'
+        with mock.patch.object(ia.requests, 'post',
+                               side_effect=[self._resp(400, erro),
+                                            self._resp(200, ok)]) as post:
+            valor, bruto = ia.extrair_valor('texto do boleto')
+        self.assertEqual(valor, Decimal('887.86'))
+        self.assertEqual(post.call_count, 2)
+
+    @override_settings(GROQ_API_KEY='x', GROQ_MODEL='m')
+    def test_desiste_apos_tres(self):
+        from .services import ia
+        erro = '{"error":{"code":"json_validate_failed"}}'
+        with mock.patch.object(ia.requests, 'post',
+                               side_effect=[self._resp(400, erro)] * 3):
+            with self.assertRaises(Exception):
+                ia.extrair_valor('texto')
+
+    @override_settings(GROQ_API_KEY='x', GROQ_MODEL='m')
+    def test_outro_400_nao_retenta(self):
+        from .services import ia
+        with mock.patch.object(ia.requests, 'post',
+                               side_effect=[self._resp(400, 'bad')]) as post:
+            with self.assertRaises(Exception):
+                ia.extrair_valor('texto')
+        self.assertEqual(post.call_count, 1)
