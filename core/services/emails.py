@@ -107,20 +107,25 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
             erro='Recusado pela trava: mais de um endereço em cópia. '
                  'Cada gerente só pode ver o boleto do próprio posto.')
         return False
+    # Cópia oculta interna (Leonardo): em TODO e-mail, fora do modo teste.
+    ocultas = [o for o in settings.EMAIL_COPIA_OCULTA
+               if o not in dests and o not in copias]
     if settings.EMAIL_MODO_TESTE:
         assunto = f'[TESTE p/ {", ".join(dests)}] {assunto}'
         dests = [settings.EMAIL_ADMIN]
         copias = []
+        ocultas = []
 
-    rotulo = ', '.join(dests) + (f' +cc: {", ".join(copias)}' if copias
-                                 else '')
+    rotulo = (', '.join(dests)
+              + (f' +cc: {", ".join(copias)}' if copias else '')
+              + (f' +cco: {", ".join(ocultas)}' if ocultas else ''))
     registro = EmailLog(destinatario=rotulo[:255], assunto=assunto,
                         corpo=corpo, boleto=boleto)
     try:
         msg = EmailMultiAlternatives(
             subject=assunto, body=corpo,
             from_email=de or settings.DEFAULT_FROM_EMAIL, to=dests,
-            cc=copias or None)
+            cc=copias or None, bcc=ocultas or None)
         msg.attach_alternative(_render_html(corpo), 'text/html')
         lista = []
         if anexo_field:

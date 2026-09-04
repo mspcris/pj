@@ -158,6 +158,12 @@ EMAIL_INTAKE_ALIASES = [
 IMAP_HOST = os.getenv('IMAP_HOST', 'imap.gmail.com')
 IMAP_DIAS = int(os.getenv('IMAP_DIAS', '10'))
 EMAIL_ADMIN = os.getenv('EMAIL_ADMIN', 'cristiano@camim.com.br')
+# Cópia OCULTA em TODO e-mail que sai do sistema (Leonardo, 04/09/2026).
+# Vai em Bcc: não conta na trava de sigilo (1 gerente em cópia) e o endereço
+# interno não aparece para o PJ. Vírgula separa.
+EMAIL_COPIA_OCULTA = [
+    a.strip().lower() for a in os.getenv('EMAIL_COPIA_OCULTA', '').split(',')
+    if a.strip()]
 # Modo de teste: TODO e-mail sai só para EMAIL_ADMIN (nada chega no PJ/equipe).
 EMAIL_MODO_TESTE = os.getenv('EMAIL_MODO_TESTE', 'false').lower() == 'true'
 

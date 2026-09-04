@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 
-from .models import (Boleto, Contrato, Posto, Prestador, PrestadorPosto,
+from .models import (Boleto, Contrato, EmailLog, Posto, Prestador, PrestadorPosto,
                      UsuarioPermitido)
 from .services import verificacao
 
@@ -2007,3 +2007,32 @@ class GroqRetryTest(TestCase):
             with self.assertRaises(Exception):
                 ia.extrair_valor('texto')
         self.assertEqual(post.call_count, 1)
+
+
+class CopiaOcultaTest(TestCase):
+    """Leonardo (04/09/2026) recebe cópia OCULTA de todo e-mail do sistema:
+    não conta na trava de 1 cc e some no modo teste."""
+
+    @override_settings(EMAIL_MODO_TESTE=False,
+                       EMAIL_COPIA_OCULTA=['leonardo@camim.com.br'],
+                       EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_bcc_em_todo_email(self):
+        from django.core import mail
+        from .services import emails
+        ok = emails.enviar('pj@x.com', 'a', 'b', cc=['gerente@camim.com.br'])
+        self.assertTrue(ok)
+        m = mail.outbox[-1]
+        self.assertEqual(m.to, ['pj@x.com'])
+        self.assertEqual(m.cc, ['gerente@camim.com.br'])
+        self.assertEqual(m.bcc, ['leonardo@camim.com.br'])
+        self.assertIn('+cco: leonardo@camim.com.br',
+                      EmailLog.objects.latest('pk').destinatario)
+
+    @override_settings(EMAIL_MODO_TESTE=True, EMAIL_ADMIN='c@camim.com.br',
+                       EMAIL_COPIA_OCULTA=['leonardo@camim.com.br'],
+                       EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_modo_teste_sem_bcc(self):
+        from django.core import mail
+        from .services import emails
+        emails.enviar('pj@x.com', 'a', 'b')
+        self.assertEqual(mail.outbox[-1].bcc, [])
