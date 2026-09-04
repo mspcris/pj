@@ -393,6 +393,7 @@ def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
                 'valor — NADA foi reenviado, para não pagar duas vezes. '
                 'Se precisar mesmo, use "Reenviar e-mails".')
     correcao = ja and not mesmo
+    valor_anterior = boleto.pagamento_enviado_valor
 
     assunto = assunto_parcial(
         fatos,
@@ -461,7 +462,7 @@ def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
     _alertar_discrepancia(boleto, fatos, correcao, quando)
     if correcao:
         return (f'CORREÇÃO enviada ao financeiro (o valor mudou: antes '
-                f'R$ {_moeda(boleto.pagamento_enviado_valor)}, agora '
+                f'R$ {_moeda(valor_anterior)}, agora '
                 f'R$ {fatos["valor"]}).')
     if reenviar and ja:
         return 'e-mail de pagamento REENVIADO à equipe (marcado como reenvio).'
