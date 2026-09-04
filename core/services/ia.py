@@ -200,14 +200,30 @@ def redigir_email(instrucao, fatos):
         '"para a unidade"; se citar o pagamento, é a CAMIM pagando o '
         'prestador pelo serviço na unidade. NÃO repita no texto os dados '
         'do bloco (competência, valor, vencimento) em formato "Campo: '
-        'valor" — o bloco de dados vai abaixo da assinatura. Varie a '
-        'redação a cada vez, mantendo o tom profissional.')
+        'valor" — o bloco de dados vai abaixo da assinatura. NUNCA '
+        'reproduza os fatos em JSON, chaves, aspas ou qualquer formato de '
+        'dados no texto — só prosa. Varie a redação a cada vez, mantendo '
+        'o tom profissional.')
     user = f'{instrucao}\n\nFatos:\n{json.dumps(fatos, ensure_ascii=False)}'
     corpo = _chamar(
         [{'role': 'system', 'content': system},
          {'role': 'user', 'content': user}],
         temperature=0.9, max_tokens=500)
-    corpo = corpo.strip()
+    corpo = limpar_corpo(corpo)
     if not corpo or len(corpo) < 30:
         raise RuntimeError('IA devolveu corpo vazio/curto demais')
     return corpo
+
+
+def limpar_corpo(corpo):
+    """Tira do texto da IA qualquer linha que seja JSON/dados (04/09/2026:
+    o e-mail de pagamento da Meriti saiu com o dict de fatos colado no
+    corpo). Só prosa passa."""
+    limpas = []
+    for ln in (corpo or '').splitlines():
+        s = ln.strip()
+        if (s.startswith('{') or s.startswith('```')
+                or re.search(r'"\w+"\s*:\s*"', s)):
+            continue
+        limpas.append(ln)
+    return '\n'.join(limpas).strip()

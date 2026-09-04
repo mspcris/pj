@@ -355,8 +355,11 @@ def boleto_acao(request, up, pk, acao):
         from .services.verificacao import enviar_para_pagamento
         reenviar = boleto.status == Boleto.Status.APROVADO
         boleto.status = Boleto.Status.APROVADO
-        boleto.verificado_em = timezone.now()
-        boleto.save(update_fields=['status', 'verificado_em'])
+        if not reenviar or not boleto.aprovado_por:
+            boleto.aprovado_por = (up.nome or up.email)[:120]
+            boleto.verificado_em = timezone.now()
+        boleto.save(update_fields=['status', 'verificado_em',
+                                   'aprovado_por'])
         resultado = enviar_para_pagamento(boleto, reenviar=reenviar)
         if 'NADA' in resultado:
             messages.warning(request, f'{boleto}: {resultado}')

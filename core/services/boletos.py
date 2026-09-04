@@ -27,10 +27,13 @@ def eh_nota_fiscal(texto):
     return True
 
 
-def validar_nf(texto_nf, prestador):
-    """Validação determinística da NFS-e nacional: precisa parecer uma NF
-    e o EMITENTE precisa ser o CNPJ do prestador (quando cadastrado).
-    Retorna (ok, motivo)."""
+def validar_nf(texto_nf, prestador, posto=None):
+    """Validação determinística da NFS-e nacional: precisa parecer uma NF,
+    o EMITENTE precisa ser o CNPJ do prestador (quando cadastrado) e, se o
+    boleto tem posto, o TOMADOR da NF não pode ser OUTRO posto (04/09/2026:
+    JRA mandou 8 boletos + 8 NFs num e-mail e as NFs foram casadas na
+    ordem errada — o financeiro recebeu a NF da policlínica com o boleto
+    de Bangu). Retorna (ok, motivo)."""
     if not texto_nf:
         return True, 'NF sem texto legível — não validada'
     if not eh_nota_fiscal(texto_nf):
@@ -39,7 +42,25 @@ def validar_nf(texto_nf, prestador):
     if cnpj and cnpj not in re.sub(r'\D', '', texto_nf):
         return False, ('a nota fiscal não é do prestador — o CNPJ '
                        f'{prestador.cnpj} não consta como emitente')
+    if posto is not None:
+        tomador = identificar_posto(texto_nf)
+        if tomador is not None and tomador.pk != posto.pk:
+            return False, (f'a nota fiscal anexa é de {tomador}, mas o '
+                           f'boleto é de {posto} — NF trocada')
     return True, ''
+
+
+def posto_do_boleto(prestador, texto):
+    """Posto de um boleto POR_POSTO já na entrada, pelo CNPJ do sacado no
+    PDF — só se for um dos postos que o prestador atende. Permite casar a
+    NF certa quando vários boletos chegam no mesmo e-mail."""
+    if prestador.modo_boleto != Prestador.ModoBoleto.POR_POSTO:
+        return None
+    p = identificar_posto(texto)
+    if p is None:
+        return None
+    ids = {v.posto_id for v in prestador.vinculos_ativos()}
+    return p if p.pk in ids else None
 
 
 def identificar_posto(texto):

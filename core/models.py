@@ -432,6 +432,9 @@ class Boleto(models.Model):
     # conferência é determinística (código de barras) ou dupla (PDF × linha).
     ia_confianca = models.PositiveSmallIntegerField(null=True, blank=True)
     tentativas = models.PositiveSmallIntegerField(default=0)
+    # Quem aprovou: 'sistema' (agente autônomo + IA) ou o e-mail/nome do
+    # admin que aprovou no olho. Vai escrito no e-mail ao financeiro.
+    aprovado_por = models.CharField(max_length=120, blank=True)
 
     criado_em = models.DateTimeField(auto_now_add=True)
     verificado_em = models.DateTimeField(null=True, blank=True)

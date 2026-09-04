@@ -6,6 +6,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from .models import (Boleto, Contrato, EmailLog, Posto, Prestador, PrestadorPosto,
                      UsuarioPermitido)
@@ -2036,3 +2037,105 @@ class CopiaOcultaTest(TestCase):
         from .services import emails
         emails.enviar('pj@x.com', 'a', 'b')
         self.assertEqual(mail.outbox[-1].bcc, [])
+
+
+class NfPorPostoTest(BaseSetup):
+    """04/09/2026: JRA mandou 8 boletos + 8 NFs no mesmo e-mail e 7 NFs
+    foram casadas com o boleto errado. Agora o boleto ganha posto na
+    entrada (CNPJ do sacado) e a NF de outro posto barra a verificação."""
+
+    def setUp(self):
+        super().setUp()
+        self.posto1.cnpj = '27.110.113/0001-04'
+        self.posto1.save()
+        self.posto2.cnpj = '33.040.053/0001-95'
+        self.posto2.save()
+        self.prestador.cnpj = '11.222.333/0001-44'
+        self.prestador.save()
+
+    def test_posto_do_boleto_pelo_sacado(self):
+        from core.services.boletos import posto_do_boleto
+        self.assertEqual(posto_do_boleto(
+            self.prestador, 'Pagador CLINICA X 33.040.053/0001-95'),
+            self.posto2)
+        self.assertIsNone(posto_do_boleto(self.prestador, 'sem cnpj'))
+        # posto que o prestador NÃO atende: não destina
+        outro = Posto.objects.get(codigo='N')
+        outro.cnpj = '25.247.840/0001-84'
+        outro.save()
+        self.assertIsNone(posto_do_boleto(
+            self.prestador, 'Pagador 25.247.840/0001-84'))
+
+    def test_validar_nf_barra_nf_de_outro_posto(self):
+        from core.services.boletos import validar_nf
+        nf = ('NFS-e Nota Fiscal Emitente 11.222.333/0001-44 '
+              'Tomador 27.110.113/0001-04')
+        self.assertTrue(validar_nf(nf, self.prestador, posto=self.posto1)[0])
+        ok, motivo = validar_nf(nf, self.prestador, posto=self.posto2)
+        self.assertFalse(ok)
+        self.assertIn('NF trocada', motivo)
+        # sem tomador identificável, não barra
+        self.assertTrue(validar_nf(
+            'NFS-e Nota Fiscal Emitente 11.222.333/0001-44',
+            self.prestador, posto=self.posto2)[0])
+
+
+class AprovacaoManualTest(BaseSetup):
+    """04/09/2026 (Meriti): aprovação no olho de boleto que a IA não leu
+    saía com o valor COMBINADO no e-mail e o JSON dos fatos no corpo.
+    Agora lê o PDF antes de mandar, escreve 'Aprovado manualmente por' e
+    o corpo da IA nunca leva JSON."""
+
+    def _boleto(self):
+        return Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), status=Boleto.Status.MANUAL,
+            valor_esperado=Decimal('7175.70'),
+            arquivo=SimpleUploadedFile('b.pdf', b'%PDF-1.4 x'))
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+                       EMAIL_MODO_TESTE=False, GROQ_MODEL='openai/gpt-oss-120b')
+    def test_aprovar_manual_le_pdf_e_assina(self):
+        from django.core import mail
+        b = self._boleto()
+        self.login_admin()
+        bruto = ('{"valor":"7095.70","vencimento":"10/09/2026",'
+                 '"linha_digitavel":"26091689723879392612253300000006715650000709570",'
+                 '"confianca":95}')
+        with mock.patch('core.services.pdf.extrair_texto',
+                        return_value='texto do boleto'), \
+             mock.patch('core.services.ia.extrair_valor',
+                        return_value=(Decimal('7095.70'), bruto)), \
+             mock.patch('core.services.frases.corpo',
+                        return_value='Prezada equipe,\n\nSegue.\n\nCristiano'):
+            self.client.post(f'/painel/boleto/{b.pk}/aprovar/')
+        b.refresh_from_db()
+        self.assertEqual(b.valor_extraido, Decimal('7095.70'))
+        self.assertEqual(b.vencimento, date(2026, 9, 10))
+        self.assertEqual(b.aprovado_por, 'cristiano@camim.com.br')
+        corpo = [m for m in mail.outbox if m.subject.startswith('Pagamento')][0].body
+        self.assertIn('R$ 7.095,70', corpo)
+        self.assertIn('abaixo do combinado (R$ 7.175,70)', corpo)
+        self.assertIn('Aprovado manualmente por: cristiano@camim.com.br em',
+                      corpo)
+        self.assertIn('Vencimento: 10/09/2026', corpo)
+
+    def test_linha_aprovacao_automatica(self):
+        from core.services.verificacao import linha_aprovacao
+        b = self._boleto()
+        b.aprovado_por = 'sistema'
+        b.ia_confianca = 95
+        b.verificado_em = timezone.now()
+        with override_settings(GROQ_MODEL='openai/gpt-oss-120b'):
+            linha = linha_aprovacao(b)[0]
+        self.assertIn('agente autônomo (IA openai/gpt-oss-120b, confiança 95%)',
+                      linha)
+
+    def test_corpo_da_ia_sem_json(self):
+        from core.services.ia import limpar_corpo
+        sujo = ('Prezada equipe,\n\nSolicito a quitação.\n\nCristiano\n\n'
+                '{"prestador": "Meriti Telecom", "valor": "7.175,70"}')
+        limpo = limpar_corpo(sujo)
+        self.assertNotIn('{', limpo)
+        self.assertNotIn('"prestador"', limpo)
+        self.assertTrue(limpo.endswith('Cristiano'))

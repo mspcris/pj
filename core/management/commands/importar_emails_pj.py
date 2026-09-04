@@ -288,11 +288,13 @@ class Command(BaseCommand):
                 for x in [x for x in pdfs_boleto if not x[2]]:
                     pdfs_nf.append((x[0], x[1], ''))
                 pdfs_boleto = legiveis
-        pdfs_boleto = [(n, c) for n, c, _ in pdfs_boleto]
-
-        for nome, conteudo in pdfs_boleto:
+        # Vários postos: destina cada boleto JÁ AQUI pelo CNPJ do sacado
+        # no PDF (04/09/2026: sem isso os boletos ficavam sem posto e as
+        # NFs eram casadas na ordem dos anexos — 7 de 8 da JRA trocadas).
+        for nome, conteudo, texto in pdfs_boleto:
+            p = posto or svc_boletos.posto_do_boleto(prestador, texto)
             b = svc_boletos.registrar(
-                prestador, competencia, enviado_por=remetente, posto=posto,
+                prestador, competencia, enviado_por=remetente, posto=p,
                 arquivo=ContentFile(conteudo, name=nome), nome_original=nome)
             criados.append(b)
 

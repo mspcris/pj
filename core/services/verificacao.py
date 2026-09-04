@@ -161,6 +161,21 @@ def linha_vencimento(boleto):
     return []
 
 
+def linha_aprovacao(boleto):
+    """'Aprovado por' no e-mail ao financeiro (pedido de 04/09/2026):
+    manual → quem e quando; automático → agente autônomo + modelo."""
+    quando = (timezone.localtime(boleto.verificado_em)
+              .strftime('%d/%m/%Y %H:%M') if boleto.verificado_em else '')
+    if not boleto.aprovado_por:
+        return []
+    if boleto.aprovado_por == 'sistema':
+        conf = (f', confiança {boleto.ia_confianca}%'
+                if boleto.ia_confianca is not None else '')
+        return [f'Aprovado por: agente autônomo (IA {settings.GROQ_MODEL}'
+                f'{conf}) em {quando}']
+    return [f'Aprovado manualmente por: {boleto.aprovado_por} em {quando}']
+
+
 def valor_da_linha(linha):
     """Valor embutido no código de barras — conferência 100% determinística.
 
@@ -195,6 +210,7 @@ def dados_pagamento(boleto, fatos):
         partes.append(f'Linha digitável: {boleto.linha_digitavel}')
     if boleto.chave_pix:
         partes.append(f'Chave PIX: {boleto.chave_pix}')
+    partes.extend(linha_aprovacao(boleto))
     if boleto.extra:
         partes.append('Obs.: cobrança EXTRA/avulsa — não faz parte da '
                       'mensalidade do posto.')
@@ -303,12 +319,61 @@ def diferenca_do_combinado(boleto):
     return dif if abs(dif) > TOLERANCIA else None
 
 
+def ler_dados_do_pdf(boleto):
+    """Preenche valor, vencimento e linha digitável a partir do PDF quando
+    a verificação não chegou a ler (boleto que caiu em MANUAL antes da IA
+    e foi aprovado no olho). Sem isso o e-mail ao financeiro saía com o
+    valor COMBINADO no lugar do valor do BOLETO (Meriti, 04/09/2026:
+    R$ 7.175,70 no e-mail, R$ 7.095,70 no boleto). Nunca levanta."""
+    if boleto.valor_extraido is not None or not boleto.arquivo:
+        return False
+    try:
+        texto = pdf.extrair_texto(boleto.arquivo.path)
+        if not texto.strip():
+            return False
+        valor_pdf, bruto = ia.extrair_valor(texto)
+        boleto.ia_resposta = bruto[:4000]
+        if valor_pdf is None:
+            boleto.save(update_fields=['ia_resposta'])
+            return False
+        try:
+            dados = json.loads(bruto)
+        except Exception:
+            dados = {}
+        boleto.valor_extraido = valor_pdf
+        if not boleto.linha_digitavel:
+            ld = re.sub(r'\D', '', str(dados.get('linha_digitavel') or ''))
+            if 40 <= len(ld) <= 48:
+                boleto.linha_digitavel = ld
+        if boleto.vencimento is None:
+            try:
+                boleto.vencimento = datetime.strptime(
+                    str(dados.get('vencimento') or ''), '%d/%m/%Y').date()
+            except ValueError:
+                pass
+        try:
+            boleto.ia_confianca = max(0, min(100, int(dados.get('confianca'))))
+        except (TypeError, ValueError):
+            pass
+        boleto.save(update_fields=['valor_extraido', 'linha_digitavel',
+                                   'vencimento', 'ia_resposta',
+                                   'ia_confianca'])
+        return True
+    except Exception as e:
+        log.warning('ler_dados_do_pdf falhou no boleto #%s: %s', boleto.pk, e)
+        return False
+
+
 def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
     """ÚNICO caminho do e-mail "Pagamento — …" para a equipe@ (+ aviso ao
     PJ). TRAVA contra pagar duas vezes: se este boleto JÁ foi ao financeiro
     com o mesmo valor, não vai de novo (só com reenviar=True — o botão
     "Reenviar e-mails"). Valor diferente do já enviado → vai como CORREÇÃO,
     com aviso ao admin. Retorna a frase do que aconteceu."""
+    # Aprovação manual de boleto que a IA não chegou a ler: o e-mail tem de
+    # trazer o valor DO BOLETO (e o combinado na observação), não o contrário.
+    if ler_dados_do_pdf(boleto):
+        fatos = None
     fatos = fatos or _fatos(boleto)
     valor = boleto.valor_extraido or boleto.valor_esperado
     fatos['valor'] = _moeda(valor)
@@ -555,7 +620,8 @@ def processar(boleto_pk):
     if (boleto.nota_fiscal
             and boleto.nota_fiscal.name.lower().endswith('.pdf')):
         ok_nf, motivo_nf = svc_boletos.validar_nf(
-            pdf.extrair_texto(boleto.nota_fiscal.path), boleto.prestador)
+            pdf.extrair_texto(boleto.nota_fiscal.path), boleto.prestador,
+            posto=boleto.posto)
         if not ok_nf:
             _para_manual(boleto, motivo_nf)
             return
@@ -773,6 +839,7 @@ def processar(boleto_pk):
         return
 
     if aprovaria:
+        boleto.aprovado_por = 'sistema'
         _marcar(boleto, Boleto.Status.APROVADO)
         enviar_para_pagamento(boleto, fatos)
     else:
