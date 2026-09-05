@@ -11,7 +11,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import Boleto, Prestador
+from core.models import AjusteDiferenca, Boleto, Prestador
+from core.services import boletos as svc_boletos
 from core.services import emails
 from core.services.verificacao import competencia_extenso, _moeda
 
@@ -27,10 +28,17 @@ class Command(BaseCommand):
                                  Boleto.Status.DESCARTADO])
             .select_related('prestador', 'posto', 'prestador__posto_cobranca'))
 
+        # mesma leitura do painel: diferenças já resolvidas ali ("não pagar"/
+        # em dinheiro) não são mais pendência e somem desta lista.
+        ajustes = {(a.prestador_id, a.posto_id): a
+                   for a in AjusteDiferenca.objects.filter(competencia=mes)}
         faltando, atencao, aguardando = [], [], []
         for prestador in (Prestador.objects.filter(ativo=True)
                           .prefetch_related('vinculos__posto')):
-            for posto, valor in prestador.boletos_esperados():
+            for posto, _valor in prestador.boletos_esperados():
+                # valor do MÊS já com as parcelas de vale abatidas — igual ao
+                # painel; sem isso o e-mail cobra o cheio de quem tem vale.
+                valor = svc_boletos.valor_esperado_para(prestador, posto, mes)
                 achado = next(
                     (b for b in boletos
                      if b.status != Boleto.Status.DUPLICADO and
@@ -40,9 +48,12 @@ class Command(BaseCommand):
                       if prestador.modo_boleto == Prestador.ModoBoleto.UNICO
                       else (posto and b.posto_id == posto.pk))), None)
                 alvo = posto.nome if posto else 'boleto único'
+                ajuste = ajustes.get(
+                    (prestador.pk, posto.pk if posto else None))
                 if achado is None:
-                    faltando.append(f'  • {prestador.nome} — {alvo} '
-                                    f'(R$ {_moeda(valor)})')
+                    if ajuste is None:
+                        faltando.append(f'  • {prestador.nome} — {alvo} '
+                                        f'(R$ {_moeda(valor)})')
                 elif achado.status in (Boleto.Status.DIVERGENTE,
                                        Boleto.Status.MANUAL):
                     atencao.append(f'  • {prestador.nome} — {alvo}: '
