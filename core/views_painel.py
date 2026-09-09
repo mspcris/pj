@@ -4,10 +4,12 @@ O coração é o dashboard mensal: a RÉGUA (quem deveria mandar boleto e de
 quanto) × o que chegou — para NUNCA esquecer um pagamento.
 """
 import re
+from calendar import monthrange
 from datetime import date
 from decimal import Decimal
 from functools import wraps
 
+from django.conf import settings
 from django.contrib import messages
 from django.db import transaction
 from django.db.models import Q
@@ -18,8 +20,8 @@ from django.views.decorators.http import require_POST
 from .forms import (BoletoAdminForm, ContratoAdminForm, PostoForm,
                     PrestadorForm, UsuarioForm, ValeForm, ValorBRField)
 from .models import (AjusteDiferenca, AuditLog, Boleto, Configuracao,
-                     Contrato, EmailLog, Posto, Prestador, PrestadorPosto,
-                     UsuarioPermitido, Vale)
+                     Contrato, EmailLog, EmailRecebido, Posto, Prestador,
+                     PrestadorPosto, UsuarioPermitido, Vale)
 from django.contrib.auth.decorators import login_required
 
 from .views import _usuario_real, com_usuario
@@ -1024,6 +1026,41 @@ def emails_log(request, up):
         'postos': Posto.objects.filter(ativo=True, excluido_em__isnull=True)
                                .order_by('nome'),
         'tipos': TIPOS_EMAIL, 'up': up})
+
+
+def _periodo_param(request):
+    """Período ?de=YYYY-MM-DD&ate=YYYY-MM-DD; padrão: do dia 1 ao último
+    dia do mês vigente."""
+    hoje = timezone.localdate()
+    de = hoje.replace(day=1)
+    ate = hoje.replace(day=monthrange(hoje.year, hoje.month)[1])
+    try:
+        de = date.fromisoformat(request.GET.get('de', ''))
+    except ValueError:
+        pass
+    try:
+        ate = date.fromisoformat(request.GET.get('ate', ''))
+    except ValueError:
+        pass
+    if ate < de:
+        de, ate = ate, de
+    return de, ate
+
+
+@admin_required
+def emails_nao_reconhecidos(request, up):
+    """E-mails que chegaram nas caixas de boleto (prestadores@/pj@) de
+    remetente que não está na whitelist de nenhum prestador. Só lista, por
+    data — nada a fazer aqui. Quando o e-mail é cadastrado num prestador, o
+    robô reprocessa sozinho e a linha some da lista."""
+    de, ate = _periodo_param(request)
+    lista = (EmailRecebido.objects
+             .filter(resultado=EmailRecebido.Resultado.SEM_PRESTADOR,
+                     criado_em__date__gte=de, criado_em__date__lte=ate)
+             .order_by('-criado_em'))
+    return render(request, 'painel/emails_nao_reconhecidos.html', {
+        'lista': lista, 'de': de, 'ate': ate,
+        'caixas': settings.EMAIL_INTAKE_ALIASES, 'up': up})
 
 
 @admin_required

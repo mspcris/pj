@@ -1,5 +1,5 @@
 """Testes dos fluxos críticos: whitelist, upload, verificação e permissões."""
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest import mock
 
@@ -2139,3 +2139,49 @@ class AprovacaoManualTest(BaseSetup):
         self.assertNotIn('{', limpo)
         self.assertNotIn('"prestador"', limpo)
         self.assertTrue(limpo.endswith('Cristiano'))
+
+
+class EmailsNaoReconhecidosTest(BaseSetup):
+    """Aba só de leitura: e-mails SEM_PRESTADOR do período (padrão: mês
+    vigente inteiro)."""
+
+    def _registro(self, remetente, quando, resultado='SEM_PREST'):
+        from .models import EmailRecebido
+        e = EmailRecebido.objects.create(
+            message_id=f'<{remetente}-{quando:%Y%m%d}>', remetente=remetente,
+            assunto='Dedetização Camim Bangu', resultado=resultado)
+        EmailRecebido.objects.filter(pk=e.pk).update(
+            criado_em=timezone.make_aware(
+                datetime.combine(quando, datetime.min.time())
+                .replace(hour=10)))
+        return e
+
+    def test_lista_so_do_mes_vigente_e_so_sem_prestador(self):
+        hoje = timezone.localdate()
+        self._registro('jose.renato@clinicacamim.com.br', hoje)
+        self._registro('antigo@x.com', hoje.replace(day=1)
+                       - timedelta(days=1))
+        self._registro('pj@empresa.com.br', hoje, resultado='BOLETO')
+        self.login_admin()
+        r = self.client.get('/painel/emails/nao-reconhecidos/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'jose.renato@clinicacamim.com.br')
+        self.assertNotContains(r, 'antigo@x.com')
+        self.assertNotContains(r, 'pj@empresa.com.br')
+        self.assertEqual(r.context['de'], hoje.replace(day=1))
+        self.assertEqual(r.context['ate'].month, hoje.month)
+        self.assertEqual((r.context['ate'] + timedelta(days=1)).day, 1)
+
+    def test_periodo_informado(self):
+        hoje = timezone.localdate()
+        antes = hoje.replace(day=1) - timedelta(days=1)
+        self._registro('antigo@x.com', antes)
+        self.login_admin()
+        r = self.client.get('/painel/emails/nao-reconhecidos/',
+                            {'de': antes.isoformat(), 'ate': antes.isoformat()})
+        self.assertContains(r, 'antigo@x.com')
+
+    def test_pj_nao_acessa(self):
+        self.login_pj()
+        r = self.client.get('/painel/emails/nao-reconhecidos/')
+        self.assertEqual(r.status_code, 302)

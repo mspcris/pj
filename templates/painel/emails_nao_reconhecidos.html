@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Não reconhecidos · Painel{% endblock %}
+{% block conteudo %}
+<h1>E-mails não reconhecidos</h1>
+<p class="sub">Chegaram em {{ caixas|join:" / " }} de um endereço que não está
+  cadastrado em nenhum prestador — o robô não cadastrou nada. Só para
+  conferência: se algum for legítimo, cadastre o e-mail no prestador (aba
+  <a href="{% url 'painel_prestadores' %}">Prestadores</a>) e o robô pega na
+  próxima passada; a linha sai daqui sozinha.</p>
+<form method="get" class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
+  <label class="sub" style="font-size:.78rem;margin:0">De
+    <input type="date" name="de" value="{{ de|date:'Y-m-d' }}"></label>
+  <label class="sub" style="font-size:.78rem;margin:0">Até
+    <input type="date" name="ate" value="{{ ate|date:'Y-m-d' }}"></label>
+  <button class="btn mini" type="submit">🔍 Ver</button>
+  <a class="btn mini claro" href="{% url 'painel_emails_nao_reconhecidos' %}">mês atual</a>
+  <span class="sub" style="font-size:.85rem;margin:0 0 0 auto">{{ lista|length }} e-mail(s)</span>
+</form>
+<div class="card"><div class="rolagem"><table>
+  <tr><th>Quando</th><th>De</th><th>Assunto</th></tr>
+  {% for e in lista %}
+  <tr>
+    <td style="white-space:nowrap">{{ e.criado_em|date:"d/m/Y H:i" }}</td>
+    <td>{{ e.remetente }}</td>
+    <td>{{ e.assunto|default:"(sem assunto)"|truncatechars:90 }}</td>
+  </tr>
+  {% empty %}<tr><td colspan="3">Nenhum e-mail não reconhecido de
+    {{ de|date:"d/m/Y" }} a {{ ate|date:"d/m/Y" }}.</td></tr>
+  {% endfor %}
+</table></div></div>
+{% endblock %}

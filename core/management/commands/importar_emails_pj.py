@@ -260,8 +260,10 @@ class Command(BaseCommand):
                 f'Chegou e-mail em {settings.EMAIL_INTAKE_ALIASES[0]} de '
                 f'{remetente} (assunto: "{assunto}"), mas esse endereço não '
                 'está na whitelist de nenhum prestador. Nada foi cadastrado.\n'
-                'Se for legítimo, cadastre o e-mail no painel e o robô pega '
-                'na próxima passada.\n\nhttps://pj.camim.com.br/painel/')
+                'Se for legítimo, cadastre o e-mail no prestador (aba '
+                'Prestadores) e o robô pega na próxima passada.\n\n'
+                'Todos os e-mails não reconhecidos do mês:\n'
+                'https://pj.camim.com.br/painel/emails/nao-reconhecidos/')
             self.stdout.write(f'  SEM_PRESTADOR: {remetente}')
             return
 
