@@ -7,4 +7,4 @@ gunicorn>=21.0
 pdfplumber>=0.11
 cryptography>=42.0
 psycopg2-binary>=2.9
-
+sentry-sdk>=2.69,<3

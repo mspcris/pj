@@ -188,3 +188,34 @@ LOGGING = {
     'handlers': {'console': {'class': 'logging.StreamHandler'}},
     'root': {'handlers': ['console'], 'level': 'INFO'},
 }
+
+
+# ============================================================
+# SENTRY — monitoramento de erros
+# ------------------------------------------------------------
+# Só inicializa se SENTRY_DSN estiver no .env. Vazio => o SDK nem é importado e
+# nada sai da máquina (dev e testes rodam sem configurar nada).
+#
+# SENTRY_SEND_PII fica false por padrão: o Sentry guarda os eventos nos EUA. Só
+# ligue sabendo o que vai junto (IP, cabeçalhos, usuário e corpo da requisição).
+# ============================================================
+SENTRY_DSN = os.getenv('SENTRY_DSN', '').strip()
+
+if SENTRY_DSN:
+    import logging
+
+    import sentry_sdk
+    from sentry_sdk.integrations.logging import LoggingIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        environment=os.getenv('SENTRY_ENVIRONMENT', 'dev' if DEBUG else 'prod'),
+        # hash do commit publicado: o Sentry passa a dizer qual deploy trouxe o erro
+        release=os.getenv('SENTRY_RELEASE', '').strip() or None,
+        send_default_pii=os.getenv('SENTRY_SEND_PII', 'false').lower() == 'true',
+        traces_sample_rate=float(os.getenv('SENTRY_TRACES_SAMPLE_RATE', '0.05')),
+        # logger.warning()/error() viram log no Sentry; INFO fica de fora de
+        # propósito (no NossoTrello o INFO somou ~1 GB de log por mês).
+        enable_logs=os.getenv('SENTRY_ENABLE_LOGS', 'true').lower() == 'true',
+        integrations=[LoggingIntegration(sentry_logs_level=logging.WARNING)],
+    )
