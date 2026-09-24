@@ -1191,7 +1191,8 @@ class ListaPrestadoresTest(BaseSetup):
         self.assertContains(resp, 'R$ 1.500,00')   # valor de Anchieta
         self.assertContains(resp, 'Total mensal: R$ 3.500,00')
         self.assertContains(resp, f'?anexar={self.posto2.pk}#contratos')
-        self.assertContains(resp, '1 sem contrato vigente')
+        self.assertContains(resp, 'Contrato fora da vigência: Bangu')
+        self.assertContains(resp, '<tr class="sem-contrato"')  # linha vermelha
         # o link abre a página com "Anexar contrato" aberto e o posto escolhido
         resp = self.client.get(f'/painel/prestadores/{self.prestador.pk}/'
                                f'?anexar={self.posto2.pk}')
@@ -1201,7 +1202,24 @@ class ListaPrestadoresTest(BaseSetup):
         Contrato.objects.create(prestador=self.prestador, posto=None,
                                 arquivo=_pdf('g.pdf'), nome_original='g')
         resp = self.client.get('/painel/prestadores/')
-        self.assertNotContains(resp, 'sem contrato vigente')
+        self.assertNotContains(resp, 'Contrato fora da vigência')
+        self.assertNotContains(resp, '<tr class="sem-contrato"')
+
+    def test_prestador_sem_nenhum_contrato_fica_vermelho(self):
+        self.login_admin()
+        resp = self.client.get('/painel/prestadores/')
+        self.assertContains(resp, '<tr class="sem-contrato"')
+        self.assertContains(resp, 'Sem contrato: Anchieta, Bangu')
+        self.assertNotContains(resp, 'Contrato fora da vigência')
+
+    def test_boleto_unico_sem_posto_e_sem_contrato_fica_vermelho(self):
+        self.prestador.modo_boleto = Prestador.ModoBoleto.UNICO
+        self.prestador.posto_cobranca = None
+        self.prestador.save()
+        self.login_admin()
+        resp = self.client.get('/painel/prestadores/')
+        self.assertContains(resp, '<tr class="sem-contrato"')
+        self.assertContains(resp, 'Sem contrato')
 
 
 class ValeTest(BaseSetup):

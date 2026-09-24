@@ -605,9 +605,13 @@ def prestadores(request, up):
     for p in lista:
         # Contrato vigente por posto (contrato "geral", sem posto, cobre
         # todos). Posto sem contrato vigente = vermelho + link p/ anexar.
-        vigentes = [c for c in p.contratos.all() if c.vigente]
+        todos = list(p.contratos.all())
+        vigentes = [c for c in todos if c.vigente]
         geral = any(c.posto_id is None for c in vigentes)
         cobertos = {c.posto_id for c in vigentes}
+        # Já teve contrato (do posto ou geral) = vencido; senão, nunca teve.
+        geral_antigo = any(c.posto_id is None for c in todos)
+        antigos = {c.posto_id for c in todos}
         if p.modo_boleto == Prestador.ModoBoleto.UNICO:
             postos = ([(p.posto_cobranca, p.valor_esperado_unico())]
                       if p.posto_cobranca else [])
@@ -617,7 +621,14 @@ def prestadores(request, up):
         p.postos_info = [{'posto': x, 'valor': valor,
                           'ok': geral or x.pk in cobertos}
                          for x, valor in postos]
-        p.sem_contrato = sum(1 for i in p.postos_info if not i['ok'])
+        faltam = [i for i in p.postos_info if not i['ok']]
+        p.vencidos = [i['posto'].nome for i in faltam
+                      if geral_antigo or i['posto'].pk in antigos]
+        p.nunca = [i['posto'].nome for i in faltam
+                   if i['posto'].nome not in p.vencidos]
+        # Linha em vermelho suave: algum posto descoberto, ou nenhum
+        # contrato vigente (boleto único sem posto de cobrança).
+        p.sem_contrato = bool(faltam) or not vigentes
         p.total_mensal = sum((v for _, v in postos if v is not None),
                              Decimal('0'))
     return render(request, 'painel/prestadores.html',
