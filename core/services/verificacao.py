@@ -171,7 +171,7 @@ def linha_aprovacao(boleto):
     if boleto.aprovado_por == 'sistema':
         conf = (f', confiança {boleto.ia_confianca}%'
                 if boleto.ia_confianca is not None else '')
-        return [f'Aprovado por: agente autônomo (IA {settings.GROQ_MODEL}'
+        return [f'Aprovado por: agente autônomo (IA {settings.IA_MODEL}'
                 f'{conf}) em {quando}']
     return [f'Aprovado manualmente por: {boleto.aprovado_por} em {quando}']
 

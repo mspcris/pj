@@ -1,5 +1,5 @@
 """Rede de segurança da verificação: reprocessa boletos RECEBIDOS que a
-thread do upload não conseguiu concluir (deploy no meio, Groq fora, etc.).
+thread do upload não conseguiu concluir (deploy no meio, IA fora, etc.).
 
 Cron sugerido (a cada 10 min):
     */10 * * * * cd /opt/pj && .venv/bin/python manage.py processar_boletos

@@ -168,10 +168,10 @@ EMAIL_COPIA_OCULTA = [
 EMAIL_MODO_TESTE = os.getenv('EMAIL_MODO_TESTE', 'false').lower() == 'true'
 
 # -----------------------------------------------------------------------------
-# IA — Groq (mesma chave "kpis" do relatorio_h_t de produção)
+# IA — SOMENTE OpenRouter (desde 29/09/2026; antes era a Groq direto)
 # -----------------------------------------------------------------------------
-GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
-GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
+OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+IA_MODEL = os.getenv('IA_MODEL', 'openai/gpt-oss-120b')
 
 # Upload
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024

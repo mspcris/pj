@@ -2,6 +2,7 @@ Django>=5.0
 mozilla-django-oidc>=4.0
 python-dotenv>=1.0
 requests>=2.31
+openai>=1.40
 whitenoise>=6.0
 gunicorn>=21.0
 pdfplumber>=0.11

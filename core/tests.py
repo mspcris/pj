@@ -1980,52 +1980,67 @@ class PainelAcaoTest(BaseSetup):
         self.assertIsNotNone(b.pago_em)
 
 
-class GroqRetryTest(TestCase):
-    """Groq devolve 400 json_validate_failed de forma aleatória em modo
-    JSON (04/09/2026: 3 de 8 boletos da JRA). O cliente retenta em vez
-    de travar o boleto."""
+class IaRetryTest(TestCase):
+    """Modo JSON às vezes falha de forma aleatória (Groq: 400
+    json_validate_failed, 04/09/2026, 3 de 8 boletos da JRA). O cliente
+    OpenRouter retenta em vez de travar o boleto."""
 
-    def _resp(self, status, texto):
-        import requests
+    def _ok(self, texto):
         r = mock.Mock()
-        r.status_code = status
-        r.text = texto
-        r.json.return_value = {'choices': [{'message': {'content': texto}}]}
-        if status >= 400:
-            r.raise_for_status.side_effect = requests.HTTPError(texto)
-        else:
-            r.raise_for_status.return_value = None
+        r.choices = [mock.Mock(message=mock.Mock(content=texto))]
         return r
 
-    @override_settings(GROQ_API_KEY='x', GROQ_MODEL='m')
+    def _erro400(self, texto):
+        import httpx
+        import openai
+        req = httpx.Request('POST', 'https://openrouter.ai/api/v1/x')
+        return openai.BadRequestError(
+            texto, response=httpx.Response(400, request=req), body=None)
+
+    def _cliente(self, efeitos):
+        cli = mock.Mock()
+        cli.chat.completions.create.side_effect = efeitos
+        return cli
+
+    @override_settings(OPENROUTER_API_KEY='x', IA_MODEL='m')
     def test_retenta_json_validate_failed(self):
         from .services import ia
-        erro = '{"error":{"code":"json_validate_failed"}}'
         ok = '{"valor":"887.86","confianca":95}'
-        with mock.patch.object(ia.requests, 'post',
-                               side_effect=[self._resp(400, erro),
-                                            self._resp(200, ok)]) as post:
+        cli = self._cliente([self._erro400('json_validate_failed'),
+                             self._ok(ok)])
+        with mock.patch.object(ia, '_get_cliente', return_value=cli):
             valor, bruto = ia.extrair_valor('texto do boleto')
         self.assertEqual(valor, Decimal('887.86'))
-        self.assertEqual(post.call_count, 2)
+        self.assertEqual(cli.chat.completions.create.call_count, 2)
+        kw = cli.chat.completions.create.call_args.kwargs
+        self.assertEqual(kw['extra_body']['provider']['sort'], 'price')
+        self.assertEqual(kw['response_format'], {'type': 'json_object'})
 
-    @override_settings(GROQ_API_KEY='x', GROQ_MODEL='m')
+    @override_settings(OPENROUTER_API_KEY='x', IA_MODEL='m')
+    def test_retenta_conteudo_nao_json(self):
+        from .services import ia
+        cli = self._cliente([self._ok('isso nao e json'),
+                             self._ok('{"valor":"10.00"}')])
+        with mock.patch.object(ia, '_get_cliente', return_value=cli):
+            valor, _ = ia.extrair_valor('texto')
+        self.assertEqual(valor, Decimal('10.00'))
+
+    @override_settings(OPENROUTER_API_KEY='x', IA_MODEL='m')
     def test_desiste_apos_tres(self):
         from .services import ia
-        erro = '{"error":{"code":"json_validate_failed"}}'
-        with mock.patch.object(ia.requests, 'post',
-                               side_effect=[self._resp(400, erro)] * 3):
+        cli = self._cliente([self._erro400('json_validate_failed')] * 3)
+        with mock.patch.object(ia, '_get_cliente', return_value=cli):
             with self.assertRaises(Exception):
                 ia.extrair_valor('texto')
 
-    @override_settings(GROQ_API_KEY='x', GROQ_MODEL='m')
+    @override_settings(OPENROUTER_API_KEY='x', IA_MODEL='m')
     def test_outro_400_nao_retenta(self):
         from .services import ia
-        with mock.patch.object(ia.requests, 'post',
-                               side_effect=[self._resp(400, 'bad')]) as post:
+        cli = self._cliente([self._erro400('bad')])
+        with mock.patch.object(ia, '_get_cliente', return_value=cli):
             with self.assertRaises(Exception):
                 ia.extrair_valor('texto')
-        self.assertEqual(post.call_count, 1)
+        self.assertEqual(cli.chat.completions.create.call_count, 1)
 
 
 class CopiaOcultaTest(TestCase):
@@ -2112,7 +2127,7 @@ class AprovacaoManualTest(BaseSetup):
             arquivo=SimpleUploadedFile('b.pdf', b'%PDF-1.4 x'))
 
     @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
-                       EMAIL_MODO_TESTE=False, GROQ_MODEL='openai/gpt-oss-120b')
+                       EMAIL_MODO_TESTE=False, IA_MODEL='openai/gpt-oss-120b')
     def test_aprovar_manual_le_pdf_e_assina(self):
         from django.core import mail
         b = self._boleto()
@@ -2144,7 +2159,7 @@ class AprovacaoManualTest(BaseSetup):
         b.aprovado_por = 'sistema'
         b.ia_confianca = 95
         b.verificado_em = timezone.now()
-        with override_settings(GROQ_MODEL='openai/gpt-oss-120b'):
+        with override_settings(IA_MODEL='openai/gpt-oss-120b'):
             linha = linha_aprovacao(b)[0]
         self.assertIn('agente autônomo (IA openai/gpt-oss-120b, confiança 95%)',
                       linha)

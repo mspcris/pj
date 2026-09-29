@@ -21,7 +21,7 @@ do Cristiano — para nunca esquecer um boleto.
 
 **Fluxo de verificação (a IA extrai; quem decide é código):**
 1. E-mail de "recebemos, verificando" (remetente `pj@camim.com.br`).
-2. IA (Groq `openai/gpt-oss-120b`) extrai valor, vencimento e linha
+2. IA (`openai/gpt-oss-120b` via OpenRouter, provedor mais barato) extrai valor, vencimento e linha
    digitável do PDF. Sem PDF, o valor vem do próprio código de barras
    (determinístico: centavos embutidos na linha digitável).
 3. **O código tem de bater com o valor**: linha digitável × PDF divergentes
@@ -105,7 +105,7 @@ cd pj
 .venv/bin/python manage.py migrate
 .venv/bin/python manage.py runserver
 .venv/bin/python manage.py test                # 18 testes
-.venv/bin/python manage.py testar_integracoes  # Groq + SMTP de verdade
+.venv/bin/python manage.py testar_integracoes  # IA (OpenRouter) + SMTP de verdade
 ```
 
 ## Deploy (VPS)

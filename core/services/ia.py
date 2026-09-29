@@ -1,4 +1,6 @@
-"""Cliente Groq (openai/gpt-oss-120b) — mesma chave "kpis" do relatorio_h_t.
+"""Cliente de IA — SOMENTE OpenRouter (openai/gpt-oss-120b, provedor mais
+barato). Até 29/09/2026 era a Groq direto; o dono mandou tirar as chaves
+antigas e passar tudo pela OpenRouter.
 
 Duas funções, dois papéis bem separados (segurança contra prompt injection):
   * extrair_valor(texto_pdf): o texto do boleto entra AQUI e só aqui. A saída
@@ -12,41 +14,63 @@ import logging
 import re
 from decimal import Decimal, InvalidOperation
 
-import requests
+import openai
 from django.conf import settings
 
 log = logging.getLogger(__name__)
 
-URL = 'https://api.groq.com/openai/v1/chat/completions'
+BASE_URL = 'https://openrouter.ai/api/v1'
+HEADERS = {'HTTP-Referer': 'https://camim.com.br', 'X-Title': 'pj'}
+
+_cliente = None
+
+
+def _get_cliente():
+    """Cliente único da OpenRouter (SDK openai com base_url trocada)."""
+    global _cliente
+    if not settings.OPENROUTER_API_KEY:
+        raise RuntimeError('OPENROUTER_API_KEY ausente no .env')
+    if _cliente is None:
+        _cliente = openai.OpenAI(
+            base_url=BASE_URL, api_key=settings.OPENROUTER_API_KEY,
+            default_headers=HEADERS, timeout=60, max_retries=2)
+    return _cliente
 
 
 def _chamar(mensagens, temperature=0.2, json_mode=False, max_tokens=1200):
-    if not settings.GROQ_API_KEY:
-        raise RuntimeError('GROQ_API_KEY ausente no .env')
-    payload = {
-        'model': settings.GROQ_MODEL,
-        'messages': mensagens,
-        'temperature': temperature,
-        'max_tokens': max_tokens,
-    }
+    provider = {'sort': 'price'}  # decisão do dono: sempre o mais barato
+    kwargs = {}
     if json_mode:
-        payload['response_format'] = {'type': 'json_object'}
-    # O Groq devolve 400 "json_validate_failed" de forma ALEATÓRIA em modo
-    # JSON (o modelo gera JSON inválido de vez em quando; o mesmo boleto
-    # passa na chamada seguinte — 04/09/2026, 3 de 8 boletos da JRA). Não é
-    # culpa do prompt: retenta antes de travar o boleto.
+        kwargs['response_format'] = {'type': 'json_object'}
+        # Mais barato, mas só entre os provedores que aceitam JSON mode —
+        # senão o roteamento pode cair num que ignora response_format.
+        provider['require_parameters'] = True
+    # Modo JSON às vezes volta inválido (na Groq era 400
+    # "json_validate_failed" ALEATÓRIO — 04/09/2026, 3 de 8 boletos da JRA;
+    # o mesmo boleto passava na chamada seguinte). Retenta antes de travar
+    # o boleto — tanto o 400 quanto conteúdo que não é JSON.
     for tentativa in range(3):
-        resp = requests.post(
-            URL, timeout=60,
-            headers={'Authorization': f'Bearer {settings.GROQ_API_KEY}'},
-            json=payload)
-        if resp.status_code == 400 and tentativa < 2 and \
-                'json_validate_failed' in resp.text:
-            log.warning('Groq json_validate_failed (tentativa %s); '
-                        'retentando', tentativa + 1)
-            continue
-        resp.raise_for_status()
-        return resp.json()['choices'][0]['message']['content']
+        ultima = tentativa == 2
+        try:
+            resp = _get_cliente().chat.completions.create(
+                model=settings.IA_MODEL, messages=mensagens,
+                temperature=temperature, max_tokens=max_tokens,
+                extra_body={'provider': provider}, **kwargs)
+        except openai.BadRequestError as e:
+            if not ultima and 'json_validate_failed' in str(e):
+                log.warning('IA json_validate_failed (tentativa %s); '
+                            'retentando', tentativa + 1)
+                continue
+            raise
+        conteudo = resp.choices[0].message.content or ''
+        if json_mode and not ultima:
+            try:
+                json.loads(conteudo)
+            except json.JSONDecodeError:
+                log.warning('IA devolveu JSON inválido (tentativa %s); '
+                            'retentando', tentativa + 1)
+                continue
+        return conteudo
 
 
 def extrair_valor(texto_pdf):
