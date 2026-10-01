@@ -254,6 +254,37 @@ def dashboard(request, up):
         if b.status in (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO))
     resumo['pagos'] += sum(1 for b in (extras + parciais_mes)
                            if b.status == Boleto.Status.PAGO)
+
+    # Os 4 quadros viram FILTROS da régua. Por padrão o painel abre na
+    # situação "enviados p/ pagamento" — o que o Cristiano acompanha no dia a
+    # dia; os "sem boleto" (dezenas) só aparecem quando ele toca no quadro.
+    # Os CONTADORES dos quadros continuam somando o mês inteiro (não mudam);
+    # só a lista de baixo é que filtra. 'todos' é o escape p/ ver tudo.
+    def _categoria(l):
+        b = l['boleto']
+        if b is not None:
+            if b.status in (Boleto.Status.DIVERGENTE, Boleto.Status.MANUAL):
+                return 'atencao'
+            if b.status in (Boleto.Status.APROVADO,
+                            Boleto.Status.FIN_RECEBIDO):
+                return 'pagamento'
+            if b.status == Boleto.Status.PAGO:
+                return 'pagos'
+            return 'verificacao'          # RECEBIDO — robô ainda conferindo
+        if l['parciais']:
+            return 'parciais'
+        if l.get('ajuste'):
+            return 'quitado'
+        return 'sem_boleto'
+
+    for l in linhas:
+        l['categoria'] = _categoria(l)
+    vista = request.GET.get('vista', 'pagamento')
+    if vista not in ('sem_boleto', 'atencao', 'pagamento', 'pagos', 'todos'):
+        vista = 'pagamento'
+    linhas_vista = (linhas if vista == 'todos'
+                    else [l for l in linhas if l['categoria'] == vista])
+
     qs_filtro = ''.join(
         f'&{k}={v.pk}' for k, v in filtro.items() if v is not None)
     return render(request, 'painel/dashboard.html', {
@@ -264,7 +295,8 @@ def dashboard(request, up):
         'postos': Posto.objects.filter(ativo=True, excluido_em__isnull=True)
                                .order_by('nome'),
         'mes': mes, 'mes_extenso': competencia_extenso(mes).capitalize(),
-        'ant': ant, 'prox': prox, 'linhas': linhas, 'extras': extras,
+        'ant': ant, 'prox': prox, 'linhas': linhas_vista, 'vista': vista,
+        'extras': extras,
         'parciais_mes': parciais_mes,
         'pendentes_baixo': len(parciais_mes) + len(fora_da_regua)
                            + len(extras),

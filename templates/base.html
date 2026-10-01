@@ -90,6 +90,11 @@ tr:last-child td{border-bottom:0}
 .kpi.ruim .num{color:var(--erro)}
 .kpi.medio .num{color:var(--alerta)}
 .kpi.bom .num{color:var(--verde)}
+a.kpi{text-decoration:none;color:inherit;cursor:pointer;
+  transition:border-color .1s,box-shadow .1s}
+a.kpi:hover{border-color:var(--verde)}
+.kpi.ativa{border:2px solid var(--verde);
+  box-shadow:0 0 0 3px rgba(11,122,94,.14)}
 .mesnav{display:flex;align-items:center;gap:12px;margin-bottom:18px}
 .mesnav .mes{font-size:1.2rem;font-weight:800;min-width:180px;text-align:center}
 .mesnav a{background:var(--branco);border:1.5px solid var(--linha);

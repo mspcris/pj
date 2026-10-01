@@ -17,13 +17,14 @@
     ➕ Cadastrar boleto (chegou pelo zap)</a>
 </div>
 <div class="mesnav">
-  <a href="?m={{ ant|date:'Y-m' }}{{ qs_filtro }}">←</a>
+  <a href="?m={{ ant|date:'Y-m' }}&vista={{ vista }}{{ qs_filtro }}">←</a>
   <div class="mes">{{ mes_extenso }}</div>
-  <a href="?m={{ prox|date:'Y-m' }}{{ qs_filtro }}">→</a>
+  <a href="?m={{ prox|date:'Y-m' }}&vista={{ vista }}{{ qs_filtro }}">→</a>
 </div>
 
 <form method="get" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0 14px">
   <input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
+  <input type="hidden" name="vista" value="{{ vista }}">
   <select name="prestador" onchange="this.form.submit()">
     <option value="">👤 todos os prestadores</option>
     {% for p in prestadores %}<option value="{{ p.pk }}" {% if filtro.prestador and filtro.prestador.pk == p.pk %}selected{% endif %}>{{ p.nome }}</option>{% endfor %}
@@ -33,7 +34,7 @@
     {% for p in postos %}<option value="{{ p.pk }}" {% if filtro.posto and filtro.posto.pk == p.pk %}selected{% endif %}>{{ p.nome }}</option>{% endfor %}
   </select>
   {% if filtro.prestador or filtro.posto %}
-  <a class="btn mini claro" href="?m={{ mes|date:'Y-m' }}">✕ limpar filtro</a>
+  <a class="btn mini claro" href="?m={{ mes|date:'Y-m' }}&vista={{ vista }}">✕ limpar filtro</a>
   {% endif %}
 </form>
 
@@ -68,14 +69,24 @@
 </a>
 {% endif %}
 <div class="grade">
-  <div class="kpi {% if resumo.faltando %}ruim{% else %}bom{% endif %}">
-    <div class="num">{{ resumo.faltando }}</div><div class="rot">sem boleto</div></div>
-  <div class="kpi {% if resumo.atencao %}medio{% else %}bom{% endif %}">
-    <div class="num">{{ resumo.atencao }}</div><div class="rot">precisam de você</div></div>
-  <div class="kpi"><div class="num">{{ resumo.aguardando_pgto }}</div>
-    <div class="rot">enviados p/ pagamento</div></div>
-  <div class="kpi bom"><div class="num">{{ resumo.pagos }}</div>
-    <div class="rot">pagos</div></div>
+  <a class="kpi {% if resumo.faltando %}ruim{% else %}bom{% endif %}{% if vista == 'sem_boleto' %} ativa{% endif %}"
+     href="?m={{ mes|date:'Y-m' }}&vista=sem_boleto{{ qs_filtro }}">
+    <div class="num">{{ resumo.faltando }}</div><div class="rot">sem boleto</div></a>
+  <a class="kpi {% if resumo.atencao %}medio{% else %}bom{% endif %}{% if vista == 'atencao' %} ativa{% endif %}"
+     href="?m={{ mes|date:'Y-m' }}&vista=atencao{{ qs_filtro }}">
+    <div class="num">{{ resumo.atencao }}</div><div class="rot">precisam de você</div></a>
+  <a class="kpi{% if vista == 'pagamento' %} ativa{% endif %}"
+     href="?m={{ mes|date:'Y-m' }}&vista=pagamento{{ qs_filtro }}">
+    <div class="num">{{ resumo.aguardando_pgto }}</div>
+    <div class="rot">enviados p/ pagamento</div></a>
+  <a class="kpi bom{% if vista == 'pagos' %} ativa{% endif %}"
+     href="?m={{ mes|date:'Y-m' }}&vista=pagos{{ qs_filtro }}">
+    <div class="num">{{ resumo.pagos }}</div>
+    <div class="rot">pagos</div></a>
+</div>
+<div style="margin:-6px 0 14px;font-size:.85rem;color:var(--cinza)">
+  Mostrando: <strong>{% if vista == 'pagamento' %}enviados p/ pagamento{% elif vista == 'sem_boleto' %}sem boleto{% elif vista == 'atencao' %}precisam de você{% elif vista == 'pagos' %}pagos{% else %}todas as situações{% endif %}</strong>
+  {% if vista != 'todos' %}· <a href="?m={{ mes|date:'Y-m' }}&vista=todos{{ qs_filtro }}">ver todos</a>{% endif %}
 </div>
 
 <div class="card">
@@ -260,8 +271,8 @@
       {% endwith %}
     </tr>
     {% empty %}
-    <tr><td colspan="6">Nenhum prestador ativo. Comece cadastrando em
-      <a href="{% url 'painel_prestadores' %}">Prestadores</a>.</td></tr>
+    <tr><td colspan="6">{% if vista == 'todos' %}Nenhum prestador ativo. Comece cadastrando em
+      <a href="{% url 'painel_prestadores' %}">Prestadores</a>.{% else %}Nada nesta situação neste mês. Toque em outro quadro acima — ou veja <a href="?m={{ mes|date:'Y-m' }}&vista=todos{{ qs_filtro }}">todos</a>.{% endif %}</td></tr>
     {% endfor %}
   </table></div>
 </div>
