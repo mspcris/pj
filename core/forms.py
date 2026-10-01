@@ -305,7 +305,8 @@ class PrestadorForm(forms.ModelForm):
     class Meta:
         model = Prestador
         fields = ['nome', 'representante', 'representante_nome_social',
-                  'representante_cpf', 'cnpj', 'razao_social', 'nome_fantasia',
+                  'representante_cpf', 'recebe_por_cpf', 'cnpj',
+                  'razao_social', 'nome_fantasia',
                   'endereco', 'bairro', 'cidade', 'uf', 'cep', 'telefone',
                   'emails_aviso', 'email_empresa', 'modo_boleto',
                   'posto_cobranca', 'valor_unico', 'regime_pagamento',
@@ -324,6 +325,8 @@ class PrestadorForm(forms.ModelForm):
                                                '(se preenchido, é assim que '
                                                'a pessoa é chamada)',
                   'representante_cpf': 'CPF do representante legal',
+                  'recebe_por_cpf': 'Recebe o boleto no CPF (o favorecido é '
+                                    'o CPF acima, não o CNPJ)',
                   'emails_aviso': 'E-mail do prestador (recebe os avisos e '
                                   'pode mandar boleto por e-mail — vários: '
                                   'separe por vírgula)',

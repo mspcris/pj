@@ -643,14 +643,20 @@ def processar(boleto_pk):
         if not texto:
             _para_manual(boleto, 'PDF sem texto legível (escaneado?)')
             return
-        # FAVORECIDO: se o prestador tem CNPJ cadastrado, ele precisa
-        # constar no boleto — proteção contra pagar boleto de terceiros.
-        cnpj_prest = re.sub(r'\D', '', boleto.prestador.cnpj or '')
-        if cnpj_prest and cnpj_prest not in re.sub(r'\D', '', texto):
+        # FAVORECIDO: o documento do prestador precisa constar no boleto —
+        # proteção contra pagar boleto de terceiros. Alguns PJs recebem como
+        # pessoa física: aí o boleto vem no CPF (o do representante), não no
+        # CNPJ — o "bit" recebe_por_cpf troca o que é conferido.
+        if boleto.prestador.recebe_por_cpf:
+            doc = re.sub(r'\D', '', boleto.prestador.representante_cpf or '')
+            rotulo = f'o CPF ({boleto.prestador.representante_cpf})'
+        else:
+            doc = re.sub(r'\D', '', boleto.prestador.cnpj or '')
+            rotulo = f'o CNPJ do prestador ({boleto.prestador.cnpj})'
+        if doc and doc not in re.sub(r'\D', '', texto):
             _para_manual(boleto,
-                         f'o CNPJ do prestador ({boleto.prestador.cnpj}) '
-                         'não aparece no boleto — confira o FAVORECIDO '
-                         'antes de liberar')
+                         f'{rotulo} não aparece no boleto — confira o '
+                         'FAVORECIDO antes de liberar')
             return
 
         # Destino do boleto: dica pelo CNPJ do posto (sacado) impresso no

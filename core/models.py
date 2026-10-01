@@ -70,6 +70,9 @@ class Prestador(models.Model):
     representante_nome_social = models.CharField(max_length=120, blank=True)
     # CPF do representante legal (só no cadastro — nunca vai em e-mail).
     representante_cpf = models.CharField(max_length=14, blank=True)
+    # PJs que recebem como PESSOA FÍSICA: o boleto vem no CPF (o do
+    # representante), não no CNPJ. Liga a conferência do FAVORECIDO pelo CPF.
+    recebe_por_cpf = models.BooleanField(default=False)
     cnpj = models.CharField(max_length=20, blank=True)
     # Endereço da sede (a IA lê do contrato ao anexar; editável).
     endereco = models.CharField(max_length=200, blank=True,
