@@ -459,6 +459,55 @@ class Boleto(models.Model):
                 return linha[len('[manual]'):].strip()
         return ''
 
+    @property
+    def valor_corrigido_mao(self):
+        """Última correção manual do valor (para avisar na tela/timeline)."""
+        for linha in reversed((self.ia_resposta or '').splitlines()):
+            if linha.startswith('[corrigido]'):
+                return linha[len('[corrigido]'):].strip()
+        return ''
+
+    @property
+    def linha_do_tempo(self):
+        """Marcos REAIS da vida do boleto (só os que aconteceram), para o
+        'Histórico da comunicação' no painel. Sem query extra: usa só os
+        campos já carregados. Valores vão como Decimal — o template formata."""
+        ev = []
+        if self.criado_em:
+            ev.append({
+                'icone': '📥', 'titulo': 'Chegou no sistema',
+                'quando': self.criado_em,
+                'detalhe': (f'enviado por {self.enviado_por}'
+                            if self.enviado_por else 'cadastrado no painel')})
+        if self.verificado_em:
+            if self.valor_corrigido_mao:
+                det = self.valor_corrigido_mao
+            elif self.ia_confianca is not None:
+                det = f'confiança {self.ia_confianca}%'
+            else:
+                det = ''
+            ev.append({
+                'icone': '🔎', 'titulo': 'Valor conferido',
+                'quando': self.verificado_em, 'detalhe': det,
+                'valor': self.valor_extraido})
+        if self.pagamento_enviado_em:
+            ev.append({
+                'icone': '📤',
+                'titulo': 'Enviado p/ pagamento (financeiro)',
+                'quando': self.pagamento_enviado_em,
+                'detalhe': (f'aprovado por {self.aprovado_por}'
+                            if self.aprovado_por else ''),
+                'valor': self.pagamento_enviado_valor})
+        if self.fin_recebido_em:
+            ev.append({
+                'icone': '🏦', 'titulo': 'Financeiro confirmou o recebimento',
+                'quando': self.fin_recebido_em, 'detalhe': ''})
+        if self.pago_em:
+            ev.append({'icone': '✅', 'titulo': 'Pago',
+                       'quando': self.pago_em, 'detalhe': ''})
+        ev.sort(key=lambda e: e['quando'])
+        return ev
+
 
 class Configuracao(models.Model):
     """Configurações do sistema (menu Configurações do painel)."""

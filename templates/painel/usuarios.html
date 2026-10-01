@@ -38,6 +38,16 @@ entra</strong>, mesmo com senha certa no idCamim.</p>
             🔑{% if u.api_token %} ✓{% endif %}</button>
         </form>
         {% endif %}
+        {% if u.ativo %}
+        <form method="post" style="display:inline"
+              onsubmit="return confirm('Enviar para {{ u.email|escapejs }} um e-mail com o link para criar/redefinir a senha de acesso?')">
+          {% csrf_token %}
+          <input type="hidden" name="pk" value="{{ u.pk }}">
+          <input type="hidden" name="acao" value="enviar_senha">
+          <button class="btn mini claro" type="submit"
+                  title="Enviar e-mail com link para a pessoa criar/redefinir a senha (login sem idCamim)">📧 Enviar acesso</button>
+        </form>
+        {% endif %}
       </td>
       <td>{{ u.ultimo_login|date:"d/m H:i"|default:"nunca" }}</td>
       <td></td>

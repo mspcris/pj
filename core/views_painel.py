@@ -399,6 +399,48 @@ def boleto_acao(request, up, pk, acao):
             messages.warning(request, f'{boleto}: {resultado}')
         else:
             messages.success(request, f'{boleto} — {resultado}')
+    elif acao == 'corrigir_valor':
+        # O admin leu o boleto no olho: a IA errou o valor. Grava o valor
+        # certo À MÃO (a reverificação NÃO roda, senão a IA sobrescreveria) e,
+        # se o boleto JÁ foi ao financeiro, dispara a CORREÇÃO automática —
+        # usando a mesma trava contra pagar duas vezes.
+        from .services.verificacao import enviar_para_pagamento, _moeda
+        try:
+            novo = ValorBRField().to_python(request.POST.get('valor', ''))
+        except Exception:
+            novo = None
+        bloqueado = (Boleto.Status.PAGO, Boleto.Status.SUBSTITUIDO,
+                     Boleto.Status.DESCARTADO, Boleto.Status.DUPLICADO)
+        if novo is None or novo <= 0:
+            messages.error(request, 'Valor inválido. Escreva assim: 4.548,14')
+        elif boleto.status in bloqueado:
+            messages.error(request, f'{boleto}: não dá para corrigir o valor '
+                                    'de um boleto já pago/descartado.')
+        else:
+            antigo = boleto.valor_extraido
+            boleto.valor_extraido = novo
+            boleto.ia_confianca = 100
+            quem = (up.nome or up.email)[:80]
+            marca = (f'[corrigido] valor ajustado à mão por {quem}: '
+                     f'R$ {_moeda(novo)}'
+                     + (f' (a IA havia lido R$ {_moeda(antigo)})'
+                        if antigo is not None else ''))
+            boleto.ia_resposta = (
+                (boleto.ia_resposta or '') + '\n' + marca).strip()[:4000]
+            if boleto.verificado_em is None:
+                boleto.verificado_em = timezone.now()
+            boleto.save(update_fields=['valor_extraido', 'ia_confianca',
+                                       'ia_resposta', 'verificado_em'])
+            if boleto.pagamento_enviado_em is not None:
+                resultado = enviar_para_pagamento(boleto)
+                messages.success(
+                    request, f'{boleto}: valor corrigido para R$ '
+                             f'{_moeda(novo)} — {resultado}')
+            else:
+                messages.success(
+                    request, f'{boleto}: valor corrigido para R$ '
+                             f'{_moeda(novo)}. Confira a situação e aprove '
+                             'quando quiser.')
     else:
         messages.error(request, 'Ação não permitida para este status.')
     AuditLog.registrar(AuditLog.Evento.STATUS, request,
@@ -417,23 +459,39 @@ def verificar_email_agora(request, up):
 
     from django.core.management import call_command
 
+    from django.http import JsonResponse
+
+    # O botão caprichado chama por fetch e espera JSON (mostra o resultado
+    # dentro dele mesmo). Sem JS, cai no fallback que recarrega a página.
+    ajax = request.headers.get('X-Requested-With') == 'fetch'
+
     antes = Boleto.objects.count()
     buf = StringIO()
     try:
         call_command('importar_emails_pj', stdout=buf, stderr=buf)
         call_command('processar_boletos', stdout=buf, stderr=buf)
     except Exception as e:
+        if ajax:
+            return JsonResponse({'ok': False,
+                                 'msg': f'Não consegui ler o e-mail: {e}'})
         messages.error(request, f'Não consegui ler o e-mail agora: {e}')
         return redirect(request.POST.get('voltar') or 'painel_dashboard')
     novos = Boleto.objects.count() - antes
+    AuditLog.registrar(AuditLog.Evento.STATUS, request,
+                       detalhe='Verificação manual de e-mail (botão)')
+    if ajax:
+        if novos > 0:
+            msg = (f'{novos} boleto(s) novo(s)!' if novos > 1
+                   else '1 boleto novo!')
+        else:
+            msg = 'Nada novo no e-mail'
+        return JsonResponse({'ok': True, 'novos': novos, 'msg': msg})
     if novos > 0:
         messages.success(request, f'Olhei o e-mail agora — {novos} '
                          f'boleto(s) novo(s) entraram.')
     else:
         messages.info(request, 'Olhei o e-mail agora — nenhum boleto novo '
                       'chegou ainda.')
-    AuditLog.registrar(AuditLog.Evento.STATUS, request,
-                       detalhe='Verificação manual de e-mail (botão)')
     return redirect(request.POST.get('voltar') or 'painel_dashboard')
 
 
@@ -947,6 +1005,22 @@ def usuarios(request, up):
                 request,
                 f'Token de API de {u.email} (COPIE AGORA — não será '
                 f'mostrado de novo): {u.api_token}')
+            return redirect('painel_usuarios')
+        if request.POST.get('acao') == 'enviar_senha' and pk:
+            u = get_object_or_404(UsuarioPermitido, pk=pk)
+            if not u.ativo:
+                messages.error(request, f'{u.email} está bloqueado — reative '
+                                        'antes de enviar o acesso.')
+                return redirect('painel_usuarios')
+            from .views_auth import disparar_link_senha
+            try:
+                disparar_link_senha(request, u.email, u.nome)
+                messages.success(
+                    request, f'Link para criar/redefinir a senha enviado '
+                             f'para {u.email}.')
+            except Exception as e:
+                messages.error(request, f'Não consegui enviar o e-mail para '
+                                        f'{u.email} agora: {e}')
             return redirect('painel_usuarios')
         instancia = get_object_or_404(UsuarioPermitido, pk=pk) if pk else None
         form = UsuarioForm(request.POST, instance=instancia)

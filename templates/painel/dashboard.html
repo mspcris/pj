@@ -10,16 +10,105 @@
 .acoes form{margin:0;display:block}
 .acoes .btn{width:100%;display:block;text-align:center;padding:5px 8px;
             font-size:.72rem}
+/* Lista principal em CARDS: tudo na largura da tela, sem rolar de lado */
+.lista-cards{display:flex;flex-direction:column;gap:12px}
+.bcard{border:1px solid #e4e7e4;border-radius:14px;padding:14px 15px;
+       background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.bcard .nome{font-size:1.02rem;font-weight:800;line-height:1.2}
+.bcard .meta{font-size:.8rem;color:var(--cinza);margin-top:2px}
+.bcard-vals{display:flex;gap:10px;flex-wrap:wrap;margin:11px 0 2px}
+.bcard-vals>div{flex:1 1 44%;min-width:120px;background:#f6f8f6;
+                border-radius:10px;padding:8px 10px}
+.bcard-vals .rot{display:block;font-size:.64rem;color:var(--cinza);
+                 text-transform:uppercase;letter-spacing:.4px;margin-bottom:1px}
+.bcard-vals .val{font-size:.95rem;font-weight:700}
+.bcard-sit{margin:10px 0 2px}
+.acoes-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.acoes-row form{margin:0}
+.acoes-row .btn{padding:7px 12px;font-size:.78rem}
+/* Histórico (linha do tempo) e corrigir valor: abrem ao tocar */
+.bcard details{margin-top:9px}
+.bcard details>summary{cursor:pointer;font-size:.8rem;font-weight:700;
+       color:#0b5e3c;list-style:none;padding:6px 2px;user-select:none}
+.bcard details>summary::-webkit-details-marker{display:none}
+.bcard details.corrigir>summary{color:#7a4b00}
+.tl{list-style:none;padding:0;margin:6px 0 2px}
+.tl li{display:flex;gap:9px;padding:7px 0 7px 2px;border-left:2px solid #dfe6df;
+       margin-left:7px;padding-left:12px;position:relative}
+.tl li .ic{position:absolute;left:-11px;top:6px;background:#fff;font-size:.9rem;
+           line-height:1}
+.tl .tt{font-weight:700;font-size:.83rem}
+.tl .qd{font-size:.74rem;color:var(--cinza)}
+.corrigir-box{background:#fff8ec;border:1px solid #f0dcb3;border-radius:10px;
+              padding:10px 11px;margin-top:4px}
+.corrigir-box label{display:block;font-size:.76rem;font-weight:700;
+                    color:#7a4b00;margin-bottom:5px}
+.corrigir-box input[name=valor]{padding:8px 10px;font-size:.95rem;width:140px;
+       border:1px solid #d9c38f;border-radius:8px;margin-right:6px}
 </style>
 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
   <h1 style="margin:0">Controle de pagamentos</h1>
   <a class="btn mini dourado" href="{% url 'painel_boleto_novo' %}">
     ➕ Cadastrar boleto (chegou pelo zap)</a>
-  <form method="post" action="{% url 'painel_verificar_email' %}" style="margin:0">
+  <form method="post" action="{% url 'painel_verificar_email' %}" style="margin:0" id="form-vermail">
     {% csrf_token %}<input type="hidden" name="voltar" value="{{ request.get_full_path }}">
-    <button class="btn mini claro" type="submit">📥 Verificar e-mail agora</button>
+    <button class="btn mini claro" type="submit" id="btn-vermail"
+            style="min-width:210px;transition:background .2s,color .2s">
+      📥 Verificar e-mail agora</button>
   </form>
 </div>
+<script>
+(function(){
+  var form = document.getElementById('form-vermail');
+  var btn  = document.getElementById('btn-vermail');
+  if(!form || !btn) return;
+  var original = btn.innerHTML;
+  var etapas = ['📡 Conectando ao e-mail…','📬 Lendo as caixas…',
+                '🔍 Conferindo boletos…'];
+  form.addEventListener('submit', function(ev){
+    ev.preventDefault();
+    if(btn.disabled) return;
+    btn.disabled = true;
+    btn.style.opacity = '.85';
+    var i = 0;
+    btn.innerHTML = '⏳ ' + etapas[0];
+    var giro = setInterval(function(){
+      i = (i + 1) % etapas.length;
+      btn.innerHTML = '⏳ ' + etapas[i];
+    }, 1100);
+    var dados = new FormData(form);
+    fetch(form.action, {
+      method:'POST', body:dados,
+      headers:{'X-Requested-With':'fetch'}
+    }).then(function(r){ return r.json(); }).then(function(d){
+      clearInterval(giro);
+      if(d.ok && d.novos > 0){
+        btn.style.background = '#0b7a5e'; btn.style.color = '#fff';
+        btn.innerHTML = '✅ ' + d.msg + ' — atualizando…';
+        setTimeout(function(){ location.reload(); }, 1200);
+        return;
+      }
+      if(d.ok){
+        btn.innerHTML = '📭 ' + d.msg;
+      } else {
+        btn.style.background = '#8a1c1c'; btn.style.color = '#fff';
+        btn.innerHTML = '⚠️ ' + (d.msg || 'Deu erro ao ler');
+      }
+      setTimeout(restaurar, 3500);
+    }).catch(function(){
+      clearInterval(giro);
+      btn.style.background = '#8a1c1c'; btn.style.color = '#fff';
+      btn.innerHTML = '⚠️ Falhou — tente de novo';
+      setTimeout(restaurar, 3500);
+    });
+  });
+  function restaurar(){
+    btn.disabled = false; btn.style.opacity = '';
+    btn.style.background = ''; btn.style.color = '';
+    btn.innerHTML = original;
+  }
+})();
+</script>
 <div class="mesnav">
   <a href="?m={{ ant|date:'Y-m' }}&vista={{ vista }}{{ qs_filtro }}">←</a>
   <div class="mes">{{ mes_extenso }}</div>
@@ -94,41 +183,37 @@
 </div>
 
 <div class="card">
-  <div class="rolagem"><table class="tabela-compacta">
-    <tr><th>Prestador</th><th>Posto</th><th>Combinado</th><th>Boleto</th>
-        <th>Situação</th><th>Ações</th></tr>
+  <div class="lista-cards">
     {% for l in linhas %}
-    <tr>
-      <td><a href="{% url 'painel_prestador' l.prestador.pk %}">
-        <strong>{{ l.prestador.nome }}</strong></a>
-        {% if l.prestador.contato != l.prestador.nome %}<div class="sub" style="font-size:.76rem">👤 {{ l.prestador.contato }}</div>{% endif %}</td>
-      <td>{{ l.posto|default:"(único)" }}</td>
-      <td>R$ {{ l.valor|default:"—" }}</td>
-      {% with b=l.boleto %}
+    {% with b=l.boleto %}
+    <div class="bcard">
+      <div class="nome"><a href="{% url 'painel_prestador' l.prestador.pk %}">{{ l.prestador.nome }}</a></div>
+      <div class="meta">{% if l.prestador.contato != l.prestador.nome %}👤 {{ l.prestador.contato }} · {% endif %}🏥 {{ l.posto|default:"(único)" }}</div>
+
+      <div class="bcard-vals">
+        <div><span class="rot">Combinado</span>
+          <span class="val">R$ {{ l.valor|default:"—" }}</span></div>
+        <div><span class="rot">Boleto</span>
+          <span class="val">{% if b %}{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
+              onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }} — {{ b.competencia|date:'m/Y' }}')">📎 {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>{% elif b.valor_extraido %}🔢 R$ {{ b.valor_extraido }} <span class="sub" style="font-size:.72rem">(linha digitável)</span>{% else %}🔢 linha digitável{% endif %}{% if b.nota_fiscal %} <a href="{% url 'baixar_arquivo' 'nf' b.pk %}" title="Nota fiscal"
+              onclick="return abrirPdf(this.href, 'NF — {{ b.prestador.nome|escapejs }}')">🧾</a>{% endif %}{% elif l.parciais %}🧩 {{ l.parciais|length }} {% if l.parciais|length == 1 %}parcial{% else %}parciais{% endif %}{% if l.parciais_valores %} <span class="sub" style="font-size:.72rem">({{ l.parciais_valores }})</span>{% endif %}{% else %}—{% endif %}</span></div>
+      </div>
+
+      <div class="bcard-sit">
       {% if b %}
-      <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
-          onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }} — {{ b.competencia|date:'m/Y' }}')">📎
-        {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>
-        {% elif b.valor_extraido %}🔢 R$ {{ b.valor_extraido }}
-          <span class="sub" style="font-size:.72rem">(linha digitável)</span>
-        {% else %}🔢 linha digitável{% endif %}
-        {% if b.nota_fiscal %}
-        <a href="{% url 'baixar_arquivo' 'nf' b.pk %}" title="Nota fiscal"
-           onclick="return abrirPdf(this.href, 'NF — {{ b.prestador.nome|escapejs }}')">🧾</a>
-        {% endif %}</td>
-      <td><span class="chip {{ b.status }}"
+        <span class="chip {{ b.status }}"
             {% if b.status == 'MANUAL' and b.motivo_manual %}title="{{ b.motivo_manual }}"{% endif %}
           >{{ b.get_status_display }}</span>
         {% if b.status == 'MANUAL' and b.motivo_manual %}
-          <div class="sub" style="font-size:.72rem;max-width:230px">{{ b.motivo_manual|truncatechars:70 }}</div>
+          <div class="sub" style="font-size:.74rem;margin-top:3px">{{ b.motivo_manual|truncatechars:90 }}</div>
         {% endif %}
-        {% if l.diferenca %}<div class="sub" style="font-size:.72rem;color:#7a4b00;font-weight:700"
+        {% if l.diferenca %}<div class="sub" style="font-size:.76rem;color:#7a4b00;font-weight:700;margin-top:3px"
           title="Valor do boleto diferente do combinado">≠ combinado: {{ l.diferenca_txt }}</div>{% endif %}
-        {% if l.ajuste %}<div style="font-size:.78rem;font-weight:700;color:#0b5e3c">✅ R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }} — quitado</div>{% endif %}
+        {% if l.ajuste %}<div style="font-size:.8rem;font-weight:700;color:#0b5e3c;margin-top:3px">✅ R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }} — quitado</div>{% endif %}
         {% if l.falta_pequena %}
-        <div style="margin-top:4px;padding:6px 8px;border-radius:8px;background:#fff4d6;font-size:.74rem">
-          <div style="font-weight:700;color:#7a4b00;margin-bottom:4px">Resolver os R$ {{ l.falta_pequena }}:</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <div style="margin-top:6px;padding:8px 10px;border-radius:8px;background:#fff4d6;font-size:.76rem">
+          <div style="font-weight:700;color:#7a4b00;margin-bottom:5px">Resolver os R$ {{ l.falta_pequena }}:</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
           <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
                 onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam serão PAGOS EM DINHEIRO? A linha fica quitada.')">
             {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
@@ -136,7 +221,7 @@
             <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
             <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
             <input type="hidden" name="modo" value="DINHEIRO">
-            <button class="btn mini" style="padding:4px 8px;font-size:.72rem">💵 R$ {{ l.falta_pequena }} em dinheiro</button></form>
+            <button class="btn mini" style="padding:5px 9px;font-size:.74rem">💵 R$ {{ l.falta_pequena }} em dinheiro</button></form>
           <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
                 onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam NÃO serão pagos? A linha fica quitada.')">
             {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
@@ -144,20 +229,126 @@
             <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
             <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
             <input type="hidden" name="modo" value="NAO_PAGO">
-            <button class="btn mini claro" style="padding:4px 8px;font-size:.72rem">🚫 R$ {{ l.falta_pequena }} não será pago</button></form>
+            <button class="btn mini claro" style="padding:5px 9px;font-size:.74rem">🚫 R$ {{ l.falta_pequena }} não será pago</button></form>
           </div>
         </div>
         {% elif l.ajuste %}
-        <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:2px 0 0"
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:5px 0 0"
               onsubmit="return confirm('Desfazer? Os R$ {{ l.ajuste.valor }} voltam a aparecer como pendentes.')">
           {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
           <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
           <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
           <input type="hidden" name="valor" value="0"><input type="hidden" name="modo" value="DESFAZER">
-          <button class="btn mini claro" style="padding:3px 8px;font-size:.7rem">↩ desfazer</button></form>
+          <button class="btn mini claro" style="padding:4px 9px;font-size:.72rem">↩ desfazer</button></form>
         {% endif %}
-        {% if b.observacao %}<span title="{{ b.observacao }}">📝</span>{% endif %}</td>
-      <td><div class="acoes">
+        {% if b.observacao %} <span title="{{ b.observacao }}">📝</span>{% endif %}
+      {% elif l.parciais %}
+        <span class="chip {% if l.parciais_falta == 0 %}APROVADO{% else %}RECEBIDO{% endif %}">
+          Parciais: R$ {{ l.parciais_soma }} de R$ {{ l.valor }}</span>
+        <div style="font-size:.82rem;font-weight:700;margin-top:4px;{% if l.parciais_falta == 0 %}color:#0b5e3c{% else %}color:#7a4b00{% endif %}">
+          {% if l.ajuste %}✅ completa — R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }}{% elif l.parciais_falta == 0 %}✅ completa{% else %}⏳ falta R$ {{ l.parciais_falta }}{% endif %}</div>
+        {% if l.parciais_pendentes %}<div class="sub" style="font-size:.74rem">{{ l.parciais_pendentes|length }} ainda em verificação (não conta)</div>{% endif %}
+        {% if l.falta_pequena %}
+        <div style="margin-top:6px;padding:8px 10px;border-radius:8px;background:#fff4d6;font-size:.76rem">
+          <div style="font-weight:700;color:#7a4b00;margin-bottom:5px">Resolver os R$ {{ l.falta_pequena }}:</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
+                onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam serão PAGOS EM DINHEIRO? A linha fica quitada.')">
+            {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+            <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+            <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+            <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+            <input type="hidden" name="modo" value="DINHEIRO">
+            <button class="btn mini" style="padding:5px 9px;font-size:.74rem">💵 R$ {{ l.falta_pequena }} em dinheiro</button></form>
+          <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
+                onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam NÃO serão pagos? A linha fica quitada.')">
+            {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+            <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+            <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+            <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+            <input type="hidden" name="modo" value="NAO_PAGO">
+            <button class="btn mini claro" style="padding:5px 9px;font-size:.74rem">🚫 R$ {{ l.falta_pequena }} não será pago</button></form>
+          </div>
+        </div>
+        {% elif l.ajuste %}
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:5px 0 0"
+              onsubmit="return confirm('Desfazer? Os R$ {{ l.ajuste.valor }} voltam a aparecer como pendentes.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="0"><input type="hidden" name="modo" value="DESFAZER">
+          <button class="btn mini claro" style="padding:4px 9px;font-size:.72rem">↩ desfazer</button></form>
+        {% endif %}
+      {% else %}
+        {% if l.ajuste %}<span class="chip APROVADO">QUITADO</span>
+          <div style="font-size:.8rem;font-weight:700;color:#0b5e3c;margin-top:3px">R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }}</div>
+        {% else %}<span class="chip FALTA">SEM BOLETO</span>{% endif %}
+        {% if l.falta_pequena %}
+        <div style="margin-top:6px;padding:8px 10px;border-radius:8px;background:#fff4d6;font-size:.76rem">
+          <div style="font-weight:700;color:#7a4b00;margin-bottom:5px">Resolver os R$ {{ l.falta_pequena }}:</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
+                onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam serão PAGOS EM DINHEIRO? A linha fica quitada.')">
+            {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+            <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+            <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+            <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+            <input type="hidden" name="modo" value="DINHEIRO">
+            <button class="btn mini" style="padding:5px 9px;font-size:.74rem">💵 R$ {{ l.falta_pequena }} em dinheiro</button></form>
+          <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
+                onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam NÃO serão pagos? A linha fica quitada.')">
+            {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+            <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+            <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+            <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
+            <input type="hidden" name="modo" value="NAO_PAGO">
+            <button class="btn mini claro" style="padding:5px 9px;font-size:.74rem">🚫 R$ {{ l.falta_pequena }} não será pago</button></form>
+          </div>
+        </div>
+        {% elif l.ajuste %}
+        <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:5px 0 0"
+              onsubmit="return confirm('Desfazer? Os R$ {{ l.ajuste.valor }} voltam a aparecer como pendentes.')">
+          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
+          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
+          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
+          <input type="hidden" name="valor" value="0"><input type="hidden" name="modo" value="DESFAZER">
+          <button class="btn mini claro" style="padding:4px 9px;font-size:.72rem">↩ desfazer</button></form>
+        {% endif %}
+      {% endif %}
+      </div>
+
+      {% if b %}
+      {% if b.linha_do_tempo %}
+      <details class="hist">
+        <summary>🕑 Histórico da comunicação</summary>
+        <ul class="tl">
+          {% for ev in b.linha_do_tempo %}
+          <li><span class="ic">{{ ev.icone }}</span>
+            <div><span class="tt">{{ ev.titulo }}{% if ev.valor %} — R$ {{ ev.valor }}{% endif %}</span><br>
+              <span class="qd">{{ ev.quando|date:"d/m/Y H:i" }}{% if ev.detalhe %} · {{ ev.detalhe }}{% endif %}</span></div></li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
+
+      <details class="corrigir">
+        <summary>✏️ Valor lido errado? Corrigir à mão</summary>
+        <div class="corrigir-box">
+          <form method="post" action="{% url 'painel_boleto_acao' b.pk 'corrigir_valor' %}"
+                onsubmit="return confirm('Gravar o valor certo do boleto?{% if b.pagamento_enviado_em %} Como JÁ foi ao financeiro, o sistema vai enviar uma CORREÇÃO automática para a equipe.{% endif %}')">
+            {% csrf_token %}<input type="hidden" name="voltar" value="{{ request.get_full_path }}">
+            <label>Valor certo do boleto (ex.: 4.548,14)</label>
+            <input name="valor" inputmode="decimal" autocomplete="off"
+                   placeholder="4.548,14" value="{% if b.valor_extraido %}{{ b.valor_extraido }}{% endif %}">
+            <button class="btn mini dourado">Salvar valor certo</button>
+            {% if b.pagamento_enviado_em %}<div class="sub" style="font-size:.72rem;margin-top:6px">Já foi ao financeiro — salvar envia a correção automática (a equipe paga só o valor novo).</div>{% endif %}
+          </form>
+        </div>
+      </details>
+      {% endif %}
+
+      <div class="acoes-row">
+      {% if b %}
         <a class="btn mini claro" title="Editar posto/mês/observação"
            href="{% url 'painel_boleto_editar' b.pk %}">✏️ Editar</a>
         {% if b.status == 'APROVADO' %}
@@ -186,99 +377,20 @@
               onsubmit="return confirm('Aprovar sem esperar a IA? Vai mandar p/ equipe@ pagar.')">
           {% csrf_token %}<button class="btn mini dourado">Aprovar assim mesmo</button></form>
         {% endif %}
-      </div></td>
       {% elif l.parciais %}
-      <td>🧩 {{ l.parciais|length }} {% if l.parciais|length == 1 %}parcial{% else %}parciais{% endif %}
-        {% if l.parciais_valores %}<div class="sub" style="font-size:.72rem">{{ l.parciais_valores }}</div>{% endif %}</td>
-      <td><span class="chip {% if l.parciais_falta == 0 %}APROVADO{% else %}RECEBIDO{% endif %}">
-        Parciais: R$ {{ l.parciais_soma }} de R$ {{ l.valor }}</span>
-        <div style="font-size:.8rem;font-weight:700;margin-top:3px;{% if l.parciais_falta == 0 %}color:#0b5e3c{% else %}color:#7a4b00{% endif %}">
-          {% if l.ajuste %}✅ completa — R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }}{% elif l.parciais_falta == 0 %}✅ completa{% else %}⏳ falta R$ {{ l.parciais_falta }}{% endif %}</div>
-        {% if l.parciais_pendentes %}<div class="sub" style="font-size:.72rem">{{ l.parciais_pendentes|length }} ainda em verificação (não conta)</div>{% endif %}
-        {% if l.falta_pequena %}
-        <div style="margin-top:4px;padding:6px 8px;border-radius:8px;background:#fff4d6;font-size:.74rem">
-          <div style="font-weight:700;color:#7a4b00;margin-bottom:4px">Resolver os R$ {{ l.falta_pequena }}:</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-          <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
-                onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam serão PAGOS EM DINHEIRO? A linha fica quitada.')">
-            {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
-            <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
-            <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
-            <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
-            <input type="hidden" name="modo" value="DINHEIRO">
-            <button class="btn mini" style="padding:4px 8px;font-size:.72rem">💵 R$ {{ l.falta_pequena }} em dinheiro</button></form>
-          <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
-                onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam NÃO serão pagos? A linha fica quitada.')">
-            {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
-            <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
-            <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
-            <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
-            <input type="hidden" name="modo" value="NAO_PAGO">
-            <button class="btn mini claro" style="padding:4px 8px;font-size:.72rem">🚫 R$ {{ l.falta_pequena }} não será pago</button></form>
-          </div>
-        </div>
-        {% elif l.ajuste %}
-        <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:2px 0 0"
-              onsubmit="return confirm('Desfazer? Os R$ {{ l.ajuste.valor }} voltam a aparecer como pendentes.')">
-          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
-          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
-          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
-          <input type="hidden" name="valor" value="0"><input type="hidden" name="modo" value="DESFAZER">
-          <button class="btn mini claro" style="padding:3px 8px;font-size:.7rem">↩ desfazer</button></form>
-        {% endif %}
-      </td>
-      <td><div class="acoes">
         {% if l.parciais_falta != 0 %}
         <a class="btn mini dourado" href="{% url 'painel_boleto_novo' %}?prestador={{ l.prestador.pk }}{% if l.posto %}&posto={{ l.posto.pk }}{% endif %}&competencia={{ mes|date:'Y-m' }}&parcial=1">➕ parcial</a>
         {% endif %}
         <a class="btn mini claro" href="#secoes-extras">🧩 Gerenciar ↓</a>
-      </div></td>
-      {% else %}
-      <td>—</td>
-      <td>{% if l.ajuste %}<span class="chip APROVADO">QUITADO</span>
-        <div style="font-size:.78rem;font-weight:700;color:#0b5e3c">R$ {{ l.ajuste.valor }} {{ l.ajuste.get_modo_display|lower }}</div>
-        {% else %}<span class="chip FALTA">SEM BOLETO</span>{% endif %}
-        {% if l.falta_pequena %}
-        <div style="margin-top:4px;padding:6px 8px;border-radius:8px;background:#fff4d6;font-size:.74rem">
-          <div style="font-weight:700;color:#7a4b00;margin-bottom:4px">Resolver os R$ {{ l.falta_pequena }}:</div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-          <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
-                onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam serão PAGOS EM DINHEIRO? A linha fica quitada.')">
-            {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
-            <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
-            <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
-            <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
-            <input type="hidden" name="modo" value="DINHEIRO">
-            <button class="btn mini" style="padding:4px 8px;font-size:.72rem">💵 R$ {{ l.falta_pequena }} em dinheiro</button></form>
-          <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:0"
-                onsubmit="return confirm('Os R$ {{ l.falta_pequena }} que faltam NÃO serão pagos? A linha fica quitada.')">
-            {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
-            <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
-            <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
-            <input type="hidden" name="valor" value="{{ l.falta_pequena|stringformat:'.2f' }}">
-            <input type="hidden" name="modo" value="NAO_PAGO">
-            <button class="btn mini claro" style="padding:4px 8px;font-size:.72rem">🚫 R$ {{ l.falta_pequena }} não será pago</button></form>
-          </div>
-        </div>
-        {% elif l.ajuste %}
-        <form method="post" action="{% url 'painel_ajuste_diferenca' %}" style="margin:2px 0 0"
-              onsubmit="return confirm('Desfazer? Os R$ {{ l.ajuste.valor }} voltam a aparecer como pendentes.')">
-          {% csrf_token %}<input type="hidden" name="prestador" value="{{ l.prestador.pk }}">
-          <input type="hidden" name="posto" value="{{ l.posto.pk|default:'' }}">
-          <input type="hidden" name="competencia" value="{{ mes|date:'Y-m-d' }}">
-          <input type="hidden" name="valor" value="0"><input type="hidden" name="modo" value="DESFAZER">
-          <button class="btn mini claro" style="padding:3px 8px;font-size:.7rem">↩ desfazer</button></form>
-        {% endif %}
-      </td>
-      <td></td>
       {% endif %}
-      {% endwith %}
-    </tr>
+      </div>
+    </div>
+    {% endwith %}
     {% empty %}
-    <tr><td colspan="6">{% if vista == 'todos' %}Nenhum prestador ativo. Comece cadastrando em
-      <a href="{% url 'painel_prestadores' %}">Prestadores</a>.{% else %}Nada nesta situação neste mês. Toque em outro quadro acima — ou veja <a href="?m={{ mes|date:'Y-m' }}&vista=todos{{ qs_filtro }}">todos</a>.{% endif %}</td></tr>
+    <div class="sub" style="padding:10px">{% if vista == 'todos' %}Nenhum prestador ativo. Comece cadastrando em
+      <a href="{% url 'painel_prestadores' %}">Prestadores</a>.{% else %}Nada nesta situação neste mês. Toque em outro quadro acima — ou veja <a href="?m={{ mes|date:'Y-m' }}&vista=todos{{ qs_filtro }}">todos</a>.{% endif %}</div>
     {% endfor %}
-  </table></div>
+  </div>
 </div>
 
 <div id="secoes-extras"></div>
