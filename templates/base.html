@@ -126,7 +126,7 @@ a.kpi:hover{border-color:var(--verde)}
     {% else %}
       <a href="{% url 'home' %}">Início</a>
     {% endif %}
-    <form method="post" action="{% url 'oidc_logout' %}" style="display:inline">
+    <form method="post" action="{% url 'sair' %}" style="display:inline">
       {% csrf_token %}
       <button class="btn mini claro" type="submit">Sair</button>
     </form>

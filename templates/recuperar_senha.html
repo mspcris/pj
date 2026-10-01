@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Recuperar senha · Camim PJs{% endblock %}
+{% block conteudo %}
+<div class="card" style="max-width:430px;margin:28px auto">
+  <h1>Esqueci minha senha</h1>
+  {% if enviado %}
+  <div class="msg success">Se este e-mail estiver cadastrado, enviamos um link
+    para criar ou redefinir a senha. Olhe sua caixa de entrada (e o spam).</div>
+  <a class="btn claro" href="{% url 'entrar' %}"
+     style="width:100%;text-align:center;margin-top:12px">Voltar para entrar</a>
+  {% else %}
+  <p class="sub">Digite seu e-mail cadastrado. Enviamos um link para você criar
+    uma nova senha — serve também para o primeiro acesso.</p>
+  {% if erro %}<div class="msg error">{{ erro }}</div>{% endif %}
+  <form method="post" action="{% url 'recuperar_senha' %}">
+    {% csrf_token %}
+    <label>E-mail</label>
+    <input name="email" type="email" required autofocus autocomplete="username"
+           style="width:100%;padding:12px;border:1px solid var(--linha);border-radius:10px;font-size:1rem">
+    <button class="btn" style="width:100%;margin-top:20px">Enviar link</button>
+  </form>
+  <p style="margin-top:14px;text-align:center"><a href="{% url 'entrar' %}">Voltar</a></p>
+  {% endif %}
+</div>
+{% endblock %}

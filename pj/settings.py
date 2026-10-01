@@ -92,9 +92,13 @@ X_FRAME_OPTIONS = 'SAMEORIGIN'
 # -----------------------------------------------------------------------------
 # Login IDCamim (OIDC) + whitelist — mesmo padrão do painel da intranet
 # -----------------------------------------------------------------------------
-AUTHENTICATION_BACKENDS = ['core.auth.PJOIDCBackend']
+# OIDC (Camim) + senha local (PJ externo sem idCamim). A whitelist
+# (UsuarioPermitido ativo) é conferida em cada view, valendo para os dois.
+AUTHENTICATION_BACKENDS = ['core.auth.PJOIDCBackend',
+                           'django.contrib.auth.backends.ModelBackend']
 
-LOGIN_URL = '/oidc/authenticate/'
+# Porta de entrada: tela com e-mail+senha E o botão do IDCamim.
+LOGIN_URL = '/entrar/'
 LOGIN_REDIRECT_URL = '/'
 LOGIN_REDIRECT_URL_FAILURE = '/sem-acesso/'
 LOGOUT_REDIRECT_URL = '/'

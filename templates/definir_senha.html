@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Criar senha · Camim PJs{% endblock %}
+{% block conteudo %}
+<div class="card" style="max-width:430px;margin:28px auto">
+{% if invalido %}
+  <div style="font-size:2.6rem;text-align:center">⏳</div>
+  <h1 style="text-align:center">Link expirado ou já usado</h1>
+  <p class="sub" style="text-align:center">Por segurança, cada link vale uma vez
+    só e por tempo limitado. Peça um novo abaixo.</p>
+  <a class="btn" href="{% url 'recuperar_senha' %}"
+     style="width:100%;text-align:center">Pedir novo link</a>
+{% else %}
+  <h1>Criar sua senha</h1>
+  <p class="sub">{% if nome %}{{ nome }}, crie{% else %}Crie{% endif %} a senha
+    que você vai usar para entrar no portal.</p>
+  {% if erro %}<div class="msg error">{{ erro }}</div>{% endif %}
+  <form method="post">
+    {% csrf_token %}
+    <label>Nova senha (mínimo 8 caracteres)</label>
+    <input name="senha1" type="password" required minlength="8" autofocus
+           autocomplete="new-password"
+           style="width:100%;padding:12px;border:1px solid var(--linha);border-radius:10px;font-size:1rem">
+    <label>Repita a senha</label>
+    <input name="senha2" type="password" required minlength="8"
+           autocomplete="new-password"
+           style="width:100%;padding:12px;border:1px solid var(--linha);border-radius:10px;font-size:1rem">
+    <button class="btn" style="width:100%;margin-top:20px">Salvar e entrar</button>
+  </form>
+{% endif %}
+</div>
+{% endblock %}

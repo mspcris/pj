@@ -1,10 +1,17 @@
 from django.urls import path
 
-from . import api, views, views_painel
+from . import api, views, views_auth, views_painel
 
 urlpatterns = [
     path('', views.home, name='home'),
     path('sem-acesso/', views.sem_acesso, name='sem_acesso'),
+    # Login por e-mail+senha (PJ sem idCamim) — convive com o IDCamim.
+    path('entrar/', views_auth.entrar, name='entrar'),
+    path('sair/', views_auth.sair, name='sair'),
+    path('senha/recuperar/', views_auth.recuperar_senha,
+         name='recuperar_senha'),
+    path('senha/definir/<uidb64>/<token>/', views_auth.definir_senha,
+         name='definir_senha'),
     path('boleto/', views.anexar_boleto, name='anexar_boleto'),
     path('contratos/', views.contratos_postos, name='contratos_postos'),
     path('contratos/<int:posto_id>/', views.contratos_lista,
