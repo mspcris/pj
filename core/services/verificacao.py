@@ -187,7 +187,11 @@ def valor_da_linha(linha):
     try:
         if len(ld) == 47:
             v = Decimal(ld[-10:]) / 100
-        elif len(ld) == 48:
+        elif len(ld) == 48 and ld.startswith('8'):
+            # Guia de arrecadação REAL sempre começa com 8. Um boleto bancário
+            # lido com um dígito a mais (48 em vez de 47) NÃO é arrecadação —
+            # cair aqui inventaria um valor fantasma de milhões e derrubaria o
+            # boleto por falsa inconsistência. Nesse caso, melhor não ter valor.
             cb = ''.join(d for i, d in enumerate(ld) if (i + 1) % 12 != 0)
             v = Decimal(cb[4:15]) / 100
         else:
@@ -697,6 +701,14 @@ def processar(boleto_pk):
             dados = json.loads(bruto)
         except Exception:
             dados = {}
+        # o modelo barato às vezes estropia o nome do campo
+        # ("motivo_confiacao", "motivo_confianca?") — aceita qualquer chave
+        # que comece com "motivo".
+        motivo_conf = ''
+        for _k, _v in dados.items():
+            if _k.lower().startswith('motivo') and str(_v or '').strip():
+                motivo_conf = str(_v).strip()
+                break
         if not boleto.linha_digitavel:
             ld = re.sub(r'\D', '', str(dados.get('linha_digitavel') or ''))
             if 40 <= len(ld) <= 48:
@@ -839,10 +851,11 @@ def processar(boleto_pk):
     limiar = Configuracao.get_int('limiar_confianca', 99)
     if (aprovaria and not boleto.valor_livre
             and (boleto.ia_confianca or 0) < limiar):
+        porque = f' Motivo da IA: {motivo_conf}.' if motivo_conf else ''
         _para_manual(boleto,
                      f'valor confere, mas a confiança da IA foi '
-                     f'{boleto.ia_confianca}% (limiar: {limiar}%) — nada '
-                     'enviado; libere o envio no painel se estiver ok')
+                     f'{boleto.ia_confianca}% (limiar: {limiar}%).{porque} '
+                     'Nada enviado; libere o envio no painel se estiver ok')
         return
 
     if aprovaria:
