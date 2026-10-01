@@ -30,6 +30,8 @@ import email
 import email.utils
 import imaplib
 import re
+import urllib.parse
+import urllib.request
 from email.header import decode_header, make_header
 
 from django.conf import settings
@@ -110,6 +112,63 @@ def _pdfs(msg):
             conteudo = parte.get_payload(decode=True)
             if conteudo and conteudo[:5] == b'%PDF-':
                 achados.append((nome, conteudo))
+    return achados
+
+
+# PJ que manda o boleto por LINK do Adobe (acrobat.adobe.com/id/...) em vez de
+# anexar: a página de visualização traz, no próprio HTML, a URL assinada (S3)
+# do PDF. Baixa de lá e trata exatamente como um anexo.
+RE_ADOBE = re.compile(
+    r'https://acrobat\.adobe\.com/id/urn:aaid:sc:[^\s"\'<>)\]]+')
+_UA = {'User-Agent': 'Mozilla/5.0'}
+
+
+def _corpo_para_links(msg):
+    """Texto p/ caçar links — junta text/plain E text/html (o link pode vir só
+    no HTML). Separado de _corpo_texto (que alimenta a busca de linha
+    digitável e não deve pegar tags)."""
+    partes = []
+    for parte in msg.walk():
+        if parte.get_content_type() in ('text/plain', 'text/html'):
+            try:
+                partes.append(parte.get_payload(decode=True).decode(
+                    parte.get_content_charset() or 'utf-8', errors='replace'))
+            except Exception:
+                pass
+    return '\n'.join(partes)
+
+
+def _baixar_pdf_adobe(link):
+    """(nome, bytes) do PDF por trás de um link do Adobe, ou (None, None)."""
+    req = urllib.request.Request(link, headers=_UA)
+    html = urllib.request.urlopen(req, timeout=30).read().decode(
+        'utf-8', 'ignore')
+    m = re.search(r'https://acp-aep-cs-blobstore[^\s"\'\\<>]+?'
+                  r'response-content-type=application%2Fpdf[^\s"\'\\<>]*', html)
+    if not m:
+        return None, None
+    url = m.group(0)
+    fn = re.search(r'filename%3D%22([^&]*?)%22', url)
+    nome = (urllib.parse.unquote(urllib.parse.unquote(fn.group(1)))
+            if fn else 'boleto-adobe.pdf')
+    conteudo = urllib.request.urlopen(
+        urllib.request.Request(url, headers=_UA), timeout=30).read()
+    return nome, conteudo
+
+
+def _pdfs_de_links_adobe(corpo):
+    """PDFs baixados de links do Adobe no corpo — mesmo formato de _pdfs."""
+    achados, vistos = [], set()
+    for link in RE_ADOBE.findall(corpo or ''):
+        if link in vistos:
+            continue
+        vistos.add(link)
+        try:
+            nome, conteudo = _baixar_pdf_adobe(link)
+        except Exception:
+            continue
+        if conteudo and conteudo[:5] == b'%PDF-':
+            achados.append(((nome or 'boleto-adobe.pdf')[:255], conteudo))
     return achados
 
 
@@ -294,7 +353,14 @@ class Command(BaseCommand):
 
         # Separa boletos de notas fiscais (quem manda, manda os dois juntos)
         pdfs_boleto, pdfs_nf = [], []
-        for nome, conteudo in _pdfs(msg):
+        anexos = _pdfs(msg)
+        if not anexos:
+            # Sem PDF anexo: o PJ pode ter mandado LINK do Adobe no corpo.
+            anexos = _pdfs_de_links_adobe(_corpo_para_links(msg))
+            if anexos:
+                self.stdout.write(f'  {len(anexos)} PDF(s) baixado(s) de link '
+                                  'do Adobe no corpo do e-mail')
+        for nome, conteudo in anexos:
             texto = svc_pdf.extrair_texto_bytes(conteudo)
             if classificar_pdf(nome, texto) == 'nf':
                 pdfs_nf.append((nome, conteudo, texto))
