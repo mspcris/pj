@@ -25,7 +25,8 @@ class Command(BaseCommand):
         boletos = list(
             Boleto.objects.filter(competencia=mes)
             .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
-                                 Boleto.Status.DESCARTADO])
+                                 Boleto.Status.DESCARTADO,
+                                 Boleto.Status.NAO_RECONHECIDO])
             .select_related('prestador', 'posto', 'prestador__posto_cobranca'))
 
         # mesma leitura do painel: diferenças já resolvidas ali ("não pagar"/

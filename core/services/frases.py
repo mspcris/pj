@@ -93,6 +93,20 @@ _MANUAL_ADMIN = [
      'https://pj.camim.com.br/painel/\n\n— Controle dos PJs'),
 ]
 
+_NAO_RECONHECIDO = [
+    ('Prezado(a) {contato},\n\nInformamos que a CAMIM não reconhece a '
+     'dívida referente ao boleto de {competencia} ({prestador} — {alvo}). '
+     'O documento foi cancelado no nosso controle e não será pago. A '
+     'conferência segue abaixo; se entender que a cobrança é devida, fale '
+     'com o Cristiano antes de emitir um novo boleto.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+    ('Prezados,\n\nRecebemos o boleto de {competencia} ({alvo}), mas a '
+     'CAMIM não reconhece esta dívida: o boleto foi cancelado no nosso '
+     'controle e não será pago. Abaixo está a conferência que fizemos. '
+     'Qualquer dúvida, falem com o Cristiano antes de emitir outro '
+     'boleto.\n\nAtenciosamente,\nCristiano — CAMIM'),
+]
+
 
 def _fallback(pool, fatos):
     fatos = dict(fatos)
@@ -116,6 +130,7 @@ def corpo(tipo, fatos, instrucao_ia=None):
         'fin_recebido': _FIN_RECEBIDO,
         'divergente': _DIVERGENTE,
         'manual_admin': _MANUAL_ADMIN,
+        'nao_reconhecido': _NAO_RECONHECIDO,
     }
     if fatos.get('parcial_frase'):
         pools['aprovado_pj'] = _APROVADO_PJ_PARCIAL

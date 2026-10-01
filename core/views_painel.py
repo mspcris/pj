@@ -68,7 +68,8 @@ def dashboard(request, up):
     boletos_mes = list(
         Boleto.objects.filter(competencia=mes)
         .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
-                             Boleto.Status.DESCARTADO])
+                             Boleto.Status.DESCARTADO,
+                             Boleto.Status.NAO_RECONHECIDO])
         .select_related('prestador', 'posto', 'prestador__posto_cobranca'))
 
     from .services import boletos as svc_boletos
@@ -404,6 +405,16 @@ def boleto_acao(request, up, pk, acao):
         boleto.save(update_fields=['status'])
         messages.success(request, f'{boleto} descartado (nada apagado — '
                                   'fica na auditoria).')
+    elif acao == 'nao_reconhecer' and boleto.status != Boleto.Status.PAGO:
+        # "Não reconheço esta dívida": cancela a cobrança e avisa o
+        # prestador (e o financeiro, se o boleto já tinha ido). Caminho
+        # único em verificacao.nao_reconhecer — fica no banco, com o PDF.
+        from .services.verificacao import nao_reconhecer
+        motivo = (request.POST.get('motivo') or '').strip()[:500]
+        nao_reconhecer(boleto, motivo, quem=up.email)
+        messages.success(request, f'{boleto}: dívida não reconhecida — o '
+                                  'prestador foi avisado por e-mail e o '
+                                  'boleto saiu da régua (fica na auditoria).')
     elif acao == 'despagar' and boleto.status == Boleto.Status.PAGO:
         # Clique errado no "Marcar PAGO": volta para APROVADO, sem e-mails.
         boleto.status = Boleto.Status.APROVADO
@@ -449,7 +460,8 @@ def boleto_acao(request, up, pk, acao):
         except Exception:
             novo = None
         bloqueado = (Boleto.Status.PAGO, Boleto.Status.SUBSTITUIDO,
-                     Boleto.Status.DESCARTADO, Boleto.Status.DUPLICADO)
+                     Boleto.Status.DESCARTADO, Boleto.Status.DUPLICADO,
+                     Boleto.Status.NAO_RECONHECIDO)
         if novo is None or novo <= 0:
             messages.error(request, 'Valor inválido. Escreva assim: 4.548,14')
         elif boleto.status in bloqueado:
@@ -610,6 +622,7 @@ def parciais_status(request, up):
                                     competencia=comp, extra=False)
               .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
                                    Boleto.Status.DESCARTADO,
+                                   Boleto.Status.NAO_RECONHECIDO,
                                    Boleto.Status.DUPLICADO])
               .order_by('criado_em'))
     ok = (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO,

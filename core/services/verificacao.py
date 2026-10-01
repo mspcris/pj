@@ -616,11 +616,12 @@ def _marcar(boleto, status):
                        detalhe=f'Boleto #{boleto.pk} → {status}')
 
 
-def _retirar_do_financeiro(boleto, motivo):
+def _retirar_do_financeiro(boleto, motivo, apagar_pdf=True):
     """Boleto que JÁ tinha ido ao financeiro saiu da aprovação (voltou para
     manual ou divergente): avisa a equipe@ para NÃO pagar o valor enviado
     antes, avisa o Cristiano e ZERA a trava, para que um reenvio futuro
-    (quando o valor estiver certo) saia como um pagamento novo e limpo."""
+    (quando o valor estiver certo) saia como um pagamento novo e limpo.
+    `apagar_pdf=False` mantém o PDF (dívida não reconhecida: é prova)."""
     if boleto.pagamento_enviado_em is None:
         return
     fatos = _fatos(boleto)
@@ -664,11 +665,11 @@ def _retirar_do_financeiro(boleto, motivo):
     # e este, já em "precisam de você", vira SUBSTITUÍDO.
     campos = ['pagamento_enviado_em', 'pagamento_enviado_valor']
     removidos = []
-    if boleto.arquivo:
+    if apagar_pdf and boleto.arquivo:
         removidos.append(boleto.nome_original
                          or boleto.arquivo.name.rsplit('/', 1)[-1])
         boleto.arquivo.delete(save=False)
-    if boleto.nota_fiscal:
+    if apagar_pdf and boleto.nota_fiscal:
         removidos.append(boleto.nota_fiscal_nome or 'nota fiscal')
         boleto.nota_fiscal.delete(save=False)
         boleto.nota_fiscal_nome = ''
@@ -684,6 +685,76 @@ def _retirar_do_financeiro(boleto, motivo):
     boleto.pagamento_enviado_em = None
     boleto.pagamento_enviado_valor = None
     boleto.save(update_fields=campos)
+
+
+def conferencia_nao_reconhecida(boleto, fatos, motivo=''):
+    """Bloco determinístico do e-mail de dívida não reconhecida: a mesma
+    conta do painel (combinado − descontos do mês = esperado), o motivo que
+    o admin escreveu e o aviso de que NÃO será pago."""
+    prest, posto = boleto.prestador, boleto.posto
+    combinado = svc_boletos.valor_esperado_para(prest, posto)  # cheio
+    esperado = boleto.valor_esperado
+    if esperado is None:
+        esperado = svc_boletos.valor_esperado_para(prest, posto,
+                                                   boleto.competencia)
+    partes = ['', 'Conferência da CAMIM:']
+    if combinado is not None:
+        partes.append(f'Valor combinado: R$ {_moeda(combinado)}')
+    for vale, n in svc_boletos.vales_aplicaveis(prest, posto,
+                                                boleto.competencia):
+        partes.append(f'Desconto: {vale.descricao} — parcela '
+                      f'{n}/{vale.parcelas_total} — '
+                      f'R$ {_moeda(vale.valor_parcela)}')
+    if esperado is not None:
+        partes.append(f'Valor esperado em {fatos["competencia"]}: '
+                      f'R$ {_moeda(esperado)}')
+    if motivo:
+        partes.append(f'Motivo: {motivo}')
+    partes += ['', 'Este boleto foi cancelado no nosso controle e NÃO será '
+               'pago. Se entender que a cobrança é devida, fale com o '
+               'Cristiano antes de emitir um novo boleto.']
+    return '\n'.join(partes)
+
+
+def nao_reconhecer(boleto, motivo, quem):
+    """Botão "Não reconheço esta dívida": a CAMIM não deve esse valor. O
+    boleto sai da régua (fica no banco, COM o PDF — é prova), o prestador
+    recebe o aviso com a conferência e o motivo e, se o boleto já tinha
+    ido ao financeiro, a equipe@ recebe o CANCELAMENTO. ÚNICO caminho
+    desse e-mail."""
+    motivo = (motivo or '').strip()[:500]
+    _retirar_do_financeiro(
+        boleto, 'dívida não reconhecida pela CAMIM'
+        + (f' — {motivo}' if motivo else ''), apagar_pdf=False)
+    boleto.status = Boleto.Status.NAO_RECONHECIDO
+    boleto.nao_reconhecido_em = timezone.now()
+    boleto.nao_reconhecido_motivo = motivo
+    boleto.save(update_fields=['status', 'nao_reconhecido_em',
+                               'nao_reconhecido_motivo'])
+    fatos = _fatos(boleto)
+    emails.enviar(
+        destinatarios_pj(boleto),
+        f'Dívida não reconhecida — {fatos["alvo"]} — '
+        f'{fatos["competencia"]}',
+        frases.corpo(
+            'nao_reconhecido', fatos,
+            instrucao_ia=('Escreva, em tom formal e cordial, para o '
+                          'prestador: a CAMIM NÃO reconhece esta dívida '
+                          '(o boleto informado nos fatos) — o boleto foi '
+                          'cancelado no nosso controle e NÃO será pago. '
+                          'Diga que a conferência (valor combinado, '
+                          'descontos e valor esperado) segue abaixo da '
+                          'assinatura e que, se entender que a cobrança é '
+                          'devida, deve falar com o Cristiano antes de '
+                          'emitir um novo boleto. NÃO cite números e NÃO '
+                          'invente motivos.'))
+        + dados_pj(boleto, fatos)
+        + conferencia_nao_reconhecida(boleto, fatos, motivo),
+        boleto=boleto, cc=cc_gerente(boleto))
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator=quem,
+        detalhe=f'Boleto #{boleto.pk}: dívida NÃO reconhecida — prestador '
+                'avisado' + (f' — motivo: {motivo}' if motivo else ''))
 
 
 def _para_manual(boleto, motivo):

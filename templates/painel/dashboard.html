@@ -362,6 +362,22 @@
           </form>
         </div>
       </details>
+      {% if b.status != 'PAGO' %}
+      <details class="corrigir">
+        <summary>🚫 Não reconheço esta dívida</summary>
+        <div class="corrigir-box">
+          <form method="post" action="{% url 'painel_boleto_acao' b.pk 'nao_reconhecer' %}"
+                onsubmit="return confirm('Cancelar este boleto e avisar o prestador que a CAMIM NÃO reconhece esta dívida?{% if b.pagamento_enviado_em %} Como JÁ foi ao financeiro, a equipe@ recebe um CANCELAMENTO automático.{% endif %}')">
+            {% csrf_token %}<input type="hidden" name="voltar" value="{{ request.get_full_path }}">
+            <label>Motivo (opcional — vai no e-mail ao prestador)</label>
+            <input name="motivo" maxlength="500" autocomplete="off"
+                   placeholder="ex.: o notebook deveria ter sido abatido neste mês">
+            <button class="btn mini vermelho" style="margin-top:8px">Cancelar o boleto e avisar o prestador</button>
+            <div class="sub" style="font-size:.72rem;margin-top:6px">O boleto sai da régua e fica na auditoria, com o PDF. O prestador recebe a conferência (combinado, descontos e valor esperado).</div>
+          </form>
+        </div>
+      </details>
+      {% endif %}
       {% endif %}
 
       <div class="acoes-row">

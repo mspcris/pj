@@ -80,7 +80,8 @@ def boletos(request):
         qs = (Boleto.objects
               .filter(prestador=prestador, competencia=competencia)
               .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
-                                   Boleto.Status.DESCARTADO]))
+                                   Boleto.Status.DESCARTADO,
+                                   Boleto.Status.NAO_RECONHECIDO]))
         return JsonResponse({'competencia': competencia.strftime('%Y-%m'),
                              'boletos': [_serializar(b) for b in qs]})
 
@@ -157,7 +158,9 @@ def nota(request, pk):
     boleto = (Boleto.objects
               .filter(pk=pk, prestador=up.prestador)
               .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
-                                   Boleto.Status.DESCARTADO]).first())
+                                   Boleto.Status.DESCARTADO,
+                                   Boleto.Status.NAO_RECONHECIDO])
+              .first())
     if boleto is None:
         return _erro('boleto não encontrado para este prestador', status=404)
 

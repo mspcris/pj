@@ -380,6 +380,10 @@ class Boleto(models.Model):
         SUBSTITUIDO = 'SUBSTITUIDO', 'Substituído por novo arquivo'
         DUPLICADO = 'DUPLICADO', 'Duplicado — competência já aprovada/paga'
         DESCARTADO = 'DESCARTADO', 'Descartado pelo admin'
+        # "Não reconheço esta dívida": o admin cancelou a cobrança e o
+        # prestador foi avisado por e-mail. Fica no banco, com o PDF.
+        NAO_RECONHECIDO = 'NAO_RECONHECIDO', ('Dívida não reconhecida — '
+                                               'prestador avisado')
 
     prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
                                   related_name='boletos')
@@ -406,6 +410,10 @@ class Boleto(models.Model):
     # quando e o porquê para o histórico (linha do tempo + auditoria).
     arquivo_removido_em = models.DateTimeField(null=True, blank=True)
     arquivo_removido_motivo = models.CharField(max_length=255, blank=True)
+    # "Não reconheço esta dívida": quando o admin cancelou a cobrança e o
+    # motivo que ele escreveu (vai no e-mail ao prestador e no histórico).
+    nao_reconhecido_em = models.DateTimeField(null=True, blank=True)
+    nao_reconhecido_motivo = models.CharField(max_length=500, blank=True)
     vencimento = models.DateField(null=True, blank=True)
     # Só o admin liga isto (cadastro direto): aceita o valor do boleto mesmo
     # diferente do combinado — único caminho para pagar valor MAIOR.
@@ -421,7 +429,7 @@ class Boleto(models.Model):
     # Vai no bloco de dados do e-mail p/ o financeiro.
     observacao = models.TextField(blank=True)
 
-    status = models.CharField(max_length=14, choices=Status.choices,
+    status = models.CharField(max_length=16, choices=Status.choices,
                               default=Status.RECEBIDO)
     # Quando o financeiro respondeu "recebido" ao e-mail de pagamento
     fin_recebido_em = models.DateTimeField(null=True, blank=True)
@@ -518,6 +526,12 @@ class Boleto(models.Model):
                 'icone': '📎', 'titulo': 'Boleto retirado — Robson deve reanexar',
                 'quando': self.arquivo_removido_em,
                 'detalhe': self.arquivo_removido_motivo})
+        if self.nao_reconhecido_em:
+            ev.append({
+                'icone': '🚫',
+                'titulo': 'Dívida não reconhecida — prestador avisado',
+                'quando': self.nao_reconhecido_em,
+                'detalhe': self.nao_reconhecido_motivo})
         ev.sort(key=lambda e: e['quando'])
         return ev
 

@@ -9,7 +9,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from .models import (Boleto, Contrato, EmailLog, Posto, Prestador, PrestadorPosto,
-                     UsuarioPermitido)
+                     UsuarioPermitido, Vale)
 from .services import verificacao
 
 User = get_user_model()
@@ -2255,3 +2255,109 @@ class EmailsNaoReconhecidosTest(BaseSetup):
         self.login_pj()
         r = self.client.get('/painel/emails/nao-reconhecidos/')
         self.assertEqual(r.status_code, 302)
+
+
+class NaoReconhecerTest(BaseSetup):
+    """Botão "Não reconheço esta dívida" (01/10/2026: boleto da Amanda veio
+    cheio, sem abater o notebook). Cancela a cobrança, avisa o prestador
+    por e-mail com a conferência e o motivo e, se o boleto JÁ tinha ido ao
+    financeiro, manda o CANCELAMENTO — sem apagar o PDF (é prova)."""
+
+    def setUp(self):
+        super().setUp()
+        # Anchieta combinado 1.500,00; notebook 1.499,60 × 4 (jul→out):
+        # em 10/2026 o esperado é R$ 0,40 — e o boleto veio cheio.
+        Vale.objects.create(prestador=self.prestador, posto=self.posto1,
+                            descricao='Notebook Amanda (pago pela Camim)',
+                            valor_parcela=Decimal('1499.60'),
+                            parcelas_total=4,
+                            primeira_competencia=date(2026, 7, 1))
+
+    def _boleto(self, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=date(2026, 10, 1), arquivo=_pdf(),
+                    status=Boleto.Status.DIVERGENTE,
+                    valor_extraido=Decimal('632.64'),
+                    valor_esperado=Decimal('0.40'),
+                    enviado_por='atendimento@empresa.com.br')
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    def _avisos_pj(self, m_mail):
+        return [c for c in m_mail.call_args_list
+                if 'pj@empresa.com.br' in c.args[0]]
+
+    @mock.patch('core.services.ia.redigir_email',
+                side_effect=RuntimeError('sem IA no teste'))
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_cancela_e_avisa_o_prestador_com_motivo_e_conferencia(
+            self, m_mail, _m_ia):
+        b = self._boleto()
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=todos')
+        self.assertContains(resp, f'/painel/boleto/{b.pk}/nao_reconhecer/')
+        resp = self.client.post(
+            f'/painel/boleto/{b.pk}/nao_reconhecer/',
+            {'motivo': 'o notebook deveria ter sido abatido neste mês'})
+        self.assertEqual(resp.status_code, 302)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.NAO_RECONHECIDO)
+        self.assertEqual(b.nao_reconhecido_motivo,
+                         'o notebook deveria ter sido abatido neste mês')
+        self.assertIsNotNone(b.nao_reconhecido_em)
+        self.assertTrue(b.arquivo)  # o PDF fica: é prova
+        self.assertIn('não reconhecida', b.linha_do_tempo[-1]['titulo'])
+        avisos = self._avisos_pj(m_mail)
+        self.assertEqual(len(avisos), 1)
+        dest, assunto, corpo = avisos[0].args[:3]
+        self.assertIn('atendimento@empresa.com.br', dest)  # quem enviou
+        self.assertIn('não reconhecida', assunto.lower())
+        self.assertIn('não reconhece', corpo)
+        self.assertIn('o notebook deveria ter sido abatido neste mês', corpo)
+        self.assertIn('632,64', corpo)            # valor do boleto
+        self.assertIn('1.500,00', corpo)          # combinado cheio
+        self.assertIn('Notebook Amanda', corpo)   # o desconto do mês
+        self.assertIn('4/4', corpo)
+        self.assertIn('0,40', corpo)              # valor esperado
+        self.assertIn('NÃO será pago', corpo)
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+        # some da régua do painel (fica no banco, auditável)
+        resp = self.client.get('/painel/?m=2026-10&vista=todos')
+        self.assertNotContains(resp, f'/painel/boleto/{b.pk}/')
+
+    @mock.patch('core.services.ia.redigir_email',
+                side_effect=RuntimeError('sem IA no teste'))
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_ja_no_financeiro_manda_cancelamento_e_guarda_o_pdf(
+            self, m_mail, _m_ia):
+        b = self._boleto(status=Boleto.Status.APROVADO,
+                         valor_esperado=Decimal('632.64'),
+                         pagamento_enviado_em=timezone.now(),
+                         pagamento_enviado_valor=Decimal('632.64'))
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/nao_reconhecer/',
+                         {'motivo': ''})
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.NAO_RECONHECIDO)
+        self.assertTrue(b.arquivo)                 # PDF fica (é prova)
+        self.assertIsNone(b.pagamento_enviado_em)  # trava zerada
+        cancel = [c for c in m_mail.call_args_list
+                  if c.args[0] == 'equipe@camim.com.br']
+        self.assertEqual(len(cancel), 1)
+        self.assertIn('CANCELAMENTO', cancel[0].args[1])
+        self.assertIn('632,64', cancel[0].args[2])
+        self.assertEqual(len(self._avisos_pj(m_mail)), 1)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_pago_nao_pode_ser_nao_reconhecido(self, m_mail):
+        b = self._boleto(status=Boleto.Status.PAGO, pago_em=timezone.now())
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=todos')
+        self.assertContains(resp, f'/painel/boleto/{b.pk}/')  # card está lá
+        self.assertNotContains(resp,
+                               f'/painel/boleto/{b.pk}/nao_reconhecer/')
+        self.client.post(f'/painel/boleto/{b.pk}/nao_reconhecer/',
+                         {'motivo': 'x'})
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.PAGO)
+        m_mail.assert_not_called()
