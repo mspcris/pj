@@ -2287,11 +2287,9 @@ class NaoReconhecerTest(BaseSetup):
         return [c for c in m_mail.call_args_list
                 if 'pj@empresa.com.br' in c.args[0]]
 
-    @mock.patch('core.services.ia.redigir_email',
-                side_effect=RuntimeError('sem IA no teste'))
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_cancela_e_avisa_o_prestador_com_motivo_e_conferencia(
-            self, m_mail, _m_ia):
+            self, m_mail):
         b = self._boleto()
         self.login_admin()
         resp = self.client.get('/painel/?m=2026-10&vista=todos')
@@ -2325,11 +2323,9 @@ class NaoReconhecerTest(BaseSetup):
         resp = self.client.get('/painel/?m=2026-10&vista=todos')
         self.assertNotContains(resp, f'/painel/boleto/{b.pk}/')
 
-    @mock.patch('core.services.ia.redigir_email',
-                side_effect=RuntimeError('sem IA no teste'))
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_ja_no_financeiro_manda_cancelamento_e_guarda_o_pdf(
-            self, m_mail, _m_ia):
+            self, m_mail):
         b = self._boleto(status=Boleto.Status.APROVADO,
                          valor_esperado=Decimal('632.64'),
                          pagamento_enviado_em=timezone.now(),
@@ -2361,3 +2357,21 @@ class NaoReconhecerTest(BaseSetup):
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.PAGO)
         m_mail.assert_not_called()
+
+    @mock.patch('core.services.ia.redigir_email',
+                return_value='Prezada Amanda,\n\nO boleto foi cancelado em '
+                             'nossos registros.\n\nAtenciosamente,\nCristiano')
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_frase_decisiva_nao_depende_da_ia(self, m_mail, m_ia):
+        """01/10/2026: com a IA no ar, o e-mail da Amanda saiu SEM a frase
+        "não reconhece" e com um bloco de dados inventado. Aviso formal é
+        texto fixo: a IA nem é chamada."""
+        b = self._boleto()
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/nao_reconhecer/',
+                         {'motivo': 'x'})
+        corpo = self._avisos_pj(m_mail)[0].args[2]
+        m_ia.assert_not_called()
+        self.assertIn('não reconhece', corpo)
+        # a conferência vem separada do bloco de dados, não colada nele
+        self.assertIn('-' * 40 + '\nConferência da CAMIM:', corpo)

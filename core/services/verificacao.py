@@ -697,7 +697,7 @@ def conferencia_nao_reconhecida(boleto, fatos, motivo=''):
     if esperado is None:
         esperado = svc_boletos.valor_esperado_para(prest, posto,
                                                    boleto.competencia)
-    partes = ['', 'Conferência da CAMIM:']
+    partes = ['', '-' * 40, 'Conferência da CAMIM:']
     if combinado is not None:
         partes.append(f'Valor combinado: R$ {_moeda(combinado)}')
     for vale, n in svc_boletos.vales_aplicaveis(prest, posto,
@@ -736,18 +736,10 @@ def nao_reconhecer(boleto, motivo, quem):
         destinatarios_pj(boleto),
         f'Dívida não reconhecida — {fatos["alvo"]} — '
         f'{fatos["competencia"]}',
-        frases.corpo(
-            'nao_reconhecido', fatos,
-            instrucao_ia=('Escreva, em tom formal e cordial, para o '
-                          'prestador: a CAMIM NÃO reconhece esta dívida '
-                          '(o boleto informado nos fatos) — o boleto foi '
-                          'cancelado no nosso controle e NÃO será pago. '
-                          'Diga que a conferência (valor combinado, '
-                          'descontos e valor esperado) segue abaixo da '
-                          'assinatura e que, se entender que a cobrança é '
-                          'devida, deve falar com o Cristiano antes de '
-                          'emitir um novo boleto. NÃO cite números e NÃO '
-                          'invente motivos.'))
+        # Aviso formal: texto FIXO (modelos de frases.py), sem IA — em
+        # 01/10/2026 a IA omitiu o "não reconhece" e inventou um bloco de
+        # dados no e-mail da Amanda.
+        frases.corpo('nao_reconhecido', fatos)
         + dados_pj(boleto, fatos)
         + conferencia_nao_reconhecida(boleto, fatos, motivo),
         boleto=boleto, cc=cc_gerente(boleto))
