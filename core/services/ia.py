@@ -64,7 +64,22 @@ def _chamar(mensagens, temperature=0.2, json_mode=False, max_tokens=1200):
                             'retentando', tentativa + 1)
                 continue
             raise
-        conteudo = resp.choices[0].message.content or ''
+        escolha = resp.choices[0]
+        conteudo = escolha.message.content or ''
+        # Resposta INCOMPLETA em texto livre: o provedor caiu no meio
+        # ("error") ou estourou o limite ("length") e devolveu só um pedaço
+        # — 01/10/2026: 'Prezada equipe do setor finance' foi aceito como
+        # texto inteiro e e-mails saíram cortados. Retenta; se persistir,
+        # falha (quem chama usa o modelo pronto). No modo JSON o próprio
+        # json.loads abaixo já barra o pedaço.
+        if not json_mode and escolha.finish_reason in ('error', 'length'):
+            if not ultima:
+                log.warning('IA devolveu resposta incompleta (%s, tentativa '
+                            '%s); retentando', escolha.finish_reason,
+                            tentativa + 1)
+                continue
+            raise RuntimeError('IA devolveu resposta incompleta '
+                               f'({escolha.finish_reason})')
         if json_mode and not ultima:
             try:
                 json.loads(conteudo)
@@ -242,24 +257,33 @@ def redigir_email(instrucao, fatos):
     corpo = limpar_corpo(corpo)
     if not corpo or len(corpo) < 30:
         raise RuntimeError('IA devolveu corpo vazio/curto demais')
+    if not any(ln.strip().startswith('Cristiano')
+               for ln in corpo.splitlines()):
+        # Cortado ou fora do padrão: sem a assinatura o texto não sai —
+        # quem chama usa o modelo pronto (que é assinado).
+        raise RuntimeError('IA devolveu corpo sem a assinatura')
     return corpo
 
 
 def limpar_corpo(corpo):
     """Tira do texto da IA qualquer linha que seja JSON/dados (04/09/2026:
     o e-mail de pagamento da Meriti saiu com o dict de fatos colado no
-    corpo). Só prosa passa. E CORTA tudo a partir de um separador ou bloco
-    em markdown (01/10/2026: o gemini-2.5-flash passou a colar um
-    "**Dados para pagamento:**" depois da assinatura, duplicando o bloco
-    oficial — dado de pagamento é só o que o sistema escreve)."""
+    corpo). Só prosa passa. E o e-mail TERMINA NA ASSINATURA (01/10/2026:
+    o gemini-2.5-flash passou a colar, depois dela, um bloco "Dados para
+    pagamento" — com ou sem markdown — duplicando o bloco oficial; dado de
+    pagamento é só o que o sistema escreve)."""
     limpas = []
     for ln in (corpo or '').splitlines():
         s = ln.strip()
-        if re.fullmatch(r'[-*_]{3,}', s) or re.match(r'([-*]\s+)?\*\*', s):
-            break
         if (s.startswith('{') or s.startswith('```')
                 or re.search(r'"\w+"\s*:\s*"', s)):
             continue
-        limpas.append(ln)
-    # negrito solto no meio da prosa: o e-mail é texto puro
-    return re.sub(r'\*\*([^*\n]+)\*\*', r'\1', '\n'.join(limpas)).strip()
+        # negrito é markdown: o e-mail é texto puro
+        limpas.append(re.sub(r'\*\*([^*\n]*)\*\*', r'\1', ln))
+    # o que vier depois da última linha que começa com "Cristiano" (a
+    # assinatura) é bloco inventado
+    fim = max((i for i, ln in enumerate(limpas)
+               if ln.strip().startswith('Cristiano')), default=None)
+    if fim is not None:
+        limpas = limpas[:fim + 1]
+    return '\n'.join(limpas).strip()

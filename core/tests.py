@@ -2236,6 +2236,76 @@ class AprovacaoManualTest(BaseSetup):
         self.assertTrue(limpo2.endswith('Cristiano — CAMIM'))
         self.assertNotIn('Salliseg', limpo2)
 
+    def test_corpo_da_ia_termina_na_assinatura(self):
+        """01/10/2026: o gemini também cola o bloco de dados SEM markdown
+        ("Valor: R$ …") depois da assinatura. O e-mail termina na última
+        linha que começa com "Cristiano"; o resto é descartado."""
+        from core.services.ia import limpar_corpo
+        sujo = ('Prezados,\n\nSolicito o pagamento do boleto anexo.\n\n'
+                'Atenciosamente,\nCristiano — CAMIM\n\n'
+                'Prestador: RABISCO\nCompetência: setembro/2026\n'
+                'Valor: R$ 1.712,50')
+        limpo = limpar_corpo(sujo)
+        self.assertTrue(limpo.endswith('Cristiano — CAMIM'))
+        self.assertNotIn('Valor:', limpo)
+        # linha em negrito no MEIO do texto não corta nada: só perde os **
+        meio = ('Prezados,\n\nSolicito o pagamento do boleto anexo,\n'
+                '**no valor de R$ 10,00**, já conferido.\n\n'
+                'Atenciosamente,\nCristiano — CAMIM')
+        self.assertEqual(limpar_corpo(meio), meio.replace('**', ''))
+
+    def _ia_falsa(self, *respostas):
+        """Cliente de IA de mentira: cada resposta é (texto, motivo)."""
+        from types import SimpleNamespace
+        cli = mock.Mock()
+        cli.chat.completions.create.side_effect = [
+            SimpleNamespace(choices=[SimpleNamespace(
+                finish_reason=motivo,
+                message=SimpleNamespace(content=texto))])
+            for texto, motivo in respostas]
+        return cli
+
+    def test_resposta_incompleta_da_ia_e_retentada(self):
+        """01/10/2026: o provedor caiu no meio da geração (finish_reason
+        "error") e o pedaço 'Prezada equipe do setor finance' foi aceito
+        como texto inteiro — e-mails saíram cortados. Agora retenta."""
+        from core.services import ia
+        completo = ('Prezada equipe,\n\nFavor pagar o boleto anexo.\n\n'
+                    'Atenciosamente,\nCristiano — CAMIM')
+        cli = self._ia_falsa(('Prezada equipe do setor finance', 'error'),
+                             (completo, 'stop'))
+        with mock.patch('core.services.ia._get_cliente', return_value=cli):
+            texto = ia.redigir_email('Peça o pagamento.', {'prestador': 'X'})
+        self.assertEqual(texto, completo)
+        self.assertEqual(cli.chat.completions.create.call_count, 2)
+
+    def test_ia_sempre_incompleta_levanta_e_cai_no_modelo_pronto(self):
+        from core.services import frases, ia
+        cortado = ('Prezada equipe do setor finance', 'error')
+        cli = self._ia_falsa(cortado, cortado, cortado)
+        with mock.patch('core.services.ia._get_cliente', return_value=cli):
+            with self.assertRaises(RuntimeError):
+                ia.redigir_email('Peça o pagamento.', {'prestador': 'X'})
+        # quem chama (frases.corpo) usa o modelo pronto — assinado
+        cli = self._ia_falsa(cortado, cortado, cortado)
+        fatos = {'prestador': 'X', 'alvo': 'Anchieta',
+                 'competencia': 'outubro/2026', 'valor': '10,00'}
+        with mock.patch('core.services.ia._get_cliente', return_value=cli):
+            corpo = frases.corpo('aprovado_pagador', fatos,
+                                 instrucao_ia='Peça o pagamento.')
+        self.assertIn('Cristiano', corpo)
+
+    def test_texto_da_ia_sem_assinatura_nao_sai(self):
+        """Texto "completo" (stop) mas sem a assinatura do Cristiano está
+        fora do padrão: redigir_email levanta e vale o modelo pronto."""
+        from core.services import ia
+        cli = self._ia_falsa(
+            ('Prezada equipe,\n\nPor favor, providenciem o pagamento do '
+             'boleto anexo, já conferido.', 'stop'))
+        with mock.patch('core.services.ia._get_cliente', return_value=cli):
+            with self.assertRaises(RuntimeError):
+                ia.redigir_email('Peça o pagamento.', {'prestador': 'X'})
+
 
 class EmailsNaoReconhecidosTest(BaseSetup):
     """Aba só de leitura: e-mails SEM_PRESTADOR do período (padrão: mês
