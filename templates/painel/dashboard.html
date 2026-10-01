@@ -201,7 +201,15 @@
 
       <div class="bcard-vals">
         <div><span class="rot">Combinado</span>
-          <span class="val">R$ {{ l.valor|default:"—" }}</span></div>
+          {% if l.vale_total %}
+          <span class="val">R$ {{ l.combinado_bruto|default:"—" }}</span>
+          <div class="sub" style="font-size:.72rem;color:#7a4b00;line-height:1.35;margin-top:2px">
+            {% for v in l.vales %}− vale R$ {{ v.valor }} <span title="{{ v.descricao }}">({{ v.descricao|truncatechars:26 }} · {{ v.n }}/{{ v.total }})</span><br>{% endfor %}
+            = esperado <strong>R$ {{ l.valor|default:"—" }}</strong>
+          </div>
+          {% else %}
+          <span class="val">R$ {{ l.valor|default:"—" }}</span>
+          {% endif %}</div>
         <div><span class="rot">Boleto</span>
           <span class="val">{% if b %}{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
               onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }} — {{ b.competencia|date:'m/Y' }}')">📎 {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>{% elif b.valor_extraido %}🔢 R$ {{ b.valor_extraido }} <span class="sub" style="font-size:.72rem">(linha digitável)</span>{% else %}🔢 linha digitável{% endif %}{% if b.nota_fiscal %} <a href="{% url 'baixar_arquivo' 'nf' b.pk %}" title="Nota fiscal"

@@ -133,6 +133,16 @@ def dashboard(request, up):
             })
             l = linhas[-1]
             from .services.verificacao import _moeda
+            # Vale(s) que abatem a linha neste mês — a conta vai no card:
+            # combinado cheio − vale = esperado (o 'valor' já é o líquido).
+            vales_linha = svc_boletos.vales_aplicaveis(prestador, posto, mes)
+            l['vale_total'] = sum((v.valor_parcela for v, _ in vales_linha),
+                                  Decimal('0'))
+            l['vales'] = [{'descricao': v.descricao, 'valor': v.valor_parcela,
+                           'n': n, 'total': v.parcelas_total}
+                          for v, n in vales_linha]
+            l['combinado_bruto'] = (valor + l['vale_total']
+                                    if valor is not None else None)
             if l['diferenca'] is not None:
                 d = l['diferenca']
                 l['diferenca_txt'] = (('+' if d > 0 else '−') + 'R$ '
