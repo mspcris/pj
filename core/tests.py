@@ -2401,3 +2401,89 @@ class NaoReconhecerTest(BaseSetup):
         self.assertIn('não reconhece', corpo)
         # a conferência vem separada do bloco de dados, não colada nele
         self.assertIn('-' * 40 + '\nConferência da CAMIM:', corpo)
+
+
+class CanceladosPainelTest(BaseSetup):
+    """Quadro "cancelados" do painel (01/10/2026): o Cristiano cancelou o
+    boleto da Amanda e perguntou "e se ela questionar e eu quiser ver?".
+    Lista os boletos NÃO RECONHECIDOS e os EXCLUÍDOS do mês, com PDF,
+    motivo e o botão Restaurar (que de manhã fez falta no boleto do
+    Robson, excluído por engano)."""
+
+    def _boleto(self, status, posto=None, **kw):
+        base = dict(prestador=self.prestador, posto=posto or self.posto1,
+                    competencia=date(2026, 10, 1), arquivo=_pdf(),
+                    status=status, valor_extraido=Decimal('632.64'),
+                    valor_esperado=Decimal('1500.00'))
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    def test_quadro_conta_nao_reconhecidos_e_excluidos(self):
+        self._boleto(Boleto.Status.NAO_RECONHECIDO)
+        self._boleto(Boleto.Status.DESCARTADO, posto=self.posto2)
+        self._boleto(Boleto.Status.SUBSTITUIDO)  # automático: não conta
+        self._boleto(Boleto.Status.DUPLICADO)    # automático: não conta
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10')
+        self.assertContains(resp, 'vista=cancelados')
+        self.assertEqual(resp.context['resumo']['cancelados'], 2)
+
+    def test_vista_cancelados_mostra_pdf_motivo_e_restaurar(self):
+        nr = self._boleto(Boleto.Status.NAO_RECONHECIDO,
+                          nao_reconhecido_em=timezone.now(),
+                          nao_reconhecido_motivo='notebook não abatido')
+        ex = self._boleto(Boleto.Status.DESCARTADO, posto=self.posto2)
+        from .models import AuditLog
+        AuditLog.objects.create(
+            evento=AuditLog.Evento.STATUS,
+            ator_email='cristiano@camim.com.br',
+            detalhe=f'Ação "descartar" no boleto #{ex.pk}')
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=cancelados')
+        datas = {b.pk: b.cancelado_em for b in resp.context['cancelados']}
+        self.assertIsNotNone(datas[nr.pk])  # do próprio boleto
+        self.assertIsNotNone(datas[ex.pk])  # excluído: vem da auditoria
+        for b in (nr, ex):
+            self.assertContains(resp, f'/arquivo/boleto/{b.pk}/')
+            self.assertContains(resp, f'/painel/boleto/{b.pk}/restaurar/')
+        self.assertContains(resp, 'notebook não abatido')
+        self.assertContains(resp, 'Dívida não reconhecida')
+        self.assertContains(resp, 'Descartado pelo admin')
+        self.assertNotContains(resp, 'Nada nesta situação')
+        # nas outras vistas o cancelado continua fora da régua
+        resp = self.client.get('/painel/?m=2026-10&vista=todos')
+        self.assertNotContains(resp, f'/painel/boleto/{nr.pk}/restaurar/')
+
+    def test_vista_cancelados_respeita_filtro_de_posto(self):
+        nr = self._boleto(Boleto.Status.NAO_RECONHECIDO)                # A
+        ex = self._boleto(Boleto.Status.DESCARTADO, posto=self.posto2)  # B
+        self.login_admin()
+        resp = self.client.get(
+            f'/painel/?m=2026-10&vista=cancelados&posto={self.posto2.pk}')
+        self.assertEqual(resp.context['resumo']['cancelados'], 1)
+        self.assertContains(resp, f'/painel/boleto/{ex.pk}/restaurar/')
+        self.assertNotContains(resp, f'/painel/boleto/{nr.pk}/restaurar/')
+
+    @mock.patch('core.services.verificacao.processar_async')
+    def test_restaurar_devolve_para_verificacao(self, m_proc):
+        self.login_admin()
+        for status in (Boleto.Status.NAO_RECONHECIDO,
+                       Boleto.Status.DESCARTADO):
+            b = self._boleto(status, verificado_em=timezone.now(),
+                             tentativas=3)
+            resp = self.client.post(f'/painel/boleto/{b.pk}/restaurar/')
+            self.assertEqual(resp.status_code, 302)
+            b.refresh_from_db()
+            self.assertEqual(b.status, Boleto.Status.RECEBIDO)
+            self.assertEqual(b.tentativas, 0)
+            self.assertIsNone(b.valor_esperado)  # recalcula na verificação
+            m_proc.assert_called_with(b.pk)
+
+    @mock.patch('core.services.verificacao.processar_async')
+    def test_restaurar_so_vale_para_boleto_cancelado(self, m_proc):
+        b = self._boleto(Boleto.Status.APROVADO)
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/restaurar/')
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        m_proc.assert_not_called()

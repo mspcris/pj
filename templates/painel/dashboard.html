@@ -183,14 +183,64 @@
      href="?m={{ mes|date:'Y-m' }}&vista=pagos{{ qs_filtro }}">
     <div class="num">{{ resumo.pagos }}</div>
     <div class="rot">pagos</div></a>
+  <a class="kpi{% if vista == 'cancelados' %} ativa{% endif %}"
+     href="?m={{ mes|date:'Y-m' }}&vista=cancelados{{ qs_filtro }}">
+    <div class="num">{{ resumo.cancelados }}</div>
+    <div class="rot">cancelados</div></a>
 </div>
 <div style="margin:-6px 0 14px;font-size:.85rem;color:var(--cinza)">
-  Mostrando: <strong>{% if vista == 'pagamento' %}enviados p/ pagamento{% elif vista == 'sem_boleto' %}sem boleto{% elif vista == 'atencao' %}precisam de você{% elif vista == 'pagos' %}pagos{% else %}todas as situações{% endif %}</strong>
+  Mostrando: <strong>{% if vista == 'pagamento' %}enviados p/ pagamento{% elif vista == 'sem_boleto' %}sem boleto{% elif vista == 'atencao' %}precisam de você{% elif vista == 'pagos' %}pagos{% elif vista == 'cancelados' %}cancelados{% else %}todas as situações{% endif %}</strong>
   {% if vista != 'todos' %}· <a href="?m={{ mes|date:'Y-m' }}&vista=todos{{ qs_filtro }}">ver todos</a>{% endif %}
 </div>
 
 <div class="card">
   <div class="lista-cards">
+    {% if vista == 'cancelados' %}
+    {% for b in cancelados %}
+    <div class="bcard">
+      <div class="nome"><a href="{% url 'painel_prestador' b.prestador.pk %}">{{ b.prestador.nome }}</a></div>
+      <div class="meta">{% if b.prestador.contato != b.prestador.nome %}👤 {{ b.prestador.contato }} · {% endif %}🏥 {{ b.posto_efetivo|default:"(sem posto)" }}</div>
+
+      <div class="bcard-vals">
+        <div><span class="rot">Boleto</span>
+          <span class="val">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
+              onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }} — {{ b.competencia|date:'m/Y' }}')">📎 {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>{% elif b.valor_extraido %}R$ {{ b.valor_extraido }} <span class="sub" style="font-size:.72rem">(sem PDF)</span>{% else %}—{% endif %}{% if b.nota_fiscal %} <a href="{% url 'baixar_arquivo' 'nf' b.pk %}" title="Nota fiscal"
+              onclick="return abrirPdf(this.href, 'NF — {{ b.prestador.nome|escapejs }}')">🧾</a>{% endif %}</span></div>
+        <div><span class="rot">Cancelado em</span>
+          <span class="val">{% if b.cancelado_em %}{{ b.cancelado_em|date:"d/m/Y H:i" }}{% else %}—{% endif %}</span></div>
+      </div>
+
+      <div class="bcard-sit">
+        <span class="chip {{ b.status }}">{{ b.get_status_display }}</span>
+        {% if b.nao_reconhecido_motivo %}<div class="sub" style="font-size:.78rem;margin-top:4px">Motivo: {{ b.nao_reconhecido_motivo }}</div>{% endif %}
+      </div>
+
+      {% if b.linha_do_tempo %}
+      <details class="hist">
+        <summary>🕑 Histórico da comunicação</summary>
+        <ul class="tl">
+          {% for ev in b.linha_do_tempo %}
+          <li><span class="ic">{{ ev.icone }}</span>
+            <div><span class="tt">{{ ev.titulo }}{% if ev.valor %} — R$ {{ ev.valor }}{% endif %}</span><br>
+              <span class="qd">{{ ev.quando|date:"d/m/Y H:i" }}{% if ev.detalhe %} · {{ ev.detalhe }}{% endif %}</span></div></li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% endif %}
+
+      <div class="acoes-row">
+        <a class="btn mini claro" title="E-mails enviados deste prestador"
+           href="{% url 'painel_emails' %}?prestador={{ b.prestador.pk }}">✉️ E-mails enviados</a>
+        <form method="post" action="{% url 'painel_boleto_acao' b.pk 'restaurar' %}"
+              onsubmit="return confirm('Restaurar este boleto? Ele volta para a verificação — se o valor conferir, segue para pagamento.')">
+          {% csrf_token %}<input type="hidden" name="voltar" value="{{ request.get_full_path }}">
+          <button class="btn mini dourado">↩ Restaurar</button></form>
+      </div>
+    </div>
+    {% empty %}
+    <div class="sub" style="padding:10px">Nenhum boleto cancelado neste mês.</div>
+    {% endfor %}
+    {% else %}
     {% for l in linhas %}
     {% if l.pj_resumo %}{% ifchanged l.prestador.pk %}{% if not forloop.first %}</div></details>{% endif %}
     <details class="pj-grupo"><summary><span>{{ l.prestador.nome }}</span> — <strong>R$ {{ l.pj_resumo.total }}</strong> <span class="pj-sub">{{ l.pj_resumo.n }} posto{{ l.pj_resumo.n|pluralize }} {{ l.pj_resumo.suf }} · {{ l.pj_resumo.postos }}</span></summary><div class="pj-corpo">{% endifchanged %}{% endif %}
@@ -424,6 +474,7 @@
     <div class="sub" style="padding:10px">{% if vista == 'todos' %}Nenhum prestador ativo. Comece cadastrando em
       <a href="{% url 'painel_prestadores' %}">Prestadores</a>.{% else %}Nada nesta situação neste mês. Toque em outro quadro acima — ou veja <a href="?m={{ mes|date:'Y-m' }}&vista=todos{{ qs_filtro }}">todos</a>.{% endif %}</div>
     {% endfor %}
+    {% endif %}
   </div>
 </div>
 

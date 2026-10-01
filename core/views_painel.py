@@ -194,6 +194,29 @@ def dashboard(request, up):
                                b.posto_efetivo.pk if b.posto_efetivo
                                else None)]
 
+    # Quadro "cancelados": o que o admin tirou da régua — dívida NÃO
+    # reconhecida e excluídos (substituído/duplicado são automáticos e
+    # ficam de fora). Continuam no banco, com o PDF: dá para ver e
+    # restaurar.
+    cancelados = [
+        b for b in (Boleto.objects
+                    .filter(competencia=mes,
+                            status__in=[Boleto.Status.NAO_RECONHECIDO,
+                                        Boleto.Status.DESCARTADO])
+                    .select_related('prestador', 'posto',
+                                    'prestador__posto_cobranca')
+                    .order_by('-pk'))
+        if bate(b.prestador_id,
+                b.posto_efetivo.pk if b.posto_efetivo else None)]
+    for b in cancelados:
+        b.cancelado_em = b.nao_reconhecido_em
+        if b.cancelado_em is None:  # excluído: a data está na auditoria
+            a = (AuditLog.objects
+                 .filter(detalhe__regex=r'^Ação "descartar" no boleto '
+                                        rf'#{b.pk}(\D|$)')
+                 .order_by('-pk').first())
+            b.cancelado_em = a.criado_em if a else None
+
     aprov = (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO,
              Boleto.Status.PAGO)
     previsto = sum((l['valor'] for l in linhas if l['valor'] is not None),
@@ -265,6 +288,7 @@ def dashboard(request, up):
         if b.status in (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO))
     resumo['pagos'] += sum(1 for b in (extras + parciais_mes)
                            if b.status == Boleto.Status.PAGO)
+    resumo['cancelados'] = len(cancelados)
 
     # Os 4 quadros viram FILTROS da régua. Por padrão o painel abre na
     # situação "enviados p/ pagamento" — o que o Cristiano acompanha no dia a
@@ -291,7 +315,8 @@ def dashboard(request, up):
     for l in linhas:
         l['categoria'] = _categoria(l)
     vista = request.GET.get('vista', 'pagamento')
-    if vista not in ('sem_boleto', 'atencao', 'pagamento', 'pagos', 'todos'):
+    if vista not in ('sem_boleto', 'atencao', 'pagamento', 'pagos', 'todos',
+                     'cancelados'):
         vista = 'pagamento'
     linhas_vista = (linhas if vista == 'todos'
                     else [l for l in linhas if l['categoria'] == vista])
@@ -340,7 +365,8 @@ def dashboard(request, up):
         'parciais_mes': parciais_mes,
         'pendentes_baixo': len(parciais_mes) + len(fora_da_regua)
                            + len(extras),
-        'fora_da_regua': fora_da_regua, 'resumo': resumo, 'up': up})
+        'fora_da_regua': fora_da_regua, 'resumo': resumo,
+        'cancelados': cancelados, 'up': up})
 
 
 @admin_required
@@ -415,6 +441,21 @@ def boleto_acao(request, up, pk, acao):
         messages.success(request, f'{boleto}: dívida não reconhecida — o '
                                   'prestador foi avisado por e-mail e o '
                                   'boleto saiu da régua (fica na auditoria).')
+    elif acao == 'restaurar' and boleto.status in (
+            Boleto.Status.DESCARTADO, Boleto.Status.NAO_RECONHECIDO):
+        # Desfaz o cancelamento (quadro "cancelados"): volta para a
+        # verificação com o esperado RECALCULADO (vale/valor podem ter
+        # mudado desde então) e sem repetir o e-mail de "recebemos".
+        boleto.status = Boleto.Status.RECEBIDO
+        boleto.tentativas = 0
+        boleto.verificado_em = None
+        boleto.valor_esperado = None
+        boleto.save(update_fields=['status', 'tentativas', 'verificado_em',
+                                   'valor_esperado'])
+        from .services.verificacao import processar_async
+        processar_async(boleto.pk)
+        messages.success(request, f'{boleto} restaurado — voltou para a '
+                                  'verificação.')
     elif acao == 'despagar' and boleto.status == Boleto.Status.PAGO:
         # Clique errado no "Marcar PAGO": volta para APROVADO, sem e-mails.
         boleto.status = Boleto.Status.APROVADO
