@@ -227,8 +227,26 @@ class Command(BaseCommand):
             message_id=message_id, remetente=remetente, assunto=assunto,
             resultado=EmailRecebido.Resultado.FIN, detalhe=detalhe)
 
+    @staticmethod
+    def _dedup_id(msg):
+        """Chave de dedupe tirada do Message-ID. Outlook/Exchange emite
+        Message-ID que COLIDE entre e-mails distintos (prefixo "<!&!AAAA..."):
+        o do Caio (propagacaodigital) se repetia todo mês, então o robô
+        jogava fora o boleto novo achando que já tinha visto. Para esses,
+        o Message-ID sozinho não identifica o e-mail — junta Data + assunto
+        para desempatar. E-mails normais seguem com o Message-ID puro, então
+        nada do histórico é reprocessado."""
+        mid = (msg.get('Message-ID') or '').strip()
+        if not mid:
+            return ''
+        if mid.startswith('<!&!'):
+            extra = ((msg.get('Date') or '').strip() + '|' +
+                     (msg.get('Subject') or '').strip())
+            mid = f'{mid}|{extra}'
+        return mid[:255]
+
     def _processar_mensagem(self, msg, probe):
-        message_id = (msg.get('Message-ID') or '').strip()[:255]
+        message_id = self._dedup_id(msg)
         if not message_id:
             return
         registro = EmailRecebido.objects.filter(message_id=message_id).first()
