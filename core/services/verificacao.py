@@ -647,20 +647,22 @@ def processar(boleto_pk):
         if not texto:
             _para_manual(boleto, 'PDF sem texto legível (escaneado?)')
             return
-        # FAVORECIDO: o documento do prestador precisa constar no boleto —
-        # proteção contra pagar boleto de terceiros. Alguns PJs recebem como
-        # pessoa física: aí o boleto vem no CPF (o do representante), não no
-        # CNPJ — o "bit" recebe_por_cpf troca o que é conferido.
-        if boleto.prestador.recebe_por_cpf:
-            doc = re.sub(r'\D', '', boleto.prestador.representante_cpf or '')
-            rotulo = f'o CPF ({boleto.prestador.representante_cpf})'
-        else:
-            doc = re.sub(r'\D', '', boleto.prestador.cnpj or '')
-            rotulo = f'o CNPJ do prestador ({boleto.prestador.cnpj})'
-        if doc and doc not in re.sub(r'\D', '', texto):
+        # FAVORECIDO: basta QUALQUER documento do prestador (CNPJ OU CPF do
+        # representante) constar no boleto — proteção contra pagar boleto de
+        # terceiros. Antes o "bit" recebe_por_cpf exigia SÓ o CPF; mas o C6
+        # emite o boleto de quem recebe como pessoa física trazendo o CNPJ
+        # do prestador, e o CPF nunca aparece (01/10/2026, Jose Elias). Como
+        # bancos variam qual documento imprimem, aceitar os dois cobre todo
+        # formato sem abrir a porta a terceiros (teria de bater 11/14 dígitos
+        # por acaso).
+        digitos_txt = re.sub(r'\D', '', texto)
+        docs = [d for d in (boleto.prestador.cnpj,
+                            boleto.prestador.representante_cpf) if d]
+        if docs and not any(re.sub(r'\D', '', d) in digitos_txt for d in docs):
             _para_manual(boleto,
-                         f'{rotulo} não aparece no boleto — confira o '
-                         'FAVORECIDO antes de liberar')
+                         'nenhum documento do prestador (' + ' nem '.join(docs)
+                         + ') aparece no boleto — confira o FAVORECIDO antes '
+                         'de liberar')
             return
 
         # Destino do boleto: dica pelo CNPJ do posto (sacado) impresso no
