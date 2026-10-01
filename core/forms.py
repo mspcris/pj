@@ -207,6 +207,9 @@ class BoletoEditForm(forms.Form):
     observacao = forms.CharField(
         label='Observação do mês (vai no e-mail do financeiro)',
         required=False, widget=forms.Textarea(attrs={'rows': 3}))
+    nota_fiscal = forms.FileField(
+        label='Anexar nota fiscal (PDF) — vale mesmo com o boleto já enviado '
+              'ao financeiro', required=False)
 
     def __init__(self, boleto, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -233,6 +236,14 @@ class BoletoEditForm(forms.Form):
                 self.cleaned_data['competencia']).replace(day=1)
         except ValueError:
             raise forms.ValidationError('Mês inválido.')
+
+    def clean_nota_fiscal(self):
+        f = self.cleaned_data.get('nota_fiscal')
+        if f:
+            if not f.name.lower().endswith('.pdf') or f.read(5) != b'%PDF-':
+                raise forms.ValidationError('A nota fiscal precisa ser um PDF.')
+            f.seek(0)
+        return f
 
 
 class ContratoForm(forms.Form):

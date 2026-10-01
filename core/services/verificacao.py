@@ -516,6 +516,39 @@ def cc_gerente(boleto):
     return None
 
 
+def enviar_nota_posterior(boleto):
+    """Nota fiscal anexada DEPOIS que o boleto já foi ao financeiro (ex.: o
+    emissor da NFS-e estava fora do ar na hora do pagamento). Manda a nota
+    como COMPLEMENTO do pagamento já enviado — mesmo boleto, nada novo a
+    pagar; não reenvia o boleto nem mexe no valor. Retorna True se enviou."""
+    if not boleto.nota_fiscal:
+        return False
+    fatos = _fatos(boleto)
+    assunto = assunto_parcial(
+        fatos, f'Nota fiscal — {fatos["prestador"]} — {fatos["alvo"]} — '
+        f'{fatos["competencia"]}')
+    quando = (timezone.localtime(boleto.pagamento_enviado_em).strftime('%d/%m')
+              if boleto.pagamento_enviado_em else None)
+    corpo = (
+        'Prezada equipe do setor financeiro,\n\n'
+        f'Segue em anexo a NOTA FISCAL do prestador {fatos["prestador"]} '
+        f'referente ao boleto de {fatos["alvo"]} ({fatos["competencia"]})'
+        + (f', já enviado para pagamento em {quando}' if quando else '')
+        + '. O boleto foi liberado antes da nota porque o emissor da NFS-e '
+        'estava indisponível; a nota chega agora para anexar ao processo.\n\n'
+        'É o MESMO pagamento — não há novo valor a pagar.\n')
+    emails.enviar(
+        settings.EMAIL_PAGADOR, assunto, corpo, boleto=boleto,
+        anexos=[(boleto.nota_fiscal,
+                 boleto.nota_fiscal_nome or 'nota-fiscal.pdf')],
+        de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator='sistema',
+        detalhe=f'Boleto #{boleto.pk}: nota fiscal enviada ao financeiro '
+                'como complemento (boleto já havia sido enviado)')
+    return True
+
+
 def destinatarios_pj(boleto):
     """Para quem vão os avisos do prestador: TODOS os usuários ativos do PJ
     + os "e-mails para avisos" do cadastro (quem não tem login, ex.:

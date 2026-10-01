@@ -677,7 +677,7 @@ def boleto_editar(request, up, pk):
     prestador = boleto.prestador
 
     if request.method == 'POST':
-        form = BoletoEditForm(boleto, request.POST)
+        form = BoletoEditForm(boleto, request.POST, request.FILES)
         if form.is_valid():
             d = form.cleaned_data
             posto = d['posto']
@@ -697,11 +697,27 @@ def boleto_editar(request, up, pk):
             boleto.extra = d['extra']
             boleto.parcial = d['parcial']
             boleto.observacao = d['observacao'].strip()
+            nf = d.get('nota_fiscal')
+            # Boleto que JÁ foi ao financeiro: anexar a nota não reenvia nem
+            # reverifica — só guarda e manda a nota como complemento.
+            ja_enviado = (boleto.pagamento_enviado_em is not None
+                          or boleto.status in (Boleto.Status.APROVADO,
+                                               Boleto.Status.FIN_RECEBIDO,
+                                               Boleto.Status.PAGO))
+            if nf:
+                boleto.nota_fiscal = nf
+                boleto.nota_fiscal_nome = nf.name
             boleto.valor_esperado = (
                 None if d['extra'] else svc_boletos.valor_esperado_para(
                     prestador, posto, d['competencia']))
-            if mudou and boleto.status not in (Boleto.Status.PAGO,
-                                               Boleto.Status.SUBSTITUIDO):
+            if nf and ja_enviado:
+                boleto.save()
+                from .services.verificacao import enviar_nota_posterior
+                enviar_nota_posterior(boleto)
+                messages.success(request, f'{boleto} salvo — nota fiscal '
+                                 'anexada e enviada ao financeiro.')
+            elif (mudou or nf) and boleto.status not in (
+                    Boleto.Status.PAGO, Boleto.Status.SUBSTITUIDO):
                 boleto.status = Boleto.Status.RECEBIDO
                 boleto.tentativas = 0
                 boleto.verificado_em = None
@@ -713,8 +729,10 @@ def boleto_editar(request, up, pk):
             else:
                 boleto.save()
                 messages.success(request, f'{boleto} salvo.')
-            AuditLog.registrar(AuditLog.Evento.CRUD, request,
-                               detalhe=f'Boleto #{boleto.pk} editado')
+            AuditLog.registrar(
+                AuditLog.Evento.CRUD, request,
+                detalhe=f'Boleto #{boleto.pk} editado'
+                + (' — nota fiscal anexada' if nf else ''))
             return redirect(f'/painel/?m={boleto.competencia:%Y-%m}')
     else:
         form = BoletoEditForm(boleto, initial={

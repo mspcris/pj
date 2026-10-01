@@ -21,6 +21,7 @@ urlpatterns = [
 
     path('sair-ver-como/', views.sair_ver_como, name='sair_ver_como'),
     path('api/boletos/', api.boletos, name='api_boletos'),
+    path('api/boletos/<int:pk>/nota/', api.nota, name='api_boleto_nota'),
 
     path('painel/', views_painel.dashboard, name='painel_dashboard'),
     path('painel/parciais-status/', views_painel.parciais_status,

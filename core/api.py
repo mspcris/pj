@@ -139,3 +139,64 @@ def boletos(request):
     from .services.verificacao import fluxo_completo_async
     fluxo_completo_async(boleto.pk)
     return JsonResponse(_serializar(boleto), status=201)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def nota(request, pk):
+    """Anexa a NOTA FISCAL a um boleto que já existe — inclusive um já enviado
+    para pagamento (o emissor da NFS-e caiu e a nota veio depois). Valida que
+    é uma NFS-e do prestador; se o boleto já foi ao financeiro, a nota segue
+    como complemento do pagamento. POST multipart, campo "nota_fiscal" (PDF).
+
+    POST /api/boletos/<id>/nota/  → 200 {boleto} | 4xx {"erro": ...}
+    """
+    up = _autenticar(request)
+    if up is None:
+        return _erro('token ausente ou inválido', status=401)
+    boleto = (Boleto.objects
+              .filter(pk=pk, prestador=up.prestador)
+              .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
+                                   Boleto.Status.DESCARTADO]).first())
+    if boleto is None:
+        return _erro('boleto não encontrado para este prestador', status=404)
+
+    nf = request.FILES.get('nota_fiscal') or request.FILES.get('nota')
+    if not nf:
+        return _erro('envie o campo "nota_fiscal" com o PDF da nota')
+    if nf.size > MAX_UPLOAD:
+        return _erro('nota fiscal maior que 15 MB')
+    if not nf.name.lower().endswith('.pdf') or nf.read(5) != b'%PDF-':
+        return _erro('nota fiscal precisa ser um PDF válido')
+    nf.seek(0)
+
+    from .services import boletos as svc_boletos, pdf as svc_pdf
+    from .services.verificacao import (enviar_nota_posterior,
+                                       fluxo_completo_async)
+    boleto.nota_fiscal = nf
+    boleto.nota_fiscal_nome = nf.name
+    boleto.save(update_fields=['nota_fiscal', 'nota_fiscal_nome'])
+    # Conteúdo: precisa ser NFS-e do prestador. Se falhar, desfaz e recusa —
+    # pela API o prestador reenvia o arquivo certo.
+    ok_nf, motivo = svc_boletos.validar_nf(
+        svc_pdf.extrair_texto(boleto.nota_fiscal.path), boleto.prestador,
+        posto=boleto.posto)
+    if not ok_nf:
+        boleto.nota_fiscal.delete(save=False)
+        boleto.nota_fiscal = None
+        boleto.nota_fiscal_nome = ''
+        boleto.save(update_fields=['nota_fiscal', 'nota_fiscal_nome'])
+        return _erro(f'nota fiscal recusada: {motivo}')
+
+    ja_enviado = (boleto.pagamento_enviado_em is not None
+                  or boleto.status in (Boleto.Status.APROVADO,
+                                       Boleto.Status.FIN_RECEBIDO,
+                                       Boleto.Status.PAGO))
+    AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request, ator=up.email,
+                       detalhe=f'(api) nota fiscal anexada ao boleto '
+                               f'#{boleto.pk}')
+    if ja_enviado:
+        enviar_nota_posterior(boleto)
+    else:
+        fluxo_completo_async(boleto.pk)
+    return JsonResponse(_serializar(boleto), status=200)
