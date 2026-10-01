@@ -761,6 +761,12 @@ def _para_manual(boleto, motivo):
                   boleto=boleto)
 
 
+def eh_mes_vigente(competencia):
+    """A competência (mês do PAGAMENTO) é o mês atual? Só boleto do mês
+    vigente vai sozinho ao financeiro — regra de 01/10/2026."""
+    return competencia == timezone.localdate().replace(day=1)
+
+
 def processar(boleto_pk):
     """Verifica um boleto RECEBIDO. Seguro para rodar por thread E por cron:
     a claim atômica em `tentativas` garante que só um processa."""
@@ -1030,6 +1036,26 @@ def processar(boleto_pk):
                      f'valor confere, mas a confiança da IA foi '
                      f'{boleto.ia_confianca}% (limiar: {limiar}%).{porque} '
                      'Nada enviado; libere o envio no painel se estiver ok')
+        return
+
+    # 8) GATE DO MÊS VIGENTE (regra do Cristiano, 01/10/2026): boleto de
+    # competência que NÃO é o mês atual nunca vai sozinho ao financeiro —
+    # espera ação humana ("Aprovar assim mesmo", ou acertar o mês em
+    # "Editar"). Os 8 da RABISCO chegaram pela API como setembro e foram
+    # ao financeiro no automático em outubro. Só segue direto o que JÁ está
+    # lá com o mesmo valor: essa reaprovação não manda nada de novo.
+    ja_la = (boleto.pagamento_enviado_em is not None
+             and boleto.pagamento_enviado_valor is not None
+             and abs(boleto.pagamento_enviado_valor - valor) <= TOLERANCIA)
+    if aprovaria and not ja_la and not eh_mes_vigente(boleto.competencia):
+        vigente = competencia_extenso(timezone.localdate().replace(day=1))
+        _para_manual(boleto,
+                     f'valor confere, mas a competência '
+                     f'{fatos["competencia"]} não é o mês vigente '
+                     f'({vigente}) — fora do mês vigente nada vai sozinho '
+                     'ao financeiro. Se o mês estiver errado, corrija em '
+                     '"Editar"; se estiver certo, libere com "Aprovar '
+                     'assim mesmo"')
         return
 
     if aprovaria:

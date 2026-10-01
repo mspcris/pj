@@ -111,7 +111,8 @@ Campos do POST `/api/boletos/`:
   pagamento quando a nota chegar ou o admin liberar no painel.
 - `competencia` — YYYY-MM do mês do **PAGAMENTO**, não do serviço (serviço
   de setembro pago em outubro é `2026-10`). Na dúvida, **omita**: vale o
-  mês atual.
+  mês atual. Boleto de qualquer mês que NÃO seja o vigente nunca vai
+  sozinho ao financeiro: fica retido até liberação manual no painel.
 - `linha_digitavel` — opcional.
 
 A resposta traz `id`, `competencia`, `posto` (nome), `posto_letra`,

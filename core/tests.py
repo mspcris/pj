@@ -50,6 +50,13 @@ class BaseSetup(TestCase):
             email='cristiano@camim.com.br', is_admin=True)
         self.admin = User.objects.create_user(
             username='cristiano@camim.com.br', email='cristiano@camim.com.br')
+        # Os testes usam meses fixos (set/out de 2026). O gate do mês
+        # vigente (01/10/2026) tem classe própria — MesVigenteTest; aqui
+        # fica aberto.
+        self.p_vigente = mock.patch(
+            'core.services.verificacao.eh_mes_vigente', return_value=True)
+        self.p_vigente.start()
+        self.addCleanup(mock.patch.stopall)
 
     def login_pj(self):
         self.client.force_login(self.user)
@@ -2651,3 +2658,78 @@ class CanceladosPainelTest(BaseSetup):
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.APROVADO)
         m_proc.assert_not_called()
+
+
+class MesVigenteTest(BaseSetup):
+    """Regra de 01/10/2026 (Cristiano): boleto de competência que NÃO é o
+    mês vigente nunca vai sozinho ao financeiro — fica em "precisam de
+    você" esperando ação humana. Os 8 da RABISCO chegaram pela API como
+    setembro e foram enviados no automático em outubro."""
+
+    def setUp(self):
+        super().setUp()
+        self.p_vigente.stop()  # aqui o gate vale de verdade
+        self.vigente = timezone.localdate().replace(day=1)
+        self.passado = (self.vigente - timedelta(days=1)).replace(day=1)
+
+    def _boleto(self, competencia, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=competencia, arquivo=None,
+                    linha_digitavel=_linha_47(150000),
+                    enviado_por='pj@empresa.com.br')
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_mes_vigente_vai_sozinho(self, m_mail):
+        b = self._boleto(self.vigente)
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertIn('equipe@camim.com.br', _destinos(m_mail))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_mes_passado_espera_acao_humana(self, m_mail):
+        b = self._boleto(self.passado)
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        self.assertIsNone(b.pagamento_enviado_em)
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+        self.assertIn('mês vigente', b.motivo_manual)
+        # a ação humana ("Aprovar assim mesmo") é que manda
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/aprovar/')
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertIn('equipe@camim.com.br', _destinos(m_mail))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_mes_futuro_tambem_espera(self, m_mail):
+        futuro = (self.vigente + timedelta(days=40)).replace(day=1)
+        b = self._boleto(futuro)
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_valor_livre_fora_do_mes_tambem_espera(self, m_mail):
+        b = self._boleto(self.passado, valor_livre=True)
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_ja_no_financeiro_com_mesmo_valor_nao_e_puxado_de_volta(
+            self, m_mail):
+        """Reverificar um boleto de outro mês que JÁ está com o financeiro
+        (mesmo valor) não manda nada — então também não cancela nada."""
+        b = self._boleto(self.passado,
+                         pagamento_enviado_em=timezone.now(),
+                         pagamento_enviado_valor=Decimal('1500.00'))
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
