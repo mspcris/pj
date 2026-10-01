@@ -774,6 +774,27 @@ class RoboEmailRemetenteTest(BaseSetup):
             'Re: Pagamento — Limpeza Total LTDA — Anchieta — agosto/2026 — '
             'R$ 13.700,00'), b)
 
+    def test_resposta_do_financeiro_casa_boleto_movido_com_outro_no_mes(self):
+        """01/10/2026 (Guido, de novo): os 8 boletos saíram como setembro e
+        foram movidos para outubro — só que em setembro o prestador TEM
+        outro boleto, então a rota "mês sem candidato" não vale. Casa pelo
+        e-mail que NÓS enviamos (EmailLog), que sabe de qual boleto é."""
+        from core.services.boletos import localizar_boleto_por_assunto
+        Boleto.objects.create(prestador=self.prestador, posto=None,
+                              competencia=date(2026, 9, 1),
+                              status=Boleto.Status.FIN_RECEBIDO,
+                              valor_extraido=Decimal('13700.00'))
+        b = Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=date(2026, 10, 1),  # movido
+                                  status=Boleto.Status.APROVADO,
+                                  valor_extraido=Decimal('1712.50'))
+        assunto = ('Pagamento — Limpeza Total LTDA — Anchieta — '
+                   'setembro/2026 — R$ 1.712,50')
+        EmailLog.objects.create(destinatario='equipe@camim.com.br',
+                                assunto=assunto, corpo='x', boleto=b,
+                                ok=True)
+        self.assertEqual(localizar_boleto_por_assunto('RES: ' + assunto), b)
+
     def test_nf_escaneada_reconhecida_pelo_nome(self):
         from core.management.commands.importar_emails_pj import classificar_pdf
         self.assertEqual(classificar_pdf('NF Agosto Guido.pdf', ''), 'nf')

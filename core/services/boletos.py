@@ -5,7 +5,7 @@ proteção contra duplicidade mora aqui.
 import re
 import unicodedata
 
-from ..models import Boleto, Posto, Prestador, Vale
+from ..models import Boleto, EmailLog, Posto, Prestador, Vale
 
 
 def _norm(s):
@@ -213,6 +213,22 @@ def localizar_boleto_por_assunto(assunto):
     prestador = Prestador.objects.filter(nome__iexact=nome_p.strip()).first()
     if prestador is None:
         return None
+    # 1º) Pelo e-mail que NÓS enviamos: o assunto da resposta contém o do
+    # e-mail de pagamento, e o EmailLog sabe exatamente de qual boleto ele
+    # é — vale mesmo que o boleto tenha mudado de mês ou de posto depois do
+    # envio (Guido, 01/10/2026: os 8 saíram como setembro e foram movidos
+    # para outubro, e setembro já tinha outro boleto dele).
+    resposta = s.casefold()
+    enviados = [e for e in (EmailLog.objects
+                            .filter(boleto__prestador=prestador,
+                                    assunto__contains='Pagamento — ')
+                            .select_related('boleto').order_by('-pk'))
+                if e.assunto.casefold() in resposta]
+    if enviados:
+        b = max(enviados, key=lambda e: (len(e.assunto), e.pk)).boleto
+        if b.status in (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO):
+            return b
+        # senão (ex.: substituído por um reenvio), segue pelo assunto
     candidatos = Boleto.objects.filter(
         prestador=prestador, competencia=competencia,
         status__in=[Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO])
