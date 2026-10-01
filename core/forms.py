@@ -402,14 +402,14 @@ class PrestadorForm(forms.ModelForm):
 
     def clean(self):
         dados = super().clean()
-        if (dados.get('modo_boleto') == Prestador.ModoBoleto.POR_POSTO
-                and (dados.get('valor_unico')
-                     or dados.get('posto_cobranca'))):
-            raise forms.ValidationError(
-                'Você preencheu "Posto cobrança"/"Valor do boleto único", '
-                'mas o modo está "Um boleto por posto" — nesses campos só '
-                'vale o modo ÚNICO. Ou troque o modo para "boleto único", '
-                'ou preencha os valores na tabela de postos abaixo.')
+        # No modo "um boleto por posto", os campos de boleto único (valor
+        # único e posto de cobrança) não valem — eles são rotulados "só no
+        # modo ÚNICO". Antes a gente BARRAVA o salvamento quando sobrava algo
+        # neles, e isso fazia a troca de modo "não salvar" sem o usuário
+        # entender o porquê. Agora a gente simplesmente descarta o que sobrou.
+        if dados.get('modo_boleto') == Prestador.ModoBoleto.POR_POSTO:
+            dados['valor_unico'] = None
+            dados['posto_cobranca'] = None
         return dados
 
 
