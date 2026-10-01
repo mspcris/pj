@@ -1735,13 +1735,86 @@ class ApiBoletosTest(BaseSetup):
                                 HTTP_AUTHORIZATION='Bearer errado')
         self.assertEqual(resp.status_code, 401)
 
-    def test_exige_nf_barra_sem_nota(self):
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_exige_nf_sem_nota_entra_mas_fica_retido(self, m_async, m_mail):
+        """01/10/2026 (decisão do Cristiano): quem exige nota pode mandar o
+        boleto antes — ele ENTRA, mas não vai para pagamento enquanto a nota
+        não chegar (só se o admin liberar na mão)."""
         self.prestador.exige_nf = True
         self.prestador.save()
         resp = self.client.post('/api/boletos/', {
-            'posto': 'A', 'arquivo': _pdf()}, **self.auth)
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('nota fiscal', resp.json()['erro'])
+            'competencia': '2026-10', 'posto': 'A', 'arquivo': _pdf()},
+            **self.auth)
+        self.assertEqual(resp.status_code, 201)
+        self.assertTrue(resp.json()['aguardando_nota_fiscal'])
+        b = Boleto.objects.get()
+        verificacao.processar(b.pk)  # a verificação que o fluxo dispararia
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)  # retido
+        self.assertIsNone(b.pagamento_enviado_em)
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_resposta_traz_a_letra_do_posto(self, m_async):
+        resp = self.client.post('/api/boletos/', {
+            'competencia': '2026-10', 'posto': 'Bangu',
+            'arquivo': _pdf()}, **self.auth)
+        self.assertEqual(resp.json()['posto'], 'Bangu')
+        self.assertEqual(resp.json()['posto_letra'], 'B')
+        self.assertFalse(resp.json()['aguardando_nota_fiscal'])
+        lista = self.client.get('/api/boletos/?competencia=2026-10',
+                                **self.auth).json()['boletos']
+        self.assertEqual(lista[0]['posto_letra'], 'B')
+
+    def _boleto_api(self, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=date(2026, 10, 1), arquivo=_pdf(),
+                    valor_esperado=Decimal('1500.00'),
+                    enviado_por='pj@empresa.com.br')
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    @mock.patch('core.services.pdf.extrair_texto', return_value='')
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    @mock.patch('core.services.verificacao.processar_async')
+    def test_nota_depois_reverifica_boleto_retido(self, m_proc, m_fluxo,
+                                                  _m_txt):
+        """A nota chega depois, pela API, para um boleto parado esperando
+        por ela: volta para a verificação (igual ao painel) e NÃO repete o
+        e-mail de "boleto recebido"."""
+        self.prestador.exige_nf = True
+        self.prestador.save()
+        b = self._boleto_api(status=Boleto.Status.MANUAL, tentativas=2,
+                             verificado_em=timezone.now())
+        resp = self.client.post(f'/api/boletos/{b.pk}/nota/',
+                                {'nota_fiscal': _pdf('nf.pdf')}, **self.auth)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()['aguardando_nota_fiscal'])
+        b.refresh_from_db()
+        self.assertTrue(b.nota_fiscal)
+        self.assertEqual(b.status, Boleto.Status.RECEBIDO)  # volta p/ a fila
+        self.assertEqual(b.tentativas, 0)
+        m_proc.assert_called_once_with(b.pk)
+        m_fluxo.assert_not_called()
+
+    @mock.patch('core.services.pdf.extrair_texto', return_value='')
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_nota_depois_de_enviado_vai_como_complemento(self, m_mail,
+                                                         _m_txt):
+        b = self._boleto_api(status=Boleto.Status.APROVADO,
+                             valor_extraido=Decimal('1500.00'),
+                             pagamento_enviado_em=timezone.now(),
+                             pagamento_enviado_valor=Decimal('1500.00'))
+        resp = self.client.post(f'/api/boletos/{b.pk}/nota/',
+                                {'nota_fiscal': _pdf('nf.pdf')}, **self.auth)
+        self.assertEqual(resp.status_code, 200)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)  # não reverifica
+        notas = [c for c in m_mail.call_args_list
+                 if c.args[0] == 'equipe@camim.com.br']
+        self.assertEqual(len(notas), 1)
+        self.assertIn('Nota fiscal', notas[0].args[1])
 
     def test_pdf_invalido_400(self):
         falso = SimpleUploadedFile('b.pdf', b'nao eh pdf')

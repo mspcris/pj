@@ -78,25 +78,46 @@ Autenticação por token (`Authorization: Bearer <token>`), gerado pelo admin
 em Usuários (botão 🔑, exibido uma única vez; gerar outro revoga o atual).
 
 ```bash
-# Anexar boleto + nota fiscal do mês
+# Anexar o boleto do mês — UM ENVIO POR POSTO, com a nota fiscal junto
 curl -X POST https://pj.camim.com.br/api/boletos/ \
   -H "Authorization: Bearer SEU_TOKEN" \
-  -F "competencia=2026-10" \
+  -F "posto=A" \
   -F "arquivo=@boleto.pdf" \
   -F "nota_fiscal=@nf.pdf"
-# → 201 {"id": 42, "competencia": "2026-10", "posto": "...",
-#        "status": "RECEBIDO", "valor_esperado": "1234.56", ...}
+# → 201 {"id": 42, "competencia": "2026-10", "posto": "Anchieta",
+#        "posto_letra": "A", "status": "RECEBIDO",
+#        "valor_esperado": "1234.56", "tem_nota_fiscal": true,
+#        "aguardando_nota_fiscal": false, ...}
+
+# Mandar SÓ a nota fiscal de um boleto que já está no sistema (veio depois)
+curl -X POST https://pj.camim.com.br/api/boletos/42/nota/ \
+  -H "Authorization: Bearer SEU_TOKEN" \
+  -F "nota_fiscal=@nf.pdf"
 
 # Consultar os boletos do mês
-curl https://pj.camim.com.br/api/boletos/?competencia=2026-10 \
+curl "https://pj.camim.com.br/api/boletos/?competencia=2026-10" \
   -H "Authorization: Bearer SEU_TOKEN"
 ```
 
-Campos do POST: `competencia` (YYYY-MM; padrão mês atual), `arquivo` (PDF,
-obrigatório), `nota_fiscal` (obrigatório se o prestador exige NF), `posto`
-(letra ou nome — só no modo por-posto com vários postos; sem ele, o CNPJ do
-sacado no PDF destina sozinho), `linha_digitavel` (opcional). O boleto entra
-no MESMO fluxo de verificação do portal.
+Campos do POST `/api/boletos/`:
+
+- `arquivo` — PDF do boleto (obrigatório).
+- `posto` — letra (A, B, G…) ou nome do posto. Quem atende vários postos
+  manda um envio por posto; sem o campo, o CNPJ do sacado no PDF destina
+  sozinho.
+- `nota_fiscal` — PDF da NFS-e daquele posto. Pode ir junto ou depois, por
+  `/api/boletos/<id>/nota/`. Para o prestador que EXIGE nota, o boleto sem
+  ela entra mas fica retido (`"aguardando_nota_fiscal": true`): só vai para
+  pagamento quando a nota chegar ou o admin liberar no painel.
+- `competencia` — YYYY-MM do mês do **PAGAMENTO**, não do serviço (serviço
+  de setembro pago em outubro é `2026-10`). Na dúvida, **omita**: vale o
+  mês atual.
+- `linha_digitavel` — opcional.
+
+A resposta traz `id`, `competencia`, `posto` (nome), `posto_letra`,
+`status`, `situacao`, `valor_esperado`, `valor_extraido`,
+`tem_nota_fiscal` e `aguardando_nota_fiscal`. O boleto entra no MESMO fluxo
+de verificação do portal.
 
 ## Rodar local
 

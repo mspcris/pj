@@ -4,12 +4,19 @@ Autenticação: header `Authorization: Bearer <token>` — o token é gerado
 pelo admin na página Usuários e pertence a um usuário de prestador.
 
 POST /api/boletos/  (multipart/form-data)
-    competencia     "YYYY-MM" (opcional; padrão = mês atual)
+    competencia     "YYYY-MM" do mês do PAGAMENTO, não do serviço
+                    (opcional; padrão = mês atual — na dúvida, omitir)
     arquivo         PDF do boleto (obrigatório)
-    nota_fiscal     PDF da NF (obrigatório se o prestador exige NF)
-    posto           letra ou nome (só no modo por-posto com vários postos)
+    nota_fiscal     PDF da NF — junto ou depois (endpoint abaixo). Quem
+                    exige NF e manda o boleto sem ela: entra, mas fica
+                    retido até a nota chegar ("aguardando_nota_fiscal")
+    posto           letra ou nome (um envio por posto no modo por-posto)
     linha_digitavel opcional
-    → 201 {"id", "competencia", "posto", "status", "valor_esperado"}
+    → 201 {"id", "competencia", "posto", "posto_letra", "status",
+           "valor_esperado", "tem_nota_fiscal", "aguardando_nota_fiscal"}
+
+POST /api/boletos/<id>/nota/  (multipart/form-data, campo "nota_fiscal")
+    → 200 {boleto} — anexa a NF a um boleto que já está no sistema.
 
 GET /api/boletos/?competencia=YYYY-MM
     → 200 {"boletos": [...]} — os boletos do próprio prestador no mês.
@@ -45,15 +52,23 @@ def _erro(msg, status=400):
 
 
 def _serializar(b):
+    posto = b.posto_efetivo
     return {
         'id': b.pk,
         'competencia': b.competencia.strftime('%Y-%m'),
-        'posto': b.posto_efetivo.nome if b.posto_efetivo else None,
+        'posto': posto.nome if posto else None,
+        # a mesma letra que o POST aceita no campo "posto" (None: posto sem
+        # letra, como os manuais)
+        'posto_letra': (posto.codigo or None) if posto else None,
         'status': b.status,
         'situacao': b.get_status_display(),
         'valor_esperado': str(b.valor_esperado) if b.valor_esperado else None,
         'valor_extraido': str(b.valor_extraido) if b.valor_extraido else None,
         'tem_nota_fiscal': bool(b.nota_fiscal),
+        # o prestador exige NF e ela ainda não veio: o boleto fica retido
+        # (não vai para pagamento) até chegar por /api/boletos/<id>/nota/
+        'aguardando_nota_fiscal': bool(b.prestador.exige_nf
+                                       and not b.nota_fiscal),
         'criado_em': b.criado_em.isoformat(),
     }
 
@@ -81,7 +96,9 @@ def boletos(request):
               .filter(prestador=prestador, competencia=competencia)
               .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
                                    Boleto.Status.DESCARTADO,
-                                   Boleto.Status.NAO_RECONHECIDO]))
+                                   Boleto.Status.NAO_RECONHECIDO])
+              .select_related('prestador', 'posto',
+                              'prestador__posto_cobranca'))
         return JsonResponse({'competencia': competencia.strftime('%Y-%m'),
                              'boletos': [_serializar(b) for b in qs]})
 
@@ -104,9 +121,9 @@ def boletos(request):
             if nf.read(5) != b'%PDF-':
                 return _erro('nota fiscal não é um PDF válido')
             nf.seek(0)
-    elif prestador.exige_nf:
-        return _erro(f'{prestador.nome} exige nota fiscal anexa — envie o '
-                     'campo "nota_fiscal"')
+    # Quem exige NF pode mandar o boleto ANTES da nota (01/10/2026): ele
+    # entra, mas a verificação o retém em "precisam de você" — nada vai
+    # ao financeiro até a nota chegar (ou o admin liberar na mão).
 
     posto = None
     if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
@@ -175,7 +192,7 @@ def nota(request, pk):
 
     from .services import boletos as svc_boletos, pdf as svc_pdf
     from .services.verificacao import (enviar_nota_posterior,
-                                       fluxo_completo_async)
+                                       processar_async)
     boleto.nota_fiscal = nf
     boleto.nota_fiscal_nome = nf.name
     boleto.save(update_fields=['nota_fiscal', 'nota_fiscal_nome'])
@@ -201,5 +218,14 @@ def nota(request, pk):
     if ja_enviado:
         enviar_nota_posterior(boleto)
     else:
-        fluxo_completo_async(boleto.pk)
+        # Ainda não foi ao financeiro (ex.: retido esperando esta nota):
+        # volta para a verificação, igual à edição no painel — com o
+        # esperado recalculado e SEM repetir o e-mail de "recebemos".
+        boleto.status = Boleto.Status.RECEBIDO
+        boleto.tentativas = 0
+        boleto.verificado_em = None
+        boleto.valor_esperado = None
+        boleto.save(update_fields=['status', 'tentativas', 'verificado_em',
+                                   'valor_esperado'])
+        processar_async(boleto.pk)
     return JsonResponse(_serializar(boleto), status=200)
