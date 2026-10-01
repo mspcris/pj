@@ -285,6 +285,24 @@ def dashboard(request, up):
     linhas_vista = (linhas if vista == 'todos'
                     else [l for l in linhas if l['categoria'] == vista])
 
+    # Vista "sem boleto": agrupa por PJ — um cabeçalho clicável por empresa
+    # (total + postos que faltam), detalhe por posto ao expandir. Só muda a
+    # tela; cada linha ganha 'pj_resumo' (igual para as linhas do mesmo PJ).
+    if vista == 'sem_boleto':
+        linhas_vista.sort(key=lambda l: (l['prestador'].nome,
+                                         l['prestador'].pk))
+        grupos_pj = {}
+        for l in linhas_vista:
+            grupos_pj.setdefault(l['prestador'].pk, []).append(l)
+        for itens in grupos_pj.values():
+            total = sum((l['valor'] for l in itens if l['valor'] is not None),
+                        Decimal('0'))
+            postos = ', '.join(str(l['posto']) if l['posto'] else '(único)'
+                               for l in itens)
+            resumo_pj = {'total': total, 'postos': postos, 'n': len(itens)}
+            for l in itens:
+                l['pj_resumo'] = resumo_pj
+
     qs_filtro = ''.join(
         f'&{k}={v.pk}' for k, v in filtro.items() if v is not None)
     return render(request, 'painel/dashboard.html', {

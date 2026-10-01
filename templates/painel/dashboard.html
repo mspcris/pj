@@ -12,6 +12,13 @@
             font-size:.72rem}
 /* Lista principal em CARDS: tudo na largura da tela, sem rolar de lado */
 .lista-cards{display:flex;flex-direction:column;gap:12px}
+.pj-grupo{border:1px solid #e4e7e4;border-radius:14px;background:#fff}
+.pj-grupo>summary{cursor:pointer;list-style:none;padding:13px 15px;font-weight:800;font-size:1rem;color:#0b5e3c;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+.pj-grupo>summary::-webkit-details-marker{display:none}
+.pj-grupo>summary::before{content:'▸ ';color:var(--cinza);font-weight:700}
+.pj-grupo[open]>summary::before{content:'▾ '}
+.pj-grupo .pj-sub{font-size:.78rem;color:var(--cinza);font-weight:600}
+.pj-grupo .pj-corpo{padding:0 12px 12px;display:flex;flex-direction:column;gap:12px}
 .bcard{border:1px solid #e4e7e4;border-radius:14px;padding:14px 15px;
        background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.03)}
 .bcard .nome{font-size:1.02rem;font-weight:800;line-height:1.2}
@@ -185,6 +192,8 @@
 <div class="card">
   <div class="lista-cards">
     {% for l in linhas %}
+    {% if vista == 'sem_boleto' %}{% ifchanged l.prestador.pk %}{% if not forloop.first %}</div></details>{% endif %}
+    <details class="pj-grupo"><summary><span>{{ l.prestador.nome }}</span> — <strong>R$ {{ l.pj_resumo.total }}</strong> <span class="pj-sub">{{ l.pj_resumo.n }} posto{{ l.pj_resumo.n|pluralize }} sem boleto · {{ l.pj_resumo.postos }}</span></summary><div class="pj-corpo">{% endifchanged %}{% endif %}
     {% with b=l.boleto %}
     <div class="bcard">
       <div class="nome"><a href="{% url 'painel_prestador' l.prestador.pk %}">{{ l.prestador.nome }}</a></div>
@@ -386,6 +395,7 @@
       </div>
     </div>
     {% endwith %}
+    {% if vista == 'sem_boleto' and forloop.last %}</div></details>{% endif %}
     {% empty %}
     <div class="sub" style="padding:10px">{% if vista == 'todos' %}Nenhum prestador ativo. Comece cadastrando em
       <a href="{% url 'painel_prestadores' %}">Prestadores</a>.{% else %}Nada nesta situação neste mês. Toque em outro quadro acima — ou veja <a href="?m={{ mes|date:'Y-m' }}&vista=todos{{ qs_filtro }}">todos</a>.{% endif %}</div>
