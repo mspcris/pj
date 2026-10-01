@@ -285,21 +285,32 @@ def dashboard(request, up):
     linhas_vista = (linhas if vista == 'todos'
                     else [l for l in linhas if l['categoria'] == vista])
 
-    # Vista "sem boleto": agrupa por PJ — um cabeçalho clicável por empresa
-    # (total + postos que faltam), detalhe por posto ao expandir. Só muda a
-    # tela; cada linha ganha 'pj_resumo' (igual para as linhas do mesmo PJ).
-    if vista == 'sem_boleto':
+    # Vistas "sem boleto" e "enviados p/ pagamento": agrupa por PJ — um
+    # cabeçalho clicável por empresa (total + postos), detalhe por posto ao
+    # expandir. Só muda a tela; cada linha ganha 'pj_resumo' (igual p/ as
+    # linhas do mesmo PJ). Reordena por PJ p/ as linhas ficarem contíguas.
+    if vista in ('sem_boleto', 'pagamento'):
         linhas_vista.sort(key=lambda l: (l['prestador'].nome,
-                                         l['prestador'].pk))
+                                         l['prestador'].pk,
+                                         str(l['posto'] or '')))
+
+        def _valor_pj(l):
+            b = l['boleto']
+            if b is not None and b.valor_extraido is not None:
+                return b.valor_extraido   # pagamento: o que vai ser pago
+            return l['valor']             # sem boleto: o combinado
+
+        suf = 'sem boleto' if vista == 'sem_boleto' else 'enviado p/ pagamento'
         grupos_pj = {}
         for l in linhas_vista:
             grupos_pj.setdefault(l['prestador'].pk, []).append(l)
         for itens in grupos_pj.values():
-            total = sum((l['valor'] for l in itens if l['valor'] is not None),
-                        Decimal('0'))
+            total = sum((_valor_pj(l) for l in itens
+                         if _valor_pj(l) is not None), Decimal('0'))
             postos = ', '.join(str(l['posto']) if l['posto'] else '(único)'
                                for l in itens)
-            resumo_pj = {'total': total, 'postos': postos, 'n': len(itens)}
+            resumo_pj = {'total': total, 'postos': postos,
+                         'n': len(itens), 'suf': suf}
             for l in itens:
                 l['pj_resumo'] = resumo_pj
 
