@@ -20,6 +20,8 @@ urlpatterns = [
          name='painel_parciais_status'),
     path('painel/boleto/novo/', views_painel.boleto_novo,
          name='painel_boleto_novo'),
+    path('painel/verificar-email/', views_painel.verificar_email_agora,
+         name='painel_verificar_email'),
     path('painel/boleto/<int:pk>/editar/', views_painel.boleto_editar,
          name='painel_boleto_editar'),
     path('painel/ver-como/<int:pk>/', views_painel.ver_como,

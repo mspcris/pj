@@ -407,6 +407,37 @@ def boleto_acao(request, up, pk, acao):
 
 
 @admin_required
+@require_POST
+def verificar_email_agora(request, up):
+    """Botão "Verificar e-mail agora": dispara na hora o robô que lê as
+    caixas de boleto (que no cron roda de 10 em 10 min) + a verificação,
+    para o Cristiano não ter de esperar o ciclo quando sabe que um boleto
+    acabou de chegar. Só leitura da caixa (BODY.PEEK), igual ao cron."""
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    antes = Boleto.objects.count()
+    buf = StringIO()
+    try:
+        call_command('importar_emails_pj', stdout=buf, stderr=buf)
+        call_command('processar_boletos', stdout=buf, stderr=buf)
+    except Exception as e:
+        messages.error(request, f'Não consegui ler o e-mail agora: {e}')
+        return redirect(request.POST.get('voltar') or 'painel_dashboard')
+    novos = Boleto.objects.count() - antes
+    if novos > 0:
+        messages.success(request, f'Olhei o e-mail agora — {novos} '
+                         f'boleto(s) novo(s) entraram.')
+    else:
+        messages.info(request, 'Olhei o e-mail agora — nenhum boleto novo '
+                      'chegou ainda.')
+    AuditLog.registrar(AuditLog.Evento.STATUS, request,
+                       detalhe='Verificação manual de e-mail (botão)')
+    return redirect(request.POST.get('voltar') or 'painel_dashboard')
+
+
+@admin_required
 def boleto_novo(request, up):
     """Cadastro de boleto pelo admin — ex.: boleto que chegou pelo zap.
     Entra no MESMO fluxo de verificação do upload do PJ."""
