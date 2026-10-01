@@ -248,12 +248,18 @@ def redigir_email(instrucao, fatos):
 def limpar_corpo(corpo):
     """Tira do texto da IA qualquer linha que seja JSON/dados (04/09/2026:
     o e-mail de pagamento da Meriti saiu com o dict de fatos colado no
-    corpo). Só prosa passa."""
+    corpo). Só prosa passa. E CORTA tudo a partir de um separador ou bloco
+    em markdown (01/10/2026: o gemini-2.5-flash passou a colar um
+    "**Dados para pagamento:**" depois da assinatura, duplicando o bloco
+    oficial — dado de pagamento é só o que o sistema escreve)."""
     limpas = []
     for ln in (corpo or '').splitlines():
         s = ln.strip()
+        if re.fullmatch(r'[-*_]{3,}', s) or re.match(r'([-*]\s+)?\*\*', s):
+            break
         if (s.startswith('{') or s.startswith('```')
                 or re.search(r'"\w+"\s*:\s*"', s)):
             continue
         limpas.append(ln)
-    return '\n'.join(limpas).strip()
+    # negrito solto no meio da prosa: o e-mail é texto puro
+    return re.sub(r'\*\*([^*\n]+)\*\*', r'\1', '\n'.join(limpas)).strip()

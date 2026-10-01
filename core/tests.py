@@ -2210,6 +2210,32 @@ class AprovacaoManualTest(BaseSetup):
         self.assertNotIn('"prestador"', limpo)
         self.assertTrue(limpo.endswith('Cristiano'))
 
+    def test_corpo_da_ia_sem_bloco_de_dados_inventado(self):
+        """01/10/2026: com o gemini-2.5-flash (OpenRouter) a IA passou a
+        colar, depois da assinatura, um bloco "**Dados para pagamento:**"
+        em markdown, duplicando o bloco oficial (47 e-mails num dia). Corta
+        do separador em diante: dado de pagamento é só o do sistema."""
+        from core.services.ia import limpar_corpo
+        sujo = ('Prezada equipe do setor financeiro,\n\n'
+                'Solicito o pagamento do boleto anexo, no valor de '
+                '**R$ 3.031,88**.\n\n'
+                'Atenciosamente,\nCristiano — CAMIM\n\n'
+                '---\n**Dados para pagamento:**\n'
+                '**Prestador:** MRF Informática\n**Unidade:** Bangu')
+        limpo = limpar_corpo(sujo)
+        self.assertTrue(limpo.endswith('Cristiano — CAMIM'))
+        self.assertNotIn('**', limpo)
+        self.assertNotIn('Unidade', limpo)
+        self.assertIn('no valor de R$ 3.031,88.', limpo)  # negrito solto sai
+        # variante em lista ("* **Campo:** valor"), sem a linha "---"
+        sujo2 = ('Prezada Amanda,\n\nO boleto foi cancelado.\n\n'
+                 'Atenciosamente,\nCristiano — CAMIM\n\n'
+                 '**Dados da cobrança:**\n\n* **Prestador:** Salliseg\n'
+                 '* **Valor:** R$ 632,64')
+        limpo2 = limpar_corpo(sujo2)
+        self.assertTrue(limpo2.endswith('Cristiano — CAMIM'))
+        self.assertNotIn('Salliseg', limpo2)
+
 
 class EmailsNaoReconhecidosTest(BaseSetup):
     """Aba só de leitura: e-mails SEM_PRESTADOR do período (padrão: mês
