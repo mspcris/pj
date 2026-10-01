@@ -22,6 +22,11 @@ urlpatterns = [
     path('sair-ver-como/', views.sair_ver_como, name='sair_ver_como'),
     path('api/boletos/', api.boletos, name='api_boletos'),
     path('api/boletos/<int:pk>/nota/', api.nota, name='api_boleto_nota'),
+    # pelo mês ("2026-10") em vez do id — vem DEPOIS da rota <int:pk>
+    path('api/boletos/<str:competencia>/nota/', api.nota_do_mes,
+         name='api_nota_do_mes'),
+    path('api/boletos/<str:competencia>/boleto/', api.boleto_do_mes,
+         name='api_boleto_do_mes'),
 
     path('painel/', views_painel.dashboard, name='painel_dashboard'),
     path('painel/parciais-status/', views_painel.parciais_status,

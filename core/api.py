@@ -18,6 +18,14 @@ POST /api/boletos/  (multipart/form-data)
 POST /api/boletos/<id>/nota/  (multipart/form-data, campo "nota_fiscal")
     → 200 {boleto} — anexa a NF a um boleto que já está no sistema.
 
+POST /api/boletos/<YYYY-MM>/nota/  (campo "nota_fiscal"; "posto" opcional)
+    → 200 {boleto} — o mesmo, sem precisar do id: vale o boleto do
+    prestador naquele mês; havendo vários, o posto sai do campo "posto"
+    ou do TOMADOR da própria nota.
+
+POST /api/boletos/<YYYY-MM>/boleto/
+    → 201 {boleto} — igual ao POST /api/boletos/, com o mês na URL.
+
 GET /api/boletos/?competencia=YYYY-MM
     → 200 {"boletos": [...]} — os boletos do próprio prestador no mês.
 """
@@ -73,6 +81,34 @@ def _serializar(b):
     }
 
 
+# Boleto que não conta mais: substituído por outro, excluído ou recusado.
+_FORA = [Boleto.Status.SUBSTITUIDO, Boleto.Status.DESCARTADO,
+         Boleto.Status.NAO_RECONHECIDO]
+
+_COMPETENCIA_INVALIDA = 'competencia inválida — use YYYY-MM'
+
+
+def _competencia(raw):
+    """"YYYY-MM" → dia 1 daquele mês; None se não for um mês válido."""
+    try:
+        return date.fromisoformat(raw.strip()[:7] + '-01')
+    except ValueError:
+        return None
+
+
+def _posto_pedido(prestador, pedido):
+    """Posto ATIVO do prestador pela letra ou pelo nome; None se não é dele."""
+    return next((v.posto for v in
+                 prestador.vinculos_ativos().select_related('posto')
+                 if v.posto.codigo.upper() == pedido.upper()
+                 or v.posto.nome.lower() == pedido.lower()), None)
+
+
+def _posto_nao_e_dele(pedido):
+    return _erro(f'posto "{pedido}" não está entre os postos ativos deste '
+                 'prestador')
+
+
 @csrf_exempt
 @require_http_methods(['GET', 'POST'])
 def boletos(request):
@@ -84,25 +120,44 @@ def boletos(request):
     comp_raw = (request.POST.get('competencia')
                 or request.GET.get('competencia') or '').strip()
     if comp_raw:
-        try:
-            competencia = date.fromisoformat(comp_raw[:7] + '-01')
-        except ValueError:
-            return _erro('competencia inválida — use YYYY-MM')
+        competencia = _competencia(comp_raw)
+        if competencia is None:
+            return _erro(_COMPETENCIA_INVALIDA)
     else:
         competencia = timezone.localdate().replace(day=1)
 
     if request.method == 'GET':
         qs = (Boleto.objects
               .filter(prestador=prestador, competencia=competencia)
-              .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
-                                   Boleto.Status.DESCARTADO,
-                                   Boleto.Status.NAO_RECONHECIDO])
+              .exclude(status__in=_FORA)
               .select_related('prestador', 'posto',
                               'prestador__posto_cobranca'))
         return JsonResponse({'competencia': competencia.strftime('%Y-%m'),
                              'boletos': [_serializar(b) for b in qs]})
 
-    # POST — anexar boleto
+    return _criar_boleto(request, up, competencia)
+
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def boleto_do_mes(request, competencia):
+    """O POST de /api/boletos/ com o mês na URL (sugestão do Robson,
+    01/10/2026). Mesmas regras — inclusive a do mês vigente: boleto de
+    outro mês entra, mas não vai sozinho ao financeiro.
+
+    POST /api/boletos/<YYYY-MM>/boleto/  → 201 {boleto} | 4xx {"erro": ...}
+    """
+    up = _autenticar(request)
+    if up is None:
+        return _erro('token ausente ou inválido', status=401)
+    comp = _competencia(competencia)
+    if comp is None:
+        return _erro(_COMPETENCIA_INVALIDA)
+    return _criar_boleto(request, up, comp)
+
+
+def _criar_boleto(request, up, competencia):
+    prestador = up.prestador
     arquivo = request.FILES.get('arquivo') or request.FILES.get('boleto')
     if not arquivo:
         if request.FILES.get('nota_fiscal') or request.FILES.get('nota'):
@@ -110,8 +165,9 @@ def boletos(request):
             return _erro('esta rota cria um boleto novo e exige o campo '
                          '"arquivo". Para mandar SÓ a nota fiscal de um '
                          'boleto que já está no sistema, use POST '
-                         '/api/boletos/<id>/nota/ (campo "nota_fiscal") — '
-                         'o id vem do GET /api/boletos/')
+                         '/api/boletos/<competencia>/nota/ (ex.: '
+                         '/api/boletos/2026-10/nota/, campo "nota_fiscal") '
+                         'ou /api/boletos/<id>/nota/')
         return _erro('envie o campo "arquivo" com o PDF do boleto')
     if arquivo.size > MAX_UPLOAD:
         return _erro('arquivo maior que 15 MB')
@@ -134,17 +190,16 @@ def boletos(request):
 
     posto = None
     if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
-        vinculos = list(prestador.vinculos_ativos().select_related('posto'))
         pedido = (request.POST.get('posto') or '').strip()
         if pedido:
-            posto = next((v.posto for v in vinculos
-                          if v.posto.codigo.upper() == pedido.upper()
-                          or v.posto.nome.lower() == pedido.lower()), None)
+            posto = _posto_pedido(prestador, pedido)
             if posto is None:
-                return _erro(f'posto "{pedido}" não está entre os postos '
-                             'ativos deste prestador')
-        elif len(vinculos) == 1:
-            posto = vinculos[0].posto
+                return _posto_nao_e_dele(pedido)
+        else:
+            vinculos = list(prestador.vinculos_ativos()
+                            .select_related('posto'))
+            if len(vinculos) == 1:
+                posto = vinculos[0].posto
         # sem posto e vários vínculos: segue sem — o CNPJ do sacado no PDF
         # destina sozinho na verificação.
 
@@ -181,22 +236,92 @@ def nota(request, pk):
         return _erro('token ausente ou inválido', status=401)
     boleto = (Boleto.objects
               .filter(pk=pk, prestador=up.prestador)
-              .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
-                                   Boleto.Status.DESCARTADO,
-                                   Boleto.Status.NAO_RECONHECIDO])
+              .exclude(status__in=_FORA)
               .first())
     if boleto is None:
         return _erro('boleto não encontrado para este prestador', status=404)
+    nf, erro = _nota_enviada(request)
+    if erro:
+        return _erro(erro)
+    return _anexar_nota(request, up, boleto, nf)
 
+
+@csrf_exempt
+@require_http_methods(['POST'])
+def nota_do_mes(request, competencia):
+    """Como `nota`, sem precisar do id (sugestão do Robson, 01/10/2026): vale
+    o boleto do prestador naquele mês. Quem atende vários postos tem um por
+    posto — aí o posto sai do campo "posto" ou do TOMADOR da própria nota.
+    Mais de um boleto do mesmo posto (parciais, extra): só pelo id.
+
+    POST /api/boletos/<YYYY-MM>/nota/  → 200 {boleto} | 4xx {"erro": ...}
+    """
+    up = _autenticar(request)
+    if up is None:
+        return _erro('token ausente ou inválido', status=401)
+    prestador = up.prestador
+    comp = _competencia(competencia)
+    if comp is None:
+        return _erro(_COMPETENCIA_INVALIDA)
+    nf, erro = _nota_enviada(request)
+    if erro:
+        return _erro(erro)
+
+    mes = comp.strftime('%Y-%m')
+    # DUPLICADO fica de fora: a nota é do boleto que valeu, não do repetido.
+    vivos = list(Boleto.objects
+                 .filter(prestador=prestador, competencia=comp)
+                 .exclude(status__in=_FORA + [Boleto.Status.DUPLICADO])
+                 .select_related('prestador', 'posto',
+                                 'prestador__posto_cobranca')
+                 .order_by('pk'))
+    onde = ''
+    if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
+        posto = None
+        pedido = (request.POST.get('posto') or '').strip()
+        if pedido:
+            posto = _posto_pedido(prestador, pedido)
+            if posto is None:
+                return _posto_nao_e_dele(pedido)
+        elif len(vivos) > 1:
+            from .services import boletos as svc_boletos, pdf as svc_pdf
+            posto = svc_boletos.identificar_posto(
+                svc_pdf.extrair_texto_bytes(nf.read()))
+            nf.seek(0)
+            if posto is None:
+                return _erro(f'há {len(vivos)} boletos em {mes} e não deu '
+                             'para ler na nota de qual posto ela é — envie '
+                             'também o campo "posto" (letra ou nome)')
+        if posto is not None:
+            vivos = [b for b in vivos if b.posto_id == posto.pk]
+            onde = f' de {posto.nome}'
+
+    if not vivos:
+        return _erro(f'nenhum boleto{onde} em {mes} para receber a nota',
+                     status=404)
+    if len(vivos) > 1:
+        ids = ', '.join(str(b.pk) for b in vivos)
+        return _erro(f'há {len(vivos)} boletos{onde} em {mes} (ids {ids}) — '
+                     'diga qual por /api/boletos/<id>/nota/')
+    return _anexar_nota(request, up, vivos[0], nf)
+
+
+def _nota_enviada(request):
+    """(arquivo, '') com o PDF da nota do request, ou (None, motivo)."""
     nf = request.FILES.get('nota_fiscal') or request.FILES.get('nota')
     if not nf:
-        return _erro('envie o campo "nota_fiscal" com o PDF da nota')
+        return None, 'envie o campo "nota_fiscal" com o PDF da nota'
     if nf.size > MAX_UPLOAD:
-        return _erro('nota fiscal maior que 15 MB')
+        return None, 'nota fiscal maior que 15 MB'
     if not nf.name.lower().endswith('.pdf') or nf.read(5) != b'%PDF-':
-        return _erro('nota fiscal precisa ser um PDF válido')
+        return None, 'nota fiscal precisa ser um PDF válido'
     nf.seek(0)
+    return nf, ''
 
+
+def _anexar_nota(request, up, boleto, nf):
+    """Caminho único da nota avulsa (por id ou por competência): valida,
+    anexa e segue como complemento ou devolve o boleto à verificação."""
     from .services import boletos as svc_boletos, pdf as svc_pdf
     from .services.verificacao import (enviar_nota_posterior,
                                        processar_async)

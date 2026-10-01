@@ -1851,7 +1851,137 @@ class ApiBoletosTest(BaseSetup):
         resp = self.client.post('/api/boletos/', {
             'posto': 'A', 'nota_fiscal': _pdf('nf.pdf')}, **self.auth)
         self.assertEqual(resp.status_code, 400)
+        self.assertIn('/api/boletos/<competencia>/nota/', resp.json()['erro'])
         self.assertIn('/api/boletos/<id>/nota/', resp.json()['erro'])
+        self.assertFalse(Boleto.objects.exists())
+
+    # --- rotas pela competência (sugestão do Robson, 01/10/2026) ---------
+
+    def _cnpjs(self):
+        self.posto1.cnpj = '11.111.111/0001-11'
+        self.posto1.save()
+        self.posto2.cnpj = '22.222.222/0001-22'
+        self.posto2.save()
+
+    def _nota_do_mes(self, texto, mes='2026-10', **campos):
+        """POST da nota pela competência, com o texto que o PDF "teria"."""
+        campos['nota_fiscal'] = _pdf('nf.pdf')
+        with mock.patch('core.services.pdf.extrair_texto_bytes',
+                        return_value=texto), \
+                mock.patch('core.services.pdf.extrair_texto',
+                           return_value=texto), \
+                mock.patch('core.services.verificacao.processar_async'):
+            return self.client.post(f'/api/boletos/{mes}/nota/', campos,
+                                    **self.auth)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_nota_pela_competencia_acha_o_boleto_pelo_tomador(self, m_mail):
+        """O caso do Robson: os boletos do mês já foram ao financeiro e ele
+        manda só competência + PDF — o posto sai do tomador da nota."""
+        self._cnpjs()
+        enviado = dict(status=Boleto.Status.APROVADO,
+                       valor_extraido=Decimal('1500.00'),
+                       pagamento_enviado_em=timezone.now(),
+                       pagamento_enviado_valor=Decimal('1500.00'))
+        b1 = self._boleto_api(**enviado)
+        b2 = self._boleto_api(posto=self.posto2, **enviado)
+        resp = self._nota_do_mes('NFS-e Tomador CNPJ 22.222.222/0001-22')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['id'], b2.pk)
+        self.assertEqual(resp.json()['posto_letra'], 'B')
+        b1.refresh_from_db()
+        b2.refresh_from_db()
+        self.assertTrue(b2.nota_fiscal)
+        self.assertFalse(b1.nota_fiscal)
+        notas = [c for c in m_mail.call_args_list
+                 if c.args[0] == 'equipe@camim.com.br']
+        self.assertEqual(len(notas), 1)  # segue como complemento
+
+    def test_nota_pela_competencia_com_o_campo_posto(self):
+        b1 = self._boleto_api(status=Boleto.Status.MANUAL)
+        b2 = self._boleto_api(posto=self.posto2, status=Boleto.Status.MANUAL)
+        resp = self._nota_do_mes('', posto='A')  # nota escaneada, sem texto
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['id'], b1.pk)
+        b2.refresh_from_db()
+        self.assertFalse(b2.nota_fiscal)
+
+    def test_nota_pela_competencia_boleto_unico_dispensa_posto(self):
+        b = self._boleto_api(status=Boleto.Status.MANUAL)
+        resp = self._nota_do_mes('')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['id'], b.pk)
+
+    def test_nota_pela_competencia_ilegivel_pede_o_posto(self):
+        b1 = self._boleto_api(status=Boleto.Status.MANUAL)
+        b2 = self._boleto_api(posto=self.posto2, status=Boleto.Status.MANUAL)
+        resp = self._nota_do_mes('')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('"posto"', resp.json()['erro'])
+        for b in (b1, b2):
+            b.refresh_from_db()
+            self.assertFalse(b.nota_fiscal)
+
+    def test_nota_pela_competencia_sem_boleto_do_posto_404(self):
+        self._cnpjs()
+        b1 = self._boleto_api(status=Boleto.Status.MANUAL)
+        self._boleto_api(status=Boleto.Status.MANUAL,
+                         competencia=date(2026, 9, 1), posto=self.posto2)
+        resp = self._nota_do_mes('NFS-e Tomador CNPJ 22.222.222/0001-22',
+                                 posto='B')
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn('Bangu', resp.json()['erro'])
+        b1.refresh_from_db()
+        self.assertFalse(b1.nota_fiscal)
+
+    def test_nota_pela_competencia_nao_enxerga_outro_prestador(self):
+        outro = Prestador.objects.create(nome='Outra Empresa LTDA')
+        alheio = self._boleto_api(prestador=outro,
+                                  status=Boleto.Status.MANUAL)
+        resp = self._nota_do_mes('')
+        self.assertEqual(resp.status_code, 404)
+        alheio.refresh_from_db()
+        self.assertFalse(alheio.nota_fiscal)
+
+    def test_nota_pela_competencia_parciais_lista_os_ids(self):
+        p1 = self._boleto_api(status=Boleto.Status.MANUAL, parcial=True)
+        p2 = self._boleto_api(status=Boleto.Status.MANUAL, parcial=True)
+        resp = self._nota_do_mes('', posto='A')
+        self.assertEqual(resp.status_code, 400)
+        erro = resp.json()['erro']
+        self.assertIn(str(p1.pk), erro)
+        self.assertIn(str(p2.pk), erro)
+        self.assertIn('/api/boletos/<id>/nota/', erro)
+
+    def test_nota_pela_competencia_ignora_substituido_e_duplicado(self):
+        self._boleto_api(status=Boleto.Status.SUBSTITUIDO)
+        self._boleto_api(status=Boleto.Status.DUPLICADO)
+        vivo = self._boleto_api(status=Boleto.Status.MANUAL)
+        resp = self._nota_do_mes('')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['id'], vivo.pk)
+
+    def test_nota_pela_competencia_invalida_400(self):
+        self._boleto_api(status=Boleto.Status.MANUAL)
+        resp = self._nota_do_mes('', mes='2026-13')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('YYYY-MM', resp.json()['erro'])
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_boleto_pela_competencia(self, m_async):
+        resp = self.client.post('/api/boletos/2026-10/boleto/', {
+            'posto': 'B', 'arquivo': _pdf()}, **self.auth)
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['competencia'], '2026-10')
+        self.assertEqual(resp.json()['posto_letra'], 'B')
+        b = Boleto.objects.get()
+        self.assertEqual(b.competencia, date(2026, 10, 1))
+        m_async.assert_called_once_with(b.pk)
+
+    def test_boleto_pela_competencia_invalida_400(self):
+        resp = self.client.post('/api/boletos/outubro/boleto/', {
+            'posto': 'B', 'arquivo': _pdf()}, **self.auth)
+        self.assertEqual(resp.status_code, 400)
         self.assertFalse(Boleto.objects.exists())
 
     def test_pdf_invalido_400(self):

@@ -90,9 +90,20 @@ curl -X POST https://pj.camim.com.br/api/boletos/ \
 #        "aguardando_nota_fiscal": false, ...}
 
 # Mandar SÓ a nota fiscal de um boleto que já está no sistema (veio depois)
+# — pelo mês: o sistema acha o boleto (o posto sai do tomador da nota)
+curl -X POST https://pj.camim.com.br/api/boletos/2026-10/nota/ \
+  -H "Authorization: Bearer SEU_TOKEN" \
+  -F "nota_fiscal=@nf.pdf"
+# — ou pelo id do boleto
 curl -X POST https://pj.camim.com.br/api/boletos/42/nota/ \
   -H "Authorization: Bearer SEU_TOKEN" \
   -F "nota_fiscal=@nf.pdf"
+
+# Anexar o boleto com o mês na URL (igual ao primeiro exemplo)
+curl -X POST https://pj.camim.com.br/api/boletos/2026-10/boleto/ \
+  -H "Authorization: Bearer SEU_TOKEN" \
+  -F "posto=A" \
+  -F "arquivo=@boleto.pdf"
 
 # Consultar os boletos do mês
 curl "https://pj.camim.com.br/api/boletos/?competencia=2026-10" \
@@ -114,6 +125,13 @@ Campos do POST `/api/boletos/`:
   mês atual. Boleto de qualquer mês que NÃO seja o vigente nunca vai
   sozinho ao financeiro: fica retido até liberação manual no painel.
 - `linha_digitavel` — opcional.
+
+Nota pelo mês (`/api/boletos/<YYYY-MM>/nota/`): vale o boleto do prestador
+naquele mês. Quem atende vários postos tem um boleto por posto — o posto sai
+do campo `posto` (letra ou nome), se vier, ou do CNPJ do tomador na própria
+nota. Respostas: 404 se não há boleto daquele posto no mês; 400 se a nota é
+ilegível e há mais de um boleto (mandar `posto`) ou se há mais de um boleto
+do mesmo posto, como parciais (a mensagem lista os ids — usar a rota por id).
 
 A resposta traz `id`, `competencia`, `posto` (nome), `posto_letra`,
 `status`, `situacao`, `valor_esperado`, `valor_extraido`,
