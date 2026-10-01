@@ -1844,6 +1844,16 @@ class ApiBoletosTest(BaseSetup):
         self.assertEqual(len(notas), 1)
         self.assertIn('Nota fiscal', notas[0].args[1])
 
+    def test_so_a_nota_sem_boleto_aponta_a_rota_certa(self):
+        """01/10/2026: o Robson anexou os boletos pelo portal e o script dele
+        mandou SÓ a nota para /api/boletos/ — o erro falava apenas do campo
+        "arquivo" e ele ficou sem saber que a nota avulsa tem rota própria."""
+        resp = self.client.post('/api/boletos/', {
+            'posto': 'A', 'nota_fiscal': _pdf('nf.pdf')}, **self.auth)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('/api/boletos/<id>/nota/', resp.json()['erro'])
+        self.assertFalse(Boleto.objects.exists())
+
     def test_pdf_invalido_400(self):
         falso = SimpleUploadedFile('b.pdf', b'nao eh pdf')
         resp = self.client.post('/api/boletos/', {

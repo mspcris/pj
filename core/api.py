@@ -105,6 +105,13 @@ def boletos(request):
     # POST — anexar boleto
     arquivo = request.FILES.get('arquivo') or request.FILES.get('boleto')
     if not arquivo:
+        if request.FILES.get('nota_fiscal') or request.FILES.get('nota'):
+            # só a nota, sem boleto: a nota avulsa tem rota própria
+            return _erro('esta rota cria um boleto novo e exige o campo '
+                         '"arquivo". Para mandar SÓ a nota fiscal de um '
+                         'boleto que já está no sistema, use POST '
+                         '/api/boletos/<id>/nota/ (campo "nota_fiscal") — '
+                         'o id vem do GET /api/boletos/')
         return _erro('envie o campo "arquivo" com o PDF do boleto')
     if arquivo.size > MAX_UPLOAD:
         return _erro('arquivo maior que 15 MB')
