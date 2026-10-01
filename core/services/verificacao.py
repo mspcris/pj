@@ -616,7 +616,78 @@ def _marcar(boleto, status):
                        detalhe=f'Boleto #{boleto.pk} → {status}')
 
 
+def _retirar_do_financeiro(boleto, motivo):
+    """Boleto que JÁ tinha ido ao financeiro saiu da aprovação (voltou para
+    manual ou divergente): avisa a equipe@ para NÃO pagar o valor enviado
+    antes, avisa o Cristiano e ZERA a trava, para que um reenvio futuro
+    (quando o valor estiver certo) saia como um pagamento novo e limpo."""
+    if boleto.pagamento_enviado_em is None:
+        return
+    fatos = _fatos(boleto)
+    quando = (timezone.localtime(boleto.pagamento_enviado_em)
+              .strftime('%d/%m/%Y %H:%M'))
+    valor_anterior = boleto.pagamento_enviado_valor
+    emails.enviar(
+        settings.EMAIL_PAGADOR,
+        f'CANCELAMENTO — NÃO pagar — {fatos["prestador"]} — '
+        f'{fatos["alvo"]} — {fatos["competencia"]}',
+        'Prezada equipe do setor financeiro,\n\n'
+        f'⛔ CANCELE o pagamento do boleto que enviamos em {quando} '
+        f'(R$ {_moeda(valor_anterior)}) do prestador {fatos["prestador"]} '
+        f'— {fatos["alvo"]} — {fatos["competencia"]}.\n\n'
+        'O valor está em conferência e NÃO deve ser pago. Se este boleto '
+        'ainda não foi pago, apenas o desconsidere. Se JÁ foi pago, avise o '
+        'Cristiano imediatamente. Quando estiver tudo certo, você receberá um '
+        'NOVO e-mail de pagamento para este mesmo boleto.\n\n'
+        f'Motivo: {motivo}\n\n— Controle dos PJs'
+        + dados_pagamento(boleto, fatos),
+        boleto=boleto, de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
+    emails.enviar(
+        settings.EMAIL_ADMIN,
+        f'⚠️ Cancelamento no financeiro — {fatos["prestador"]} — '
+        f'{fatos["competencia"]}',
+        f'Cristiano,\n\nO boleto #{boleto.pk} ({fatos["prestador"]} — '
+        f'{fatos["alvo"]} — {fatos["competencia"]}) já tinha ido ao '
+        f'financeiro em {quando} com R$ {_moeda(valor_anterior)}, mas foi '
+        f'retirado da aprovação.\nMotivo: {motivo}\n\nEnviei um CANCELAMENTO à '
+        'equipe@ pedindo para NÃO pagar.\n\n'
+        'Painel: https://pj.camim.com.br/painel/\n\n— Controle dos PJs',
+        boleto=boleto)
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator='sistema',
+        detalhe=f'Boleto #{boleto.pk}: CANCELAMENTO enviado ao financeiro '
+                f'(valor anterior R$ {_moeda(valor_anterior)}, de {quando}) — '
+                f'motivo: {motivo}')
+    # Tira os PDFs que o Robson anexou: o boleto estava errado e ele precisa
+    # reanexar o certo. O histórico (linha do tempo + auditoria) guarda o
+    # porquê e o nome do que saiu. Quando ele reenviar, nasce um boleto novo
+    # e este, já em "precisam de você", vira SUBSTITUÍDO.
+    campos = ['pagamento_enviado_em', 'pagamento_enviado_valor']
+    removidos = []
+    if boleto.arquivo:
+        removidos.append(boleto.nome_original
+                         or boleto.arquivo.name.rsplit('/', 1)[-1])
+        boleto.arquivo.delete(save=False)
+    if boleto.nota_fiscal:
+        removidos.append(boleto.nota_fiscal_nome or 'nota fiscal')
+        boleto.nota_fiscal.delete(save=False)
+        boleto.nota_fiscal_nome = ''
+    if removidos:
+        boleto.arquivo_removido_em = timezone.now()
+        boleto.arquivo_removido_motivo = motivo[:255]
+        campos += ['arquivo', 'nota_fiscal', 'nota_fiscal_nome',
+                   'arquivo_removido_em', 'arquivo_removido_motivo']
+        AuditLog.registrar(
+            AuditLog.Evento.STATUS, ator='sistema',
+            detalhe=f'Boleto #{boleto.pk}: PDF(s) retirado(s) para o Robson '
+                    f'reanexar ({", ".join(removidos)}) — motivo: {motivo}')
+    boleto.pagamento_enviado_em = None
+    boleto.pagamento_enviado_valor = None
+    boleto.save(update_fields=campos)
+
+
 def _para_manual(boleto, motivo):
+    _retirar_do_financeiro(boleto, motivo)
     boleto.ia_resposta = (boleto.ia_resposta + f'\n[manual] {motivo}').strip()
     _marcar(boleto, Boleto.Status.MANUAL)
     fatos = _fatos(boleto)
@@ -846,11 +917,12 @@ def processar(boleto_pk):
             _para_manual(boleto, 'sem valor acordado cadastrado no painel')
         return
 
-    # 6) Valor × combinado. Igual → aprova. MENOR: se houver observações
-    # (do mês ou do cadastro), a IA confere se elas EXPLICAM a diferença
-    # (ex.: "descontada parcela 3/7 do notebook — R$ 600"); obs que não
-    # explica → MANUAL. Sem obs nenhuma, vale a regra do acordo: aprova.
-    # MAIOR: NUNCA aprova sozinho — só o admin com "aceitar este valor".
+    # 6) Valor × combinado. Igual → aprova. MENOR: só aprova sozinho se
+    # houver observação (do mês ou do cadastro) que a IA CONFIRME que
+    # explica a diferença (ex.: "descontada parcela 3/7 do notebook —
+    # R$ 600"). Sem obs, obs que não explica, OU IA fora do ar → NÃO
+    # aprova: vai para MANUAL ("precisam de você"), para o Cristiano
+    # liberar com "Aprovar assim mesmo". MAIOR: NUNCA aprova sozinho.
     menor = (not boleto.valor_livre and not boleto.parcial
              and boleto.valor_esperado is not None
              and (boleto.valor_esperado - valor) > TOLERANCIA)
@@ -858,25 +930,29 @@ def processar(boleto_pk):
         obs = ' | '.join(t.strip() for t in
                          [boleto.observacao, boleto.prestador.observacao]
                          if t and t.strip())
+        explica, motivo = False, ''
         if obs:
             try:
                 explica, motivo = ia.avaliar_diferenca(
                     valor, boleto.valor_esperado, obs)
             except Exception as e:
                 log.warning('IA de diferença falhou (%s); '
-                            'seguindo regra do acordo', e)
-                explica, motivo = True, ''
-            if not explica:
-                _para_manual(boleto,
-                             f'valor abaixo do combinado (R$ {_moeda(valor)} '
-                             f'× R$ {_moeda(boleto.valor_esperado)}) e as '
-                             'observações registradas NÃO explicam a '
-                             'diferença')
-                return
-            if motivo:
-                fatos['motivo_menor'] = motivo
-                boleto.ia_resposta = (boleto.ia_resposta +
-                                      f'\n[menor] {motivo}').strip()
+                            'mandando para conferência manual', e)
+                explica, motivo = False, ''
+        if not explica:
+            _para_manual(
+                boleto,
+                f'valor ABAIXO do combinado (R$ {_moeda(valor)} × '
+                f'R$ {_moeda(boleto.valor_esperado)}) e '
+                + ('as observações registradas NÃO explicam a diferença'
+                   if obs else 'não há observação que explique')
+                + ' — confira e, se estiver certo, libere com "Aprovar '
+                'assim mesmo"')
+            return
+        if motivo:
+            fatos['motivo_menor'] = motivo
+            boleto.ia_resposta = (boleto.ia_resposta +
+                                  f'\n[menor] {motivo}').strip()
 
     # 7) GATE DE CONVICÇÃO: só envia para pagamento sozinho se a confiança
     # for >= limiar (Configurações; padrão 99%). Abaixo disso, espera o
@@ -898,6 +974,7 @@ def processar(boleto_pk):
         _marcar(boleto, Boleto.Status.APROVADO)
         enviar_para_pagamento(boleto, fatos)
     else:
+        _retirar_do_financeiro(boleto, 'valor divergente do combinado')
         fatos['valor_esperado'] = _moeda(boleto.valor_esperado)
         _marcar(boleto, Boleto.Status.DIVERGENTE)
         emails.enviar(

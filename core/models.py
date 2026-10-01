@@ -401,6 +401,11 @@ class Boleto(models.Model):
     nota_fiscal = models.FileField(upload_to=_upload_boleto, null=True,
                                    blank=True)
     nota_fiscal_nome = models.CharField(max_length=255, blank=True)
+    # PDF(s) retirados quando o boleto foi puxado de volta do financeiro por
+    # valor errado: o Robson precisa reanexar o boleto certo. Guardamos o
+    # quando e o porquê para o histórico (linha do tempo + auditoria).
+    arquivo_removido_em = models.DateTimeField(null=True, blank=True)
+    arquivo_removido_motivo = models.CharField(max_length=255, blank=True)
     vencimento = models.DateField(null=True, blank=True)
     # Só o admin liga isto (cadastro direto): aceita o valor do boleto mesmo
     # diferente do combinado — único caminho para pagar valor MAIOR.
@@ -508,6 +513,11 @@ class Boleto(models.Model):
         if self.pago_em:
             ev.append({'icone': '✅', 'titulo': 'Pago',
                        'quando': self.pago_em, 'detalhe': ''})
+        if self.arquivo_removido_em:
+            ev.append({
+                'icone': '📎', 'titulo': 'Boleto retirado — Robson deve reanexar',
+                'quando': self.arquivo_removido_em,
+                'detalhe': self.arquivo_removido_motivo})
         ev.sort(key=lambda e: e['quando'])
         return ev
 

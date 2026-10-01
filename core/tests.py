@@ -1509,8 +1509,9 @@ def _linha_47(valor_centavos):
 
 
 class RegrasNegocioTest(BaseSetup):
-    """Valor menor pode (acordo); MAIOR nunca sozinho; código bate com
-    valor; sem duplicidade; mês bate."""
+    """Valor menor NÃO aprova sozinho sem observação que a IA confirme que
+    explica (vai p/ manual); MAIOR nunca sozinho; código bate com valor;
+    sem duplicidade; mês bate."""
 
     def _boleto(self, **kw):
         base = dict(prestador=self.prestador, posto=self.posto1,
@@ -1525,11 +1526,47 @@ class RegrasNegocioTest(BaseSetup):
                 return_value=(Decimal('1400.00'),
                               '{"valor":"1400.00","confianca":100}'))
     @mock.patch('core.services.pdf.extrair_texto', return_value='x')
-    def test_valor_menor_aprova(self, m_pdf, m_ia, m_mail):
+    def test_valor_menor_sem_obs_vai_para_manual(self, m_pdf, m_ia, m_mail):
+        # 1.400 × 1.500 (menor), sem observação que explique: NÃO aprova
+        # sozinho — vai p/ conferência e o financeiro NÃO é acionado.
         b = self._boleto()
         verificacao.processar(b.pk)
         b.refresh_from_db()
-        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        destinos = _destinos(m_mail)
+        self.assertNotIn('equipe@camim.com.br', destinos)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1400.00'), '{"valor":"1400.00"}'))
+    @mock.patch('core.services.pdf.extrair_texto', return_value='x')
+    def test_puxar_do_financeiro_manda_cancelamento(self, m_pdf, m_ia, m_mail):
+        # boleto que JÁ foi ao financeiro com 1.500, reverificado e agora
+        # travado (1.400, sem obs): manda CANCELAMENTO à equipe@ e zera a trava
+        from django.utils import timezone
+        b = self._boleto()
+        b.pagamento_enviado_em = timezone.now()
+        b.pagamento_enviado_valor = Decimal('1500.00')
+        b.save()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        cancel = [c for c in m_mail.call_args_list
+                  if c.args[0] == 'equipe@camim.com.br'
+                  and 'CANCELAMENTO' in c.args[1]]
+        self.assertEqual(len(cancel), 1)
+        self.assertIn('1.500,00', cancel[0].args[2])
+        self.assertIsNone(b.pagamento_enviado_em)   # trava zerada
+        self.assertIsNone(b.pagamento_enviado_valor)
+        # PDF retirado para o Robson reanexar, com o porquê no histórico
+        self.assertFalse(b.arquivo)
+        self.assertIsNotNone(b.arquivo_removido_em)
+        self.assertTrue(b.arquivo_removido_motivo)
+        marcos = [e['titulo'] for e in b.linha_do_tempo]
+        self.assertIn('Boleto retirado — Robson deve reanexar', marcos)
+        from core.models import AuditLog
+        self.assertTrue(AuditLog.objects.filter(
+            detalhe__contains='retirado(s) para o Robson').exists())
 
     @mock.patch('core.services.ia.avaliar_diferenca',
                 return_value=(True, 'desconto da parcela 3/7 do notebook'))
