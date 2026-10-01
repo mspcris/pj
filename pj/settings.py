@@ -175,7 +175,7 @@ EMAIL_MODO_TESTE = os.getenv('EMAIL_MODO_TESTE', 'false').lower() == 'true'
 # IA — SOMENTE OpenRouter (desde 29/09/2026; antes era a Groq direto)
 # -----------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
-IA_MODEL = os.getenv('IA_MODEL', 'openai/gpt-oss-120b')
+IA_MODEL = os.getenv('IA_MODEL', 'google/gemini-2.5-flash')
 
 # Upload
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024

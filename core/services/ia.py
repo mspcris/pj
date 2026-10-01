@@ -1,6 +1,8 @@
-"""Cliente de IA — SOMENTE OpenRouter (openai/gpt-oss-120b, provedor mais
-barato). Até 29/09/2026 era a Groq direto; o dono mandou tirar as chaves
-antigas e passar tudo pela OpenRouter.
+"""Cliente de IA — SOMENTE OpenRouter. Modelo padrão google/gemini-2.5-flash
+(IA_MODEL no .env sobrepõe): confiável para extrair valor de boleto — isto é
+dinheiro, erro custa caro — e barato no volume atual. Antes era o gpt-oss-120b,
+mas pelo provedor mais barato ele estropiava o JSON (01/10/2026). Até 29/09/2026
+era a Groq direto; o dono mandou tirar as chaves antigas e passar pela OpenRouter.
 
 Duas funções, dois papéis bem separados (segurança contra prompt injection):
   * extrair_valor(texto_pdf): o texto do boleto entra AQUI e só aqui. A saída
