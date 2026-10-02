@@ -140,7 +140,8 @@ def anexar_boleto(request, up):
                 prestador, form.cleaned_data['competencia'],
                 enviado_por=up.email, posto=form.cleaned_data.get('posto'),
                 arquivo=arq, nome_original=arq.name,
-                nota_fiscal=nf, nota_fiscal_nome=nf.name if nf else '')
+                nota_fiscal=nf, nota_fiscal_nome=nf.name if nf else '',
+                origem=Boleto.Origem.PORTAL)
             AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                                detalhe=f'Boleto #{boleto.pk} {boleto}')
 

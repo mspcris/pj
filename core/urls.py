@@ -47,6 +47,8 @@ urlpatterns = [
          name='painel_prestadores'),
     path('painel/prestadores/<int:pk>/', views_painel.prestador_detalhe,
          name='painel_prestador'),
+    path('painel/prestadores/<int:pk>/pagar-todos/',
+         views_painel.pagar_todos, name='painel_pagar_todos'),
     path('painel/prestadores/<int:pk>/excluir/',
          views_painel.prestador_excluir, name='painel_prestador_excluir'),
     path('painel/prestadores/<int:pk>/restaurar/',
@@ -61,5 +63,7 @@ urlpatterns = [
          name='painel_emails_nao_reconhecidos'),
     path('painel/emails/<int:pk>/', views_painel.email_detalhe,
          name='painel_email_detalhe'),
+    path('painel/emails/recebidos/<int:pk>/',
+         views_painel.email_recebido_detalhe, name='painel_email_recebido'),
     path('painel/auditoria/', views_painel.auditoria, name='painel_auditoria'),
 ]

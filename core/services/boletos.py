@@ -110,10 +110,11 @@ def valor_esperado_para(prestador, posto, competencia=None):
 def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
               nome_original='', linha_digitavel='', chave_pix='',
               valor_livre=False, observacao='', nota_fiscal=None,
-              nota_fiscal_nome='', extra=False, parcial=False):
+              nota_fiscal_nome='', extra=False, parcial=False, origem=''):
     """Cria o boleto. Substitui apenas pendências (RECEBIDO/DIVERGENTE/
     MANUAL) da mesma chave — um boleto já APROVADO ou PAGO NUNCA é
-    substituído em silêncio: a duplicidade é barrada na verificação."""
+    substituído em silêncio: a duplicidade é barrada na verificação.
+    `origem` (Boleto.Origem) é a porta por onde ele entrou."""
     if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
         posto = None
 
@@ -135,7 +136,7 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
     return Boleto.objects.create(
         prestador=prestador, posto=posto, competencia=competencia,
         arquivo=arquivo, nome_original=(nome_original or '')[:255],
-        enviado_por=enviado_por,
+        enviado_por=enviado_por, origem=origem,
         # Extra não tem combinado — o valor de referência é o próprio boleto
         valor_esperado=(None if extra else
                         valor_esperado_para(prestador, posto, competencia)),

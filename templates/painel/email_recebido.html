@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}E-mail recebido · Painel{% endblock %}
+{% block conteudo %}
+<p><a class="btn mini claro" href="{% url 'painel_dashboard' %}" onclick="if(history.length>1){history.back();return false}">← Voltar</a></p>
+<h1 style="font-size:1.2rem">✉️ {{ e.assunto|default:"(sem assunto)" }}</h1>
+<div class="card">
+  <table>
+    <tr><th style="white-space:nowrap">De</th><td>{{ e.remetente }}</td></tr>
+    {% if e.para %}<tr><th>Para</th><td>{{ e.para }}</td></tr>{% endif %}
+    {% if e.enviado_em %}<tr><th style="white-space:nowrap">Enviado em</th><td>{{ e.enviado_em|date:"d/m/Y H:i" }}</td></tr>{% endif %}
+    <tr><th style="white-space:nowrap">Lido pelo robô</th><td>{{ e.criado_em|date:"d/m/Y H:i" }}</td></tr>
+    <tr><th>Resultado</th><td>{{ e.get_resultado_display }}</td></tr>
+    {% if anexos %}<tr><th>Anexos</th><td>{% for a in anexos %}📎 {{ a }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td></tr>{% endif %}
+    {% if boletos %}<tr><th style="white-space:nowrap">Boletos deste e-mail</th><td>
+      {% for b in boletos %}
+      <div style="margin-bottom:4px"><a href="{% url 'painel_boleto_editar' b.pk %}">#{{ b.pk }} — {{ b }}</a>
+        {% if b.valor_extraido %} · R$ {{ b.valor_extraido }}{% endif %}
+        · <span class="chip {{ b.status }}">{{ b.get_status_display }}</span>
+        {% if b.arquivo %} · <a href="{% url 'baixar_arquivo' 'boleto' b.pk %}">📎 boleto</a>{% endif %}
+        {% if b.nota_fiscal %} · <a href="{% url 'baixar_arquivo' 'nf' b.pk %}">🧾 nota</a>{% endif %}</div>
+      {% endfor %}</td></tr>{% endif %}
+  </table>
+</div>
+<h2 style="font-size:1rem;margin-top:18px">Texto do e-mail</h2>
+{% if e.corpo %}
+<pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:.92rem;background:#fff;border:1px solid #dfe9e5;padding:14px;border-radius:12px">{{ e.corpo }}</pre>
+{% elif tem_conteudo %}
+<div class="card sub">O e-mail veio sem texto — só com {% if anexos %}os anexos acima{% else %}o assunto{% endif %}.</div>
+{% else %}
+<div class="card">
+  <p class="sub" style="margin-top:0">{% if erro %}Não consegui buscar este e-mail na caixa agora ({{ erro }}).{% else %}Este e-mail foi lido antes de o sistema passar a guardar o texto, e não o encontrei mais na caixa.{% endif %}
+    O remetente, o assunto e os boletos acima são o que ficou registrado.</p>
+  <form method="post" style="margin:0">{% csrf_token %}
+    <button class="btn mini claro">🔄 Procurar de novo na caixa</button></form>
+</div>
+{% endif %}
+<p class="sub" style="font-size:.78rem;margin-top:10px">Só o texto é exibido (sem imagens nem links ativos). Os PDFs do e-mail são o boleto e a nota listados acima.</p>
+{% endblock %}

@@ -13,7 +13,8 @@ POST /api/boletos/  (multipart/form-data)
     posto           letra ou nome (um envio por posto no modo por-posto)
     linha_digitavel opcional
     → 201 {"id", "competencia", "posto", "posto_letra", "status",
-           "valor_esperado", "tem_nota_fiscal", "aguardando_nota_fiscal"}
+           "valor_esperado", "origem", "tem_nota_fiscal",
+           "aguardando_nota_fiscal"}
 
 POST /api/boletos/<id>/nota/  (multipart/form-data, campo "nota_fiscal")
     → 200 {boleto} — anexa a NF a um boleto que já está no sistema.
@@ -72,6 +73,9 @@ def _serializar(b):
         'situacao': b.get_status_display(),
         'valor_esperado': str(b.valor_esperado) if b.valor_esperado else None,
         'valor_extraido': str(b.valor_extraido) if b.valor_extraido else None,
+        # por onde o boleto entrou: "API", "PORTAL" (anexado na plataforma),
+        # "PAINEL" (cadastrado pelo admin) ou "EMAIL"; None em registro antigo
+        'origem': b.origem or None,
         'tem_nota_fiscal': bool(b.nota_fiscal),
         # o prestador exige NF e ela ainda não veio: o boleto fica retido
         # (não vai para pagamento) até chegar por /api/boletos/<id>/nota/
@@ -212,7 +216,8 @@ def _criar_boleto(request, up, competencia):
         prestador, competencia, enviado_por=up.email, posto=posto,
         arquivo=arquivo, nome_original=arquivo.name,
         linha_digitavel=linha, nota_fiscal=nf,
-        nota_fiscal_nome=nf.name if nf else '')
+        nota_fiscal_nome=nf.name if nf else '',
+        origem=Boleto.Origem.API)
     AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                        ator=up.email,
                        detalhe=f'(api) Boleto #{boleto.pk} {boleto}')

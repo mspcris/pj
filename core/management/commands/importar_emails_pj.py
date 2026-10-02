@@ -39,8 +39,9 @@ from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from core.models import EmailRecebido, UsuarioPermitido
+from core.models import Boleto, EmailRecebido, UsuarioPermitido
 from core.services import boletos as svc_boletos
+from core.services import email_recebido as svc_recebido
 from core.services import emails as svc_emails
 from core.services import pdf as svc_pdf
 from core.services.verificacao import enviar_recebido, processar
@@ -284,7 +285,8 @@ class Command(BaseCommand):
             self.stdout.write(f'  resposta sem boleto casável: {assunto[:70]}')
         EmailRecebido.objects.create(
             message_id=message_id, remetente=remetente, assunto=assunto,
-            resultado=EmailRecebido.Resultado.FIN, detalhe=detalhe)
+            resultado=EmailRecebido.Resultado.FIN, detalhe=detalhe,
+            **svc_recebido.conteudo(msg))
 
     @staticmethod
     def _dedup_id(msg):
@@ -330,7 +332,8 @@ class Command(BaseCommand):
                 return  # já avisado antes; segue aguardando cadastro
             EmailRecebido.objects.create(
                 message_id=message_id, remetente=remetente, assunto=assunto,
-                resultado=EmailRecebido.Resultado.SEM_PRESTADOR)
+                resultado=EmailRecebido.Resultado.SEM_PRESTADOR,
+                **svc_recebido.conteudo(msg))
             svc_emails.enviar(
                 settings.EMAIL_ADMIN,
                 f'⚠️ Boleto por e-mail de remetente NÃO cadastrado',
@@ -381,7 +384,8 @@ class Command(BaseCommand):
             p = posto or svc_boletos.posto_do_boleto(prestador, texto)
             b = svc_boletos.registrar(
                 prestador, competencia, enviado_por=remetente, posto=p,
-                arquivo=ContentFile(conteudo, name=nome), nome_original=nome)
+                arquivo=ContentFile(conteudo, name=nome), nome_original=nome,
+                origem=Boleto.Origem.EMAIL)
             criados.append(b)
 
         # Casa cada NF com o boleto certo: pelo CNPJ do posto no texto da
@@ -409,14 +413,16 @@ class Command(BaseCommand):
             if linha:
                 b = svc_boletos.registrar(
                     prestador, competencia, enviado_por=remetente,
-                    posto=posto, linha_digitavel=linha)
+                    posto=posto, linha_digitavel=linha,
+                    origem=Boleto.Origem.EMAIL)
                 criados.append(b)
 
         if not criados:
             EmailRecebido.objects.update_or_create(
                 message_id=message_id,
                 defaults={'remetente': remetente, 'assunto': assunto,
-                          'resultado': EmailRecebido.Resultado.SEM_CONTEUDO})
+                          'resultado': EmailRecebido.Resultado.SEM_CONTEUDO,
+                          **svc_recebido.conteudo(msg)})
             svc_emails.enviar(
                 settings.EMAIL_ADMIN,
                 f'⚠️ E-mail de {prestador.nome} sem boleto legível',
@@ -427,11 +433,17 @@ class Command(BaseCommand):
             self.stdout.write(f'  SEM_CONTEUDO: {remetente}')
             return
 
-        EmailRecebido.objects.update_or_create(
+        registro, _ = EmailRecebido.objects.update_or_create(
             message_id=message_id,
             defaults={'remetente': remetente, 'assunto': assunto,
                       'resultado': EmailRecebido.Resultado.BOLETO_CRIADO,
-                      'detalhe': ', '.join(f'#{b.pk}' for b in criados)})
+                      'detalhe': ', '.join(f'#{b.pk}' for b in criados),
+                      **svc_recebido.conteudo(msg)})
+        # Origem do registro: cada boleto aponta para o e-mail que o trouxe
+        # (no objeto em memória também — o fluxo abaixo ainda o salva).
+        for b in criados:
+            b.email_origem = registro
+            b.save(update_fields=['email_origem'])
         if len(criados) == 1:
             enviar_recebido(criados[0])
         else:

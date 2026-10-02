@@ -19,6 +19,9 @@
 .pj-grupo[open]>summary::before{content:'▾ '}
 .pj-grupo .pj-sub{font-size:.78rem;color:var(--cinza);font-weight:600}
 .pj-grupo .pj-corpo{padding:0 12px 12px;display:flex;flex-direction:column;gap:12px}
+.pagar-todos{margin:0}
+.pagar-todos .btn{width:100%;padding:13px 14px;font-size:.98rem;font-weight:800}
+.pagar-todos .btn span{font-weight:600;opacity:.9;font-size:.84rem;margin-left:6px}
 .bcard{border:1px solid #e4e7e4;border-radius:14px;padding:14px 15px;
        background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.03)}
 .bcard .nome{font-size:1.02rem;font-weight:800;line-height:1.2}
@@ -200,6 +203,7 @@
     <div class="bcard">
       <div class="nome"><a href="{% url 'painel_prestador' b.prestador.pk %}">{{ b.prestador.nome }}</a></div>
       <div class="meta">{% if b.prestador.contato != b.prestador.nome %}👤 {{ b.prestador.contato }} · {% endif %}🏥 {{ b.posto_efetivo|default:"(sem posto)" }}</div>
+      {% include 'painel/_origem.html' with b=b %}
 
       <div class="bcard-vals">
         <div><span class="rot">Boleto</span>
@@ -243,11 +247,21 @@
     {% else %}
     {% for l in linhas %}
     {% if l.pj_resumo %}{% ifchanged l.prestador.pk %}{% if not forloop.first %}</div></details>{% endif %}
-    <details class="pj-grupo"><summary><span>{{ l.prestador.nome }}</span> — <strong>R$ {{ l.pj_resumo.total }}</strong> <span class="pj-sub">{{ l.pj_resumo.n }} posto{{ l.pj_resumo.n|pluralize }} {{ l.pj_resumo.suf }} · {{ l.pj_resumo.postos }}</span></summary><div class="pj-corpo">{% endifchanged %}{% endif %}
+    <details class="pj-grupo"><summary><span>{{ l.prestador.nome }}</span> — <strong>R$ {{ l.pj_resumo.total }}</strong> <span class="pj-sub">{{ l.pj_resumo.n }} posto{{ l.pj_resumo.n|pluralize }} {{ l.pj_resumo.suf }} · {{ l.pj_resumo.postos }}</span></summary><div class="pj-corpo">
+    {% if l.pj_resumo.pagar_n %}
+    <form method="post" action="{% url 'painel_pagar_todos' l.prestador.pk %}" class="pagar-todos"
+          onsubmit="return confirm('O financeiro pagou TODOS? Vou marcar como PAGOS os {{ l.pj_resumo.pagar_n }} boleto(s) de {{ l.prestador.nome|escapejs }} que estão com o financeiro em {{ mes_extenso|escapejs }} — R$ {{ l.pj_resumo.pagar_total }}.{% if l.pj_resumo.pagar_fora > 0 %} Inclui {{ l.pj_resumo.pagar_fora }} parcial(is)/extra(s) do fim da página.{% endif %} Nenhum e-mail é enviado.')">
+      {% csrf_token %}<input type="hidden" name="voltar" value="{{ request.get_full_path }}">
+      <input type="hidden" name="ids" value="{{ l.pj_resumo.pagar_ids }}">
+      <button class="btn">✅ TODOS BOLETOS PAGOS <span>{{ l.pj_resumo.pagar_n }} boleto{{ l.pj_resumo.pagar_n|pluralize }} · R$ {{ l.pj_resumo.pagar_total }}</span></button>
+      {% if l.pj_resumo.pagar_fora > 0 %}<div class="sub" style="font-size:.74rem;margin-top:4px">Inclui {{ l.pj_resumo.pagar_fora }} parcial(is)/extra(s) deste fornecedor que estão no fim da página.</div>{% endif %}
+    </form>
+    {% endif %}{% endifchanged %}{% endif %}
     {% with b=l.boleto %}
     <div class="bcard">
       <div class="nome"><a href="{% url 'painel_prestador' l.prestador.pk %}">{{ l.prestador.nome }}</a></div>
       <div class="meta">{% if l.prestador.contato != l.prestador.nome %}👤 {{ l.prestador.contato }} · {% endif %}🏥 {{ l.posto|default:"(único)" }}</div>
+      {% if b %}{% include 'painel/_origem.html' with b=b %}{% endif %}
 
       <div class="bcard-vals">
         <div><span class="rot">Combinado</span>
@@ -503,7 +517,8 @@
     <tr>
       <td>{{ b.criado_em|date:"d/m H:i" }}
         {% if b.observacao %}<div class="sub" style="font-size:.75rem">📝 {{ b.observacao|truncatechars:50 }}</div>
-        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
+        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}
+        {% include 'painel/_origem.html' with b=b %}</td>
       <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
           onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }}')">📎
           {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>
@@ -548,7 +563,8 @@
     <tr>
       <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
         {% if b.observacao %}<div class="sub" style="font-size:.75rem">📝 {{ b.observacao|truncatechars:50 }}</div>
-        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
+        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}
+        {% include 'painel/_origem.html' with b=b %}</td>
       <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
           onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }}')">📎
           {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>
@@ -597,7 +613,8 @@
     <tr>
       <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
         {% if b.observacao %}<div class="sub" style="font-size:.75rem">📝 {{ b.observacao|truncatechars:50 }}</div>
-        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
+        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}
+        {% include 'painel/_origem.html' with b=b %}</td>
       <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
           onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }}')">📎
           {% if b.valor_extraido %}R$ {{ b.valor_extraido }}{% else %}arquivo{% endif %}</a>
@@ -642,7 +659,8 @@
     <tr>
       <td>{{ b.prestador.nome }} — {{ b.posto_efetivo|default:"sem posto" }}
         {% if b.observacao %}<div class="sub" style="font-size:.75rem">📝 {{ b.observacao|truncatechars:50 }}</div>
-        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}</td>
+        {% elif b.nome_original %}<div class="sub" style="font-size:.75rem">{{ b.nome_original|truncatechars:44 }}</div>{% endif %}
+        {% include 'painel/_origem.html' with b=b %}</td>
       <td>{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}"
           onclick="return abrirPdf(this.href, '{{ b.prestador.nome|escapejs }}')">📎 arquivo</a>{% else %}🔢 linha digitável{% endif %}</td>
       <td><span class="chip {{ b.status }}"

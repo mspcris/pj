@@ -6,6 +6,7 @@
   — <span class="chip {{ boleto.status }}">{{ boleto.get_status_display }}</span>
   {% if boleto.arquivo %} — <a href="{% url 'baixar_arquivo' 'boleto' boleto.pk %}">📎
     {{ boleto.nome_original|default:"arquivo"|truncatechars:40 }}</a>{% endif %}</p>
+{% include 'painel/_origem.html' with b=boleto %}
 
 <div class="card">
   <form method="post" enctype="multipart/form-data">

@@ -385,8 +385,22 @@ class Boleto(models.Model):
         NAO_RECONHECIDO = 'NAO_RECONHECIDO', ('Dívida não reconhecida — '
                                                'prestador avisado')
 
+    class Origem(models.TextChoices):
+        API = 'API', 'API'
+        PORTAL = 'PORTAL', 'Plataforma'
+        PAINEL = 'PAINEL', 'Plataforma (cadastro do admin)'
+        EMAIL = 'EMAIL', 'E-mail'
+
     prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
                                   related_name='boletos')
+    # Por onde o boleto ENTROU (gravado na criação, nunca muda). Vazio só
+    # em registro antigo cuja porta de entrada não deu para reconstituir.
+    origem = models.CharField(max_length=8, choices=Origem.choices,
+                              blank=True)
+    # Origem E-MAIL: o e-mail que trouxe o boleto (dá para abrir no painel).
+    email_origem = models.ForeignKey('EmailRecebido', null=True, blank=True,
+                                     on_delete=models.SET_NULL,
+                                     related_name='boletos')
     # None quando o prestador emite boleto único (vale posto_cobranca).
     posto = models.ForeignKey(Posto, null=True, blank=True,
                               on_delete=models.SET_NULL, related_name='boletos')
@@ -467,6 +481,12 @@ class Boleto(models.Model):
     def posto_efetivo(self):
         return self.posto or self.prestador.posto_cobranca
 
+    ORIGEM_ICONE = {'API': '🔌', 'PORTAL': '🖥️', 'PAINEL': '🖥️', 'EMAIL': '✉️'}
+
+    @property
+    def origem_icone(self):
+        return self.ORIGEM_ICONE.get(self.origem, '')
+
     @property
     def motivo_manual(self):
         """Último motivo registrado de queda para MANUAL (para o tooltip)."""
@@ -490,11 +510,13 @@ class Boleto(models.Model):
         campos já carregados. Valores vão como Decimal — o template formata."""
         ev = []
         if self.criado_em:
+            quem = (f'enviado por {self.enviado_por}'
+                    if self.enviado_por else 'cadastrado no painel')
             ev.append({
                 'icone': '📥', 'titulo': 'Chegou no sistema',
                 'quando': self.criado_em,
-                'detalhe': (f'enviado por {self.enviado_por}'
-                            if self.enviado_por else 'cadastrado no painel')})
+                'detalhe': (f'origem: {self.get_origem_display()} · {quem}'
+                            if self.origem else quem)})
         if self.verificado_em:
             if self.valor_corrigido_mao:
                 det = self.valor_corrigido_mao
@@ -615,12 +637,24 @@ class EmailRecebido(models.Model):
     resultado = models.CharField(max_length=10, choices=Resultado.choices)
     detalhe = models.TextField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
+    # O e-mail como chegou, para abrir no painel ("origem: e-mail → ver o
+    # e-mail"). Só TEXTO — HTML de fora nunca é exibido no painel. Os PDFs
+    # não ficam aqui: viram o boleto/nota; guardamos só os nomes.
+    para = models.CharField(max_length=255, blank=True)
+    enviado_em = models.DateTimeField(null=True, blank=True)
+    corpo = models.TextField(blank=True)
+    anexos = models.TextField(blank=True, help_text='Um nome por linha')
+    # Registro antigo (sem corpo): quando já se tentou buscar na caixa.
+    corpo_buscado_em = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-criado_em']
 
     def __str__(self):
         return f'{self.remetente} — {self.get_resultado_display()}'
+
+    def lista_anexos(self):
+        return [a for a in self.anexos.splitlines() if a.strip()]
 
 
 class EmailLog(models.Model):

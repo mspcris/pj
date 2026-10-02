@@ -9,7 +9,8 @@
     <tr><th>Para</th><td>{{ e.destinatario }}</td></tr>
     <tr><th>Status</th><td>{% if e.ok %}✅ enviado{% else %}❌ falhou{% if e.erro %} — {{ e.erro }}{% endif %}{% endif %}</td></tr>
     {% if e.boleto %}<tr><th>Boleto</th><td>
-      <a href="{% url 'painel_boleto_editar' e.boleto.pk %}">#{{ e.boleto.pk }} — {{ e.boleto }}</a></td></tr>{% endif %}
+      <a href="{% url 'painel_boleto_editar' e.boleto.pk %}">#{{ e.boleto.pk }} — {{ e.boleto }}</a>
+      {% include 'painel/_origem.html' with b=e.boleto %}</td></tr>{% endif %}
   </table>
 </div>
 <h2 style="font-size:1rem;margin-top:18px">Como chegou na caixa de entrada</h2>

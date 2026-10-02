@@ -134,7 +134,8 @@ ilegível e há mais de um boleto (mandar `posto`) ou se há mais de um boleto
 do mesmo posto, como parciais (a mensagem lista os ids — usar a rota por id).
 
 A resposta traz `id`, `competencia`, `posto` (nome), `posto_letra`,
-`status`, `situacao`, `valor_esperado`, `valor_extraido`,
+`status`, `situacao`, `valor_esperado`, `valor_extraido`, `origem`
+(`API`, `PORTAL`, `PAINEL` ou `EMAIL` — por onde o boleto entrou),
 `tem_nota_fiscal` e `aguardando_nota_fiscal`. O boleto entra no MESMO fluxo
 de verificação do portal.
 

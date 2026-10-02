@@ -347,6 +347,21 @@ def dashboard(request, up):
                                for l in itens)
             resumo_pj = {'total': total, 'postos': postos,
                          'n': len(itens), 'suf': suf}
+            if vista == 'pagamento':
+                # Botão "TODOS BOLETOS PAGOS": tudo deste PJ que está com
+                # o financeiro no mês — os postos do grupo e também as
+                # parciais/extras do fim da página. Os ids vão no botão:
+                # só é dado baixa no que estava na tela ao clicar.
+                a_pagar = [b for b in boletos_mes
+                           if b.prestador_id == itens[0]['prestador'].pk
+                           and b.status in (Boleto.Status.APROVADO,
+                                            Boleto.Status.FIN_RECEBIDO)]
+                resumo_pj['pagar_ids'] = ','.join(str(b.pk) for b in a_pagar)
+                resumo_pj['pagar_n'] = len(a_pagar)
+                resumo_pj['pagar_total'] = sum(
+                    (b.valor_extraido for b in a_pagar
+                     if b.valor_extraido is not None), Decimal('0'))
+                resumo_pj['pagar_fora'] = len(a_pagar) - len(itens)
             for l in itens:
                 l['pj_resumo'] = resumo_pj
 
@@ -542,6 +557,51 @@ def boleto_acao(request, up, pk, acao):
 
 @admin_required
 @require_POST
+def pagar_todos(request, up, pk):
+    """Botão "TODOS BOLETOS PAGOS" do grupo do PJ: o financeiro avisou que
+    pagou tudo daquele fornecedor — dá baixa de uma vez, em vez de um por
+    um. Só nos boletos que estavam na tela (ids do formulário), só deste
+    prestador e só nos que estão com o financeiro (enviado p/ pagamento ou
+    recebido pelo financeiro). Nenhum e-mail é enviado; cada boleto fica na
+    auditoria e pode ser desfeito em "Desfazer PAGO"."""
+    from .services.verificacao import _moeda
+    prestador = get_object_or_404(Prestador, pk=pk)
+    ids = [int(n) for n in re.findall(r'\d+', request.POST.get('ids', ''))]
+    agora = timezone.now()
+    pagos, total = [], Decimal('0')
+    with transaction.atomic():
+        for boleto in (Boleto.objects
+                       .filter(pk__in=ids[:500], prestador=prestador,
+                               status__in=[Boleto.Status.APROVADO,
+                                           Boleto.Status.FIN_RECEBIDO])
+                       .order_by('pk')):
+            boleto.status = Boleto.Status.PAGO
+            boleto.pago_em = agora
+            boleto.save(update_fields=['status', 'pago_em'])
+            pagos.append(boleto.pk)
+            total += boleto.valor_extraido or Decimal('0')
+    for bpk in pagos:
+        AuditLog.registrar(
+            AuditLog.Evento.STATUS, request,
+            detalhe=f'Ação "pagar" no boleto #{bpk} — botão TODOS BOLETOS '
+                    f'PAGOS ({prestador.nome})')
+    fora = len(set(ids)) - len(pagos)
+    if pagos:
+        messages.success(
+            request,
+            f'{len(pagos)} boleto(s) de {prestador.nome} marcado(s) como '
+            f'PAGO — R$ {_moeda(total)}.'
+            + (f' {fora} já não estava(m) "enviado p/ pagamento" e '
+               'ficou(aram) como estava(m).' if fora else ''))
+    else:
+        messages.warning(request, f'Nenhum boleto de {prestador.nome} '
+                                  'estava "enviado p/ pagamento" — nada '
+                                  'foi alterado.')
+    return redirect(request.POST.get('voltar') or 'painel_dashboard')
+
+
+@admin_required
+@require_POST
 def verificar_email_agora(request, up):
     """Botão "Verificar e-mail agora": dispara na hora o robô que lê as
     caixas de boleto (que no cron roda de 10 em 10 min) + a verificação,
@@ -608,7 +668,8 @@ def boleto_novo(request, up):
                 valor_livre=form.cleaned_data['valor_livre'],
                 extra=form.cleaned_data['extra'],
                 parcial=form.cleaned_data['parcial'],
-                observacao=form.cleaned_data['observacao'])
+                observacao=form.cleaned_data['observacao'],
+                origem=Boleto.Origem.PAINEL)
             AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request,
                                detalhe=f'(admin) Boleto #{boleto.pk} {boleto}')
             from .services.verificacao import fluxo_completo_async
@@ -1329,6 +1390,32 @@ def email_detalhe(request, up, pk):
     e = get_object_or_404(EmailLog.objects.select_related('boleto'), pk=pk)
     return render(request, 'painel/email_detalhe.html',
                   {'e': e, 'html': _render_html(e.corpo), 'up': up})
+
+
+@admin_required
+def email_recebido_detalhe(request, up, pk):
+    """O e-mail que CHEGOU na caixa de boletos — a origem do registro. Só
+    texto (HTML de fora não é exibido) + os boletos que saíram dele.
+    Registro antigo, de antes de o texto ser guardado: busca na caixa pelo
+    Message-ID (somente leitura) na primeira vez que alguém abre."""
+    e = get_object_or_404(EmailRecebido, pk=pk)
+    tem_conteudo = bool(e.corpo or e.anexos or e.enviado_em)
+    erro = ''
+    if not tem_conteudo and (request.method == 'POST'
+                             or e.corpo_buscado_em is None):
+        from .services import email_recebido as svc_recebido
+        try:
+            tem_conteudo = svc_recebido.buscar_na_caixa(e)
+        except Exception as exc:
+            erro = str(exc)[:200] or exc.__class__.__name__
+        if request.method == 'POST' and not erro:
+            return redirect('painel_email_recebido', pk=pk)
+    boletos = (e.boletos.select_related('prestador', 'posto',
+                                        'prestador__posto_cobranca')
+               .order_by('pk'))
+    return render(request, 'painel/email_recebido.html', {
+        'e': e, 'boletos': boletos, 'anexos': e.lista_anexos(),
+        'tem_conteudo': tem_conteudo, 'erro': erro, 'up': up})
 
 
 @admin_required

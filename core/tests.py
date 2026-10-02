@@ -2873,3 +2873,260 @@ class MesVigenteTest(BaseSetup):
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.APROVADO)
         self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+
+
+class OrigemBoletoTest(BaseSetup):
+    """02/10/2026: o card do painel tem de dizer POR ONDE o boleto entrou
+    (API, plataforma ou e-mail) — e, se foi por e-mail, abrir o e-mail."""
+
+    def _email(self, corpo='Segue o boleto de outubro.\nAbs, PJ',
+               html=None, mid='<abc123@empresa.com.br>'):
+        from email.message import EmailMessage
+        msg = EmailMessage()
+        msg['From'] = 'Fulano PJ <pj@empresa.com.br>'
+        msg['To'] = 'prestadores@camim.com.br'
+        msg['Subject'] = 'Boleto outubro'
+        msg['Message-ID'] = mid
+        msg['Date'] = 'Fri, 02 Oct 2026 09:15:00 -0300'
+        if html is None:
+            msg.set_content(corpo)
+        else:
+            msg.set_content(html, subtype='html')
+        msg.add_attachment(PDF_MINI, maintype='application', subtype='pdf',
+                           filename='boleto-outubro.pdf')
+        return msg
+
+    def _robo(self, msg):
+        from core.management.commands.importar_emails_pj import Command
+        alvo = 'core.management.commands.importar_emails_pj.'
+        with mock.patch(alvo + 'enviar_recebido'), \
+                mock.patch(alvo + 'processar'), \
+                mock.patch(alvo + 'svc_pdf.extrair_texto_bytes',
+                           return_value='Boleto R$ 1.500,00'), \
+                mock.patch(alvo + 'svc_boletos.posto_do_boleto',
+                           return_value=self.posto1):
+            import io
+            Command(stdout=io.StringIO())._processar_mensagem(msg, False)
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_plataforma_painel_e_api_gravam_a_origem(self, m_async):
+        hoje = date.today().replace(day=1)
+        self.login_pj()
+        self.client.post('/boleto/', {'competencia': hoje.isoformat(),
+                                      'posto': self.posto1.pk,
+                                      'arquivo': _pdf()})
+        self.assertEqual(Boleto.objects.latest('pk').origem,
+                         Boleto.Origem.PORTAL)
+        self.login_admin()
+        self.client.post('/painel/boleto/novo/', {
+            'prestador': self.prestador.pk, 'posto': self.posto2.pk,
+            'competencia': hoje.isoformat(), 'arquivo': _pdf()})
+        self.assertEqual(Boleto.objects.latest('pk').origem,
+                         Boleto.Origem.PAINEL)
+        self.client.logout()
+        self.up.api_token = 'a' * 48
+        self.up.save()
+        resp = self.client.post(
+            '/api/boletos/', {'posto': 'A', 'arquivo': _pdf()},
+            HTTP_AUTHORIZATION='Bearer ' + 'a' * 48)
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()['origem'], 'API')
+        self.assertEqual(Boleto.objects.latest('pk').origem,
+                         Boleto.Origem.API)
+
+    def test_email_grava_origem_e_o_proprio_email(self):
+        from .models import EmailRecebido
+        self._robo(self._email())
+        b = Boleto.objects.get()
+        e = EmailRecebido.objects.get()
+        self.assertEqual(b.origem, Boleto.Origem.EMAIL)
+        self.assertEqual(b.email_origem, e)
+        self.assertIn('Segue o boleto de outubro.', e.corpo)
+        self.assertEqual(e.lista_anexos(), ['boleto-outubro.pdf'])
+        self.assertEqual(e.para, 'prestadores@camim.com.br')
+        self.assertIsNotNone(e.enviado_em)
+
+    def test_card_mostra_a_origem_e_abre_o_email(self):
+        self._robo(self._email())
+        b = Boleto.objects.get()
+        Boleto.objects.filter(pk=b.pk).update(
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('1500'))
+        self.login_admin()
+        mes = b.competencia.strftime('%Y-%m')
+        resp = self.client.get(f'/painel/?m={mes}&vista=pagamento')
+        self.assertContains(resp, 'Origem:')
+        self.assertContains(resp, 'E-mail</strong>')
+        link = f'/painel/emails/recebidos/{b.email_origem_id}/'
+        self.assertContains(resp, link)
+        resp = self.client.get(link)
+        self.assertContains(resp, 'Segue o boleto de outubro.')
+        self.assertContains(resp, 'boleto-outubro.pdf')
+        self.assertContains(resp, f'/painel/boleto/{b.pk}/editar/')
+
+    def test_card_da_api_nao_tem_link_de_email(self):
+        Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 10, 1), arquivo=_pdf(),
+            status=Boleto.Status.FIN_RECEBIDO, origem=Boleto.Origem.API,
+            enviado_por='dev@empresa.com.br',
+            valor_extraido=Decimal('1500.00'))
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=pagamento')
+        self.assertContains(resp, 'API</strong> · dev@empresa.com.br')
+        self.assertNotContains(resp, '/painel/emails/recebidos/')
+
+    def test_email_so_em_html_vira_texto_sem_script(self):
+        from .models import EmailRecebido
+        self._robo(self._email(
+            html='<html><body><script>alert(1)</script>'
+                 '<p>Segue <b>boleto</b></p><img src="http://x/y.png">'
+                 '</body></html>'))
+        e = EmailRecebido.objects.get()
+        self.assertEqual(e.corpo, 'Segue boleto')
+        self.login_admin()
+        resp = self.client.get(f'/painel/emails/recebidos/{e.pk}/')
+        self.assertNotContains(resp, 'alert(1)')
+        self.assertNotContains(resp, '<img src="http://x/y.png">')
+
+    def test_pj_nao_abre_email_recebido(self):
+        self._robo(self._email())
+        from .models import EmailRecebido
+        self.login_pj()
+        resp = self.client.get(
+            f'/painel/emails/recebidos/{EmailRecebido.objects.get().pk}/')
+        self.assertEqual(resp.status_code, 302)
+
+    def test_email_antigo_sem_texto_busca_na_caixa_uma_vez(self):
+        from .models import EmailRecebido
+        e = EmailRecebido.objects.create(
+            message_id='<velho@x>', remetente='pj@empresa.com.br',
+            assunto='Boleto setembro', resultado='BOLETO')
+
+        def achou(registro):
+            registro.corpo = 'texto recuperado da caixa'
+            registro.corpo_buscado_em = timezone.now()
+            registro.save()
+            return True
+        self.login_admin()
+        with mock.patch('core.services.email_recebido.buscar_na_caixa',
+                        side_effect=achou) as m_busca:
+            resp = self.client.get(f'/painel/emails/recebidos/{e.pk}/')
+            self.assertContains(resp, 'texto recuperado da caixa')
+            self.client.get(f'/painel/emails/recebidos/{e.pk}/')
+        m_busca.assert_called_once()
+
+    def test_email_antigo_caixa_fora_do_ar_nao_quebra_a_tela(self):
+        from .models import EmailRecebido
+        e = EmailRecebido.objects.create(
+            message_id='<velho2@x>', remetente='pj@empresa.com.br',
+            assunto='Boleto setembro', resultado='BOLETO')
+        self.login_admin()
+        with mock.patch('core.services.email_recebido.buscar_na_caixa',
+                        side_effect=OSError('sem rede')):
+            resp = self.client.get(f'/painel/emails/recebidos/{e.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'sem rede')
+        self.assertContains(resp, 'Procurar de novo na caixa')
+
+    def test_origem_dos_boletos_antigos_sai_do_email_e_da_auditoria(self):
+        import importlib
+        from django.apps import apps
+        from .models import AuditLog, EmailRecebido
+        novo = lambda: Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 9, 1), arquivo=_pdf())
+        por_email, por_api, por_painel, por_portal, sem = (
+            novo(), novo(), novo(), novo(), novo())
+        e = EmailRecebido.objects.create(
+            message_id='<m@x>', remetente='pj@empresa.com.br',
+            resultado='BOLETO', detalhe=f'#{por_email.pk}')
+        for prefixo, b in (('(api) ', por_api), ('(admin) ', por_painel),
+                           ('', por_portal)):
+            AuditLog.objects.create(evento=AuditLog.Evento.UPLOAD_BOLETO,
+                                    detalhe=f'{prefixo}Boleto #{b.pk} {b}')
+        AuditLog.objects.create(
+            evento=AuditLog.Evento.UPLOAD_BOLETO,
+            detalhe=f'(api) nota fiscal anexada ao boleto #{sem.pk}')
+        mig = importlib.import_module(
+            'core.migrations.0035_origem_dos_boletos_antigos')
+        mig.preencher(apps, None)
+        origem = lambda b: Boleto.objects.get(pk=b.pk).origem
+        self.assertEqual(origem(por_email), 'EMAIL')
+        self.assertEqual(Boleto.objects.get(pk=por_email.pk).email_origem, e)
+        self.assertEqual(origem(por_api), 'API')
+        self.assertEqual(origem(por_painel), 'PAINEL')
+        self.assertEqual(origem(por_portal), 'PORTAL')
+        self.assertEqual(origem(sem), '')
+
+
+class PagarTodosTest(BaseSetup):
+    """02/10/2026: o financeiro avisa "todos os boletos do fornecedor A
+    foram pagos" e o Cristiano tinha de dar baixa um por um. Botão TODOS
+    BOLETOS PAGOS no grupo do PJ."""
+
+    def _boleto(self, status, posto=None, prestador=None, **kw):
+        base = dict(prestador=prestador or self.prestador,
+                    posto=posto or self.posto1,
+                    competencia=date(2026, 10, 1), arquivo=_pdf(),
+                    status=status, valor_extraido=Decimal('1500.00'),
+                    valor_esperado=Decimal('1500.00'))
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    def test_botao_aparece_no_grupo_com_os_boletos_do_pj(self):
+        a = self._boleto(Boleto.Status.FIN_RECEBIDO)
+        b = self._boleto(Boleto.Status.APROVADO, posto=self.posto2,
+                         valor_extraido=Decimal('2000.00'))
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=pagamento')
+        self.assertContains(resp, 'TODOS BOLETOS PAGOS')
+        self.assertContains(
+            resp, f'/painel/prestadores/{self.prestador.pk}/pagar-todos/')
+        self.assertContains(resp, f'name="ids" value="{a.pk},{b.pk}"')
+        self.assertContains(resp, '2 boletos · R$ 3.500,00')
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_da_baixa_em_todos_e_so_nos_enviados_do_pj(self, m_mail):
+        from .models import AuditLog
+        a = self._boleto(Boleto.Status.FIN_RECEBIDO)
+        b = self._boleto(Boleto.Status.APROVADO, posto=self.posto2)
+        manual = self._boleto(Boleto.Status.MANUAL, extra=True)
+        outro_pj = Prestador.objects.create(nome='Outro Fornecedor')
+        alheio = self._boleto(Boleto.Status.APROVADO, prestador=outro_pj)
+        fora_da_tela = self._boleto(Boleto.Status.APROVADO, extra=True)
+        self.login_admin()
+        resp = self.client.post(
+            f'/painel/prestadores/{self.prestador.pk}/pagar-todos/',
+            {'ids': f'{a.pk},{b.pk},{manual.pk},{alheio.pk}',
+             'voltar': '/painel/?m=2026-10&vista=pagamento'})
+        self.assertRedirects(resp, '/painel/?m=2026-10&vista=pagamento',
+                             fetch_redirect_response=False)
+        status = lambda x: Boleto.objects.get(pk=x.pk).status
+        self.assertEqual(status(a), Boleto.Status.PAGO)
+        self.assertEqual(status(b), Boleto.Status.PAGO)
+        self.assertIsNotNone(Boleto.objects.get(pk=a.pk).pago_em)
+        self.assertEqual(status(manual), Boleto.Status.MANUAL)
+        self.assertEqual(status(alheio), Boleto.Status.APROVADO)
+        self.assertEqual(status(fora_da_tela), Boleto.Status.APROVADO)
+        m_mail.assert_not_called()
+        self.assertEqual(AuditLog.objects.filter(
+            detalhe__startswith='Ação "pagar" no boleto #').count(), 2)
+
+    def test_pj_nao_da_baixa(self):
+        a = self._boleto(Boleto.Status.APROVADO)
+        self.login_pj()
+        self.client.post(
+            f'/painel/prestadores/{self.prestador.pk}/pagar-todos/',
+            {'ids': str(a.pk)})
+        self.assertEqual(Boleto.objects.get(pk=a.pk).status,
+                         Boleto.Status.APROVADO)
+
+    def test_get_nao_da_baixa(self):
+        a = self._boleto(Boleto.Status.APROVADO)
+        self.login_admin()
+        resp = self.client.get(
+            f'/painel/prestadores/{self.prestador.pk}/pagar-todos/'
+            f'?ids={a.pk}')
+        self.assertEqual(resp.status_code, 405)
+        self.assertEqual(Boleto.objects.get(pk=a.pk).status,
+                         Boleto.Status.APROVADO)
