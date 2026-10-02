@@ -7,6 +7,16 @@
   {% if boleto.arquivo %} — <a href="{% url 'baixar_arquivo' 'boleto' boleto.pk %}">📎
     {{ boleto.nome_original|default:"arquivo"|truncatechars:40 }}</a>{% endif %}</p>
 {% include 'painel/_origem.html' with b=boleto %}
+{% if boleto.nota_fiscal or notas_anteriores %}
+<div class="sub" style="font-size:.85rem;margin-top:8px">
+  {% if boleto.nota_fiscal %}🧾 Nota fiscal que vale:
+    <a href="{% url 'baixar_arquivo' 'nf' boleto.pk %}">{{ boleto.nota_fiscal_nome|default:"nota fiscal"|truncatechars:40 }}</a>{% endif %}
+  {% for n in notas_anteriores %}
+  <div style="margin-top:3px">↩ Nota anterior, substituída em {{ n.substituida_em|date:"d/m/Y H:i" }}{% if n.via %} pela {{ n.get_via_display }}{% endif %}{% if n.substituida_por %} ({{ n.substituida_por }}){% endif %}:
+    <a href="{% url 'baixar_arquivo' 'nf_anterior' n.pk %}">{{ n.nome|default:"nota fiscal"|truncatechars:40 }}</a></div>
+  {% endfor %}
+</div>
+{% endif %}
 
 <div class="card">
   <form method="post" enctype="multipart/form-data">

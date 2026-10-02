@@ -506,8 +506,9 @@ class Boleto(models.Model):
     @property
     def linha_do_tempo(self):
         """Marcos REAIS da vida do boleto (só os que aconteceram), para o
-        'Histórico da comunicação' no painel. Sem query extra: usa só os
-        campos já carregados. Valores vão como Decimal — o template formata."""
+        'Histórico da comunicação' no painel. Usa os campos já carregados e
+        as notas substituídas (o painel faz prefetch de `notas_anteriores`).
+        Valores vão como Decimal — o template formata."""
         ev = []
         if self.criado_em:
             quem = (f'enviado por {self.enviado_por}'
@@ -554,8 +555,39 @@ class Boleto(models.Model):
                 'titulo': 'Dívida não reconhecida — prestador avisado',
                 'quando': self.nao_reconhecido_em,
                 'detalhe': self.nao_reconhecido_motivo})
+        for n in self.notas_anteriores.all():
+            ev.append({
+                'icone': '🧾', 'titulo': 'Nota fiscal substituída por uma nova',
+                'quando': n.substituida_em,
+                'detalhe': ' · '.join(x for x in (
+                    f'pela {n.get_via_display()}' if n.via else '',
+                    n.substituida_por) if x),
+                'nota_anterior': n.pk})
         ev.sort(key=lambda e: e['quando'])
         return ev
+
+
+class NotaAnterior(models.Model):
+    """Nota fiscal SUBSTITUÍDA por outra no mesmo boleto (regra do
+    Cristiano, 02/10/2026): vale sempre a nota nova, mas o PDF antigo nunca
+    é apagado — fica aqui, no histórico do boleto. Só `boletos.trocar_nota`
+    cria estes registros."""
+    boleto = models.ForeignKey(Boleto, on_delete=models.CASCADE,
+                               related_name='notas_anteriores')
+    # Aponta para o arquivo que JÁ estava no boleto (nada é copiado).
+    arquivo = models.FileField(upload_to='boletos/')
+    nome = models.CharField(max_length=255, blank=True)
+    substituida_em = models.DateTimeField(auto_now_add=True)
+    # Quem mandou a nota nova e por onde (API ou painel).
+    substituida_por = models.CharField(max_length=255, blank=True)
+    via = models.CharField(max_length=8, choices=Boleto.Origem.choices,
+                           blank=True)
+
+    class Meta:
+        ordering = ['substituida_em', 'pk']
+
+    def __str__(self):
+        return f'Nota anterior do boleto #{self.boleto_id}'
 
 
 class Configuracao(models.Model):

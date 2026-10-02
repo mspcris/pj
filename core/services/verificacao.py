@@ -516,27 +516,46 @@ def cc_gerente(boleto):
     return None
 
 
-def enviar_nota_posterior(boleto):
+def enviar_nota_posterior(boleto, substituicao=False):
     """Nota fiscal anexada DEPOIS que o boleto já foi ao financeiro (ex.: o
     emissor da NFS-e estava fora do ar na hora do pagamento). Manda a nota
     como COMPLEMENTO do pagamento já enviado — mesmo boleto, nada novo a
-    pagar; não reenvia o boleto nem mexe no valor. Retorna True se enviou."""
+    pagar; não reenvia o boleto nem mexe no valor. Retorna True se enviou.
+
+    `substituicao`: o boleto JÁ tinha nota e o prestador mandou outra no
+    lugar (02/10/2026, Robson emitiu as 8 com a competência errada) — o
+    e-mail diz com todas as letras que a nota anterior não vale mais."""
     if not boleto.nota_fiscal:
         return False
     fatos = _fatos(boleto)
-    assunto = assunto_parcial(
-        fatos, f'Nota fiscal — {fatos["prestador"]} — {fatos["alvo"]} — '
-        f'{fatos["competencia"]}')
     quando = (timezone.localtime(boleto.pagamento_enviado_em).strftime('%d/%m')
               if boleto.pagamento_enviado_em else None)
-    corpo = (
-        'Prezada equipe do setor financeiro,\n\n'
-        f'Segue em anexo a NOTA FISCAL do prestador {fatos["prestador"]} '
-        f'referente ao boleto de {fatos["alvo"]} ({fatos["competencia"]})'
-        + (f', já enviado para pagamento em {quando}' if quando else '')
-        + '. O boleto foi liberado antes da nota porque o emissor da NFS-e '
-        'estava indisponível; a nota chega agora para anexar ao processo.\n\n'
-        'É o MESMO pagamento — não há novo valor a pagar.\n')
+    enviado = f', já enviado para pagamento em {quando}' if quando else ''
+    if substituicao:
+        assunto = assunto_parcial(
+            fatos, f'SUBSTITUIÇÃO de nota fiscal — {fatos["prestador"]} — '
+            f'{fatos["alvo"]} — {fatos["competencia"]}')
+        corpo = (
+            'Prezada equipe do setor financeiro,\n\n'
+            f'Segue em anexo a NOVA nota fiscal do prestador '
+            f'{fatos["prestador"]} referente ao boleto de {fatos["alvo"]} '
+            f'({fatos["competencia"]}){enviado}. Ela SUBSTITUI a nota fiscal '
+            'enviada anteriormente para este mesmo boleto — favor '
+            'DESCONSIDERAR a nota anterior e anexar esta ao processo.\n\n'
+            'É o MESMO pagamento: o boleto e o valor não mudaram — não há '
+            'novo valor a pagar.\n')
+    else:
+        assunto = assunto_parcial(
+            fatos, f'Nota fiscal — {fatos["prestador"]} — {fatos["alvo"]} — '
+            f'{fatos["competencia"]}')
+        corpo = (
+            'Prezada equipe do setor financeiro,\n\n'
+            f'Segue em anexo a NOTA FISCAL do prestador {fatos["prestador"]} '
+            f'referente ao boleto de {fatos["alvo"]} ({fatos["competencia"]})'
+            f'{enviado}. O boleto foi liberado antes da nota porque o emissor '
+            'da NFS-e estava indisponível; a nota chega agora para anexar ao '
+            'processo.\n\n'
+            'É o MESMO pagamento — não há novo valor a pagar.\n')
     emails.enviar(
         settings.EMAIL_PAGADOR, assunto, corpo, boleto=boleto,
         anexos=[(boleto.nota_fiscal,
@@ -544,8 +563,11 @@ def enviar_nota_posterior(boleto):
         de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
     AuditLog.registrar(
         AuditLog.Evento.STATUS, ator='sistema',
-        detalhe=f'Boleto #{boleto.pk}: nota fiscal enviada ao financeiro '
-                'como complemento (boleto já havia sido enviado)')
+        detalhe=(f'Boleto #{boleto.pk}: nota fiscal SUBSTITUÍDA — a nova '
+                 'foi enviada ao financeiro (a anterior fica no histórico)'
+                 if substituicao else
+                 f'Boleto #{boleto.pk}: nota fiscal enviada ao financeiro '
+                 'como complemento (boleto já havia sido enviado)'))
     return True
 
 

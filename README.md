@@ -126,6 +126,14 @@ Campos do POST `/api/boletos/`:
   sozinho ao financeiro: fica retido até liberação manual no painel.
 - `linha_digitavel` — opcional.
 
+Nota no lugar de outra: mandar a nota de um boleto que JÁ tem nota
+substitui — vale sempre a nova; a antiga fica guardada no histórico do
+boleto (painel). Se o boleto já foi ao financeiro, a equipe recebe a nota
+nova avisando que a anterior deve ser desconsiderada. A resposta traz
+`"nota_substituida": true`. Nota recusada (400) não altera a que já estava.
+Já o BOLETO enviado ao financeiro não se substitui pela API: o admin
+precisa retirá-lo no painel para liberar um novo envio.
+
 Nota pelo mês (`/api/boletos/<YYYY-MM>/nota/`): vale o boleto do prestador
 naquele mês. Quem atende vários postos tem um boleto por posto — o posto sai
 do campo `posto` (letra ou nome), se vier, ou do CNPJ do tomador na própria

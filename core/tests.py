@@ -3130,3 +3130,166 @@ class PagarTodosTest(BaseSetup):
         self.assertEqual(resp.status_code, 405)
         self.assertEqual(Boleto.objects.get(pk=a.pk).status,
                          Boleto.Status.APROVADO)
+
+
+class NotaSubstituidaTest(BaseSetup):
+    """02/10/2026: o Robson emitiu as 8 notas com a competência errada e
+    perguntou se mandar de novo pela API substitui. Regra do Cristiano:
+    nota pode trocar à vontade — vale SEMPRE a nova e o PDF antigo fica no
+    histórico; o financeiro é avisado de que é substituição. (Boleto já
+    enviado NÃO se troca assim: só com o admin retirando e liberando.)"""
+
+    def setUp(self):
+        super().setUp()
+        self.up.api_token = 'a' * 48
+        self.up.save()
+        self.auth = {'HTTP_AUTHORIZATION': 'Bearer ' + 'a' * 48}
+
+    def _boleto(self, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=date(2026, 10, 1), arquivo=_pdf(),
+                    nota_fiscal=_pdf('nota-errada.pdf'),
+                    nota_fiscal_nome='nota-errada.pdf',
+                    status=Boleto.Status.FIN_RECEBIDO,
+                    valor_esperado=Decimal('1500.00'),
+                    valor_extraido=Decimal('1500.00'),
+                    pagamento_enviado_em=timezone.now(),
+                    pagamento_enviado_valor=Decimal('1500.00'))
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    def _post(self, b, texto=''):
+        with mock.patch('core.services.pdf.extrair_texto_bytes',
+                        return_value=texto):
+            return self.client.post(
+                f'/api/boletos/{b.pk}/nota/',
+                {'nota_fiscal': _pdf('nota-certa.pdf')}, **self.auth)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_api_troca_a_nota_guarda_a_antiga_e_avisa_o_financeiro(
+            self, m_mail):
+        from .models import NotaAnterior
+        b = self._boleto()
+        antiga = b.nota_fiscal.name
+        resp = self._post(b)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['nota_substituida'])
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.FIN_RECEBIDO)  # não mexe
+        self.assertEqual(b.nota_fiscal_nome, 'nota-certa.pdf')
+        self.assertNotEqual(b.nota_fiscal.name, antiga)
+        n = NotaAnterior.objects.get()
+        self.assertEqual((n.boleto, n.arquivo.name, n.nome, n.via),
+                         (b, antiga, 'nota-errada.pdf', 'API'))
+        self.assertEqual(n.substituida_por, 'pj@empresa.com.br')
+        self.assertEqual(n.arquivo.read(), PDF_MINI)  # o PDF antigo existe
+        fin = [c for c in m_mail.call_args_list
+               if c.args[0] == 'equipe@camim.com.br']
+        self.assertEqual(len(fin), 1)
+        self.assertTrue(fin[0].args[1].startswith(
+            'SUBSTITUIÇÃO de nota fiscal — Limpeza Total LTDA — Anchieta'))
+        self.assertIn('DESCONSIDERAR a nota anterior', fin[0].args[2])
+        self.assertIn('não há novo valor a pagar', fin[0].args[2])
+        self.assertEqual(fin[0].kwargs['anexos'][0][1], 'nota-certa.pdf')
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_primeira_nota_segue_como_complemento_nao_substituicao(
+            self, m_mail):
+        from .models import NotaAnterior
+        b = self._boleto(nota_fiscal=None, nota_fiscal_nome='')
+        resp = self._post(b)
+        self.assertFalse(resp.json()['nota_substituida'])
+        self.assertFalse(NotaAnterior.objects.exists())
+        self.assertTrue(m_mail.call_args.args[1].startswith('Nota fiscal — '))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_nota_recusada_nao_mexe_na_que_ja_estava(self, m_mail):
+        from .models import NotaAnterior
+        b = self._boleto()
+        antiga = b.nota_fiscal.name
+        resp = self._post(b, texto='Recibo de aluguel — nada de NFS')
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('recusada', resp.json()['erro'])
+        b.refresh_from_db()
+        self.assertEqual(b.nota_fiscal.name, antiga)
+        self.assertEqual(b.nota_fiscal_nome, 'nota-errada.pdf')
+        self.assertFalse(NotaAnterior.objects.exists())
+        m_mail.assert_not_called()
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.verificacao.processar_async')
+    def test_boleto_ainda_nao_enviado_troca_sem_email(self, m_proc, m_mail):
+        from .models import NotaAnterior
+        b = self._boleto(status=Boleto.Status.MANUAL,
+                         pagamento_enviado_em=None,
+                         pagamento_enviado_valor=None)
+        resp = self._post(b)
+        self.assertTrue(resp.json()['nota_substituida'])
+        self.assertEqual(NotaAnterior.objects.count(), 1)
+        m_mail.assert_not_called()
+        m_proc.assert_called_once_with(b.pk)  # volta para a verificação
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_painel_troca_a_nota_do_mesmo_jeito(self, m_mail):
+        from .models import NotaAnterior
+        b = self._boleto()
+        self.login_admin()
+        resp = self.client.post(f'/painel/boleto/{b.pk}/editar/', {
+            'posto': self.posto1.pk, 'competencia': '2026-10-01',
+            'linha_digitavel': '', 'chave_pix': '', 'observacao': '',
+            'nota_fiscal': _pdf('nota-certa.pdf')})
+        self.assertEqual(resp.status_code, 302)
+        b.refresh_from_db()
+        self.assertEqual(b.nota_fiscal_nome, 'nota-certa.pdf')
+        n = NotaAnterior.objects.get()
+        self.assertEqual((n.nome, n.via, n.substituida_por),
+                         ('nota-errada.pdf', 'PAINEL',
+                          'cristiano@camim.com.br'))
+        self.assertTrue(m_mail.call_args.args[1].startswith(
+            'SUBSTITUIÇÃO de nota fiscal — '))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_historico_mostra_e_abre_a_nota_antiga(self, m_mail):
+        from .models import NotaAnterior
+        b = self._boleto()
+        self._post(b)
+        self._post(b)  # troca de novo: as duas antigas ficam
+        self.assertEqual(NotaAnterior.objects.count(), 2)
+        n = NotaAnterior.objects.first()
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=pagamento')
+        self.assertContains(resp, 'Nota fiscal substituída por uma nova')
+        self.assertContains(resp, f'/arquivo/nf_anterior/{n.pk}/')
+        resp = self.client.get(f'/painel/boleto/{b.pk}/editar/')
+        self.assertContains(resp, f'/arquivo/nf_anterior/{n.pk}/')
+        resp = self.client.get(f'/arquivo/nf_anterior/{n.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(b''.join(resp.streaming_content), PDF_MINI)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_outro_pj_nao_baixa_a_nota_antiga(self, m_mail):
+        from .models import NotaAnterior
+        b = self._boleto()
+        self._post(b)
+        outro = Prestador.objects.create(nome='Outro Fornecedor')
+        UsuarioPermitido.objects.create(email='x@outro.com.br',
+                                        prestador=outro)
+        self.client.force_login(User.objects.create_user(
+            username='x@outro.com.br', email='x@outro.com.br'))
+        resp = self.client.get(
+            f'/arquivo/nf_anterior/{NotaAnterior.objects.get().pk}/')
+        self.assertEqual(resp.status_code, 404)
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_boleto_ja_enviado_nao_e_substituido_pela_api(self, m_async):
+        """A regra que NÃO muda: boleto que já foi ao financeiro só troca
+        com o admin retirando — o reenvio vira DUPLICADO na verificação e o
+        que está no financeiro segue intacto."""
+        b = self._boleto()
+        resp = self.client.post('/api/boletos/2026-10/boleto/', {
+            'posto': 'A', 'arquivo': _pdf('boleto-novo.pdf')}, **self.auth)
+        self.assertEqual(resp.status_code, 201)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.FIN_RECEBIDO)
+        from .services.boletos import duplicado_de
+        self.assertEqual(duplicado_de(Boleto.objects.latest('pk')), b)

@@ -226,7 +226,8 @@
           {% for ev in b.linha_do_tempo %}
           <li><span class="ic">{{ ev.icone }}</span>
             <div><span class="tt">{{ ev.titulo }}{% if ev.valor %} — R$ {{ ev.valor }}{% endif %}</span><br>
-              <span class="qd">{{ ev.quando|date:"d/m/Y H:i" }}{% if ev.detalhe %} · {{ ev.detalhe }}{% endif %}</span></div></li>
+              <span class="qd">{{ ev.quando|date:"d/m/Y H:i" }}{% if ev.detalhe %} · {{ ev.detalhe }}{% endif %}{% if ev.nota_anterior %} · <a href="{% url 'baixar_arquivo' 'nf_anterior' ev.nota_anterior %}"
+                onclick="return abrirPdf(this.href, 'Nota fiscal ANTERIOR (substituída) — {{ b.prestador.nome|escapejs }}')">ver a nota anterior</a>{% endif %}</span></div></li>
           {% endfor %}
         </ul>
       </details>
@@ -406,7 +407,8 @@
           {% for ev in b.linha_do_tempo %}
           <li><span class="ic">{{ ev.icone }}</span>
             <div><span class="tt">{{ ev.titulo }}{% if ev.valor %} — R$ {{ ev.valor }}{% endif %}</span><br>
-              <span class="qd">{{ ev.quando|date:"d/m/Y H:i" }}{% if ev.detalhe %} · {{ ev.detalhe }}{% endif %}</span></div></li>
+              <span class="qd">{{ ev.quando|date:"d/m/Y H:i" }}{% if ev.detalhe %} · {{ ev.detalhe }}{% endif %}{% if ev.nota_anterior %} · <a href="{% url 'baixar_arquivo' 'nf_anterior' ev.nota_anterior %}"
+                onclick="return abrirPdf(this.href, 'Nota fiscal ANTERIOR (substituída) — {{ b.prestador.nome|escapejs }}')">ver a nota anterior</a>{% endif %}</span></div></li>
           {% endfor %}
         </ul>
       </details>

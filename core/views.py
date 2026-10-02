@@ -12,7 +12,8 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
 
 from .forms import BoletoForm, ContratoForm
-from .models import AuditLog, Boleto, Contrato, Posto, Prestador, UsuarioPermitido
+from .models import (AuditLog, Boleto, Contrato, NotaAnterior, Posto,
+                     Prestador, UsuarioPermitido)
 
 
 def _usuario_real(request):
@@ -226,21 +227,28 @@ def _pode_ver(up, prestador_id):
 
 @com_usuario
 def baixar_arquivo(request, up, tipo, pk):
-    modelo = {'boleto': Boleto, 'contrato': Contrato, 'nf': Boleto}.get(tipo)
+    # 'nf_anterior': nota que foi substituída (histórico do boleto)
+    modelo = {'boleto': Boleto, 'contrato': Contrato, 'nf': Boleto,
+              'nf_anterior': NotaAnterior}.get(tipo)
     if modelo is None:
         raise Http404
     obj = get_object_or_404(modelo, pk=pk)
-    campo = obj.nota_fiscal if tipo == 'nf' else obj.arquivo
+    if tipo == 'nf_anterior':
+        campo, dono, nome = obj.arquivo, obj.boleto.prestador_id, obj.nome
+    elif tipo == 'nf':
+        campo, dono, nome = (obj.nota_fiscal, obj.prestador_id,
+                             obj.nota_fiscal_nome)
+    else:
+        campo, dono, nome = obj.arquivo, obj.prestador_id, obj.nome_original
     if not campo:
         raise Http404
-    if not _pode_ver(up, obj.prestador_id):
+    if not _pode_ver(up, dono):
         AuditLog.registrar(AuditLog.Evento.DOWNLOAD_NEGADO, request,
                            detalhe=f'{tipo} #{pk}')
         raise Http404
     AuditLog.registrar(AuditLog.Evento.DOWNLOAD, request,
                        detalhe=f'{tipo} #{pk}')
-    nome = ((obj.nota_fiscal_nome if tipo == 'nf' else obj.nome_original)
-            or campo.name.rsplit('/', 1)[-1])
+    nome = nome or campo.name.rsplit('/', 1)[-1]
     # ?inline=1 → renderiza no navegador (modal); sem ele, baixa.
     inline = request.GET.get('inline') == '1'
     return FileResponse(campo.open('rb'),

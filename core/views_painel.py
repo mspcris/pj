@@ -70,7 +70,8 @@ def dashboard(request, up):
         .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
                              Boleto.Status.DESCARTADO,
                              Boleto.Status.NAO_RECONHECIDO])
-        .select_related('prestador', 'posto', 'prestador__posto_cobranca'))
+        .select_related('prestador', 'posto', 'prestador__posto_cobranca')
+        .prefetch_related('notas_anteriores'))
 
     from .services import boletos as svc_boletos
     ajustes = {(a.prestador_id, a.posto_id): a
@@ -205,6 +206,7 @@ def dashboard(request, up):
                                         Boleto.Status.DESCARTADO])
                     .select_related('prestador', 'posto',
                                     'prestador__posto_cobranca')
+                    .prefetch_related('notas_anteriores')
                     .order_by('-pk'))
         if bate(b.prestador_id,
                 b.posto_efetivo.pk if b.posto_efetivo else None)]
@@ -819,18 +821,27 @@ def boleto_editar(request, up, pk):
                           or boleto.status in (Boleto.Status.APROVADO,
                                                Boleto.Status.FIN_RECEBIDO,
                                                Boleto.Status.PAGO))
+            nota_anterior = None
             if nf:
-                boleto.nota_fiscal = nf
-                boleto.nota_fiscal_nome = nf.name
+                # vale sempre a nota nova; a antiga fica no histórico
+                nota_anterior = svc_boletos.trocar_nota(
+                    boleto, nf, nf.name, quem=up.email,
+                    via=Boleto.Origem.PAINEL)
             boleto.valor_esperado = (
                 None if d['extra'] else svc_boletos.valor_esperado_para(
                     prestador, posto, d['competencia']))
             if nf and ja_enviado:
                 boleto.save()
                 from .services.verificacao import enviar_nota_posterior
-                enviar_nota_posterior(boleto)
-                messages.success(request, f'{boleto} salvo — nota fiscal '
-                                 'anexada e enviada ao financeiro.')
+                enviar_nota_posterior(
+                    boleto, substituicao=nota_anterior is not None)
+                messages.success(
+                    request,
+                    f'{boleto} salvo — nota fiscal SUBSTITUÍDA: a nova foi '
+                    'ao financeiro avisando que a anterior não vale mais (a '
+                    'antiga fica no histórico).' if nota_anterior else
+                    f'{boleto} salvo — nota fiscal anexada e enviada ao '
+                    'financeiro.')
             elif (mudou or nf) and boleto.status not in (
                     Boleto.Status.PAGO, Boleto.Status.SUBSTITUIDO):
                 boleto.status = Boleto.Status.RECEBIDO
@@ -847,7 +858,9 @@ def boleto_editar(request, up, pk):
             AuditLog.registrar(
                 AuditLog.Evento.CRUD, request,
                 detalhe=f'Boleto #{boleto.pk} editado'
-                + (' — nota fiscal anexada' if nf else ''))
+                + (' — nota fiscal SUBSTITUÍDA (a anterior fica no '
+                   'histórico)' if nota_anterior
+                   else ' — nota fiscal anexada' if nf else ''))
             return redirect(f'/painel/?m={boleto.competencia:%Y-%m}')
     else:
         form = BoletoEditForm(boleto, initial={
@@ -861,7 +874,8 @@ def boleto_editar(request, up, pk):
             'observacao': boleto.observacao,
         })
     return render(request, 'painel/boleto_edit.html',
-                  {'form': form, 'boleto': boleto, 'up': up})
+                  {'form': form, 'boleto': boleto, 'up': up,
+                   'notas_anteriores': boleto.notas_anteriores.all()})
 
 
 @admin_real_required
@@ -1291,6 +1305,7 @@ TIPOS_EMAIL = [
     ('pagamento', 'Pagamento (equipe@)', 'Pagamento — '),
     ('aprovado', 'Aprovado (aviso ao PJ)', 'Boleto aprovado'),
     ('financeiro', 'Financeiro recebeu', 'Boleto com o financeiro'),
+    ('nota', 'Nota fiscal (equipe@)', 'nota fiscal — '),
     ('divergente', 'Valor a confirmar', 'valor a confirmar'),
     ('manual', 'Verificar manualmente', 'Verificar boleto manualmente'),
     ('lembrete', 'Lembrete diário', 'Lembrete'),

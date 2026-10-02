@@ -209,7 +209,8 @@ class BoletoEditForm(forms.Form):
         required=False, widget=forms.Textarea(attrs={'rows': 3}))
     nota_fiscal = forms.FileField(
         label='Anexar nota fiscal (PDF) — vale mesmo com o boleto já enviado '
-              'ao financeiro', required=False)
+              'ao financeiro; se já houver nota, esta SUBSTITUI (a antiga '
+              'fica guardada no histórico)', required=False)
 
     def __init__(self, boleto, *args, **kwargs):
         super().__init__(*args, **kwargs)

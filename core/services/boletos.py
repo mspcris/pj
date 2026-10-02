@@ -5,7 +5,8 @@ proteção contra duplicidade mora aqui.
 import re
 import unicodedata
 
-from ..models import Boleto, EmailLog, Posto, Prestador, Vale
+from ..models import (Boleto, EmailLog, NotaAnterior, Posto, Prestador,
+                      Vale)
 
 
 def _norm(s):
@@ -145,6 +146,27 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
         observacao=(observacao or '').strip(),
         nota_fiscal=nota_fiscal,
         nota_fiscal_nome=(nota_fiscal_nome or '')[:255])
+
+
+def trocar_nota(boleto, arquivo, nome, quem='', via=''):
+    """Põe `arquivo` como A nota fiscal do boleto (e salva só os campos da
+    nota). Vale sempre a nova; se já havia uma, a antiga vai para o
+    histórico (NotaAnterior) — o PDF nunca é apagado. Devolve o registro da
+    nota anterior, ou None se o boleto não tinha nota. Quem chama valida o
+    arquivo ANTES: nota recusada não pode mexer na que já está lá."""
+    from django.db import transaction
+    with transaction.atomic():
+        anterior = None
+        if boleto.nota_fiscal:
+            anterior = NotaAnterior(
+                boleto=boleto, nome=boleto.nota_fiscal_nome,
+                substituida_por=(quem or '')[:255], via=via)
+            anterior.arquivo.name = boleto.nota_fiscal.name
+            anterior.save()
+        boleto.nota_fiscal = arquivo
+        boleto.nota_fiscal_nome = (nome or '')[:255]
+        boleto.save(update_fields=['nota_fiscal', 'nota_fiscal_nome'])
+    return anterior
 
 
 def duplicado_de(boleto):

@@ -17,7 +17,10 @@ POST /api/boletos/  (multipart/form-data)
            "aguardando_nota_fiscal"}
 
 POST /api/boletos/<id>/nota/  (multipart/form-data, campo "nota_fiscal")
-    → 200 {boleto} — anexa a NF a um boleto que já está no sistema.
+    → 200 {boleto, "nota_substituida"} — anexa a NF a um boleto que já está
+    no sistema. Se ele já tinha nota, a nova SUBSTITUI (a antiga fica no
+    histórico) e, com o boleto já no financeiro, a equipe é avisada da
+    substituição. Nota recusada (400) não mexe na que já estava.
 
 POST /api/boletos/<YYYY-MM>/nota/  (campo "nota_fiscal"; "posto" opcional)
     → 200 {boleto} — o mesmo, sem precisar do id: vale o boleto do
@@ -330,20 +333,18 @@ def _anexar_nota(request, up, boleto, nf):
     from .services import boletos as svc_boletos, pdf as svc_pdf
     from .services.verificacao import (enviar_nota_posterior,
                                        processar_async)
-    boleto.nota_fiscal = nf
-    boleto.nota_fiscal_nome = nf.name
-    boleto.save(update_fields=['nota_fiscal', 'nota_fiscal_nome'])
-    # Conteúdo: precisa ser NFS-e do prestador. Se falhar, desfaz e recusa —
-    # pela API o prestador reenvia o arquivo certo.
-    ok_nf, motivo = svc_boletos.validar_nf(
-        svc_pdf.extrair_texto(boleto.nota_fiscal.path), boleto.prestador,
-        posto=boleto.posto)
+    # Conteúdo: precisa ser NFS-e do prestador. Confere ANTES de gravar —
+    # nota recusada não mexe na que já está no boleto; pela API o prestador
+    # reenvia o arquivo certo.
+    texto = svc_pdf.extrair_texto_bytes(nf.read())
+    nf.seek(0)
+    ok_nf, motivo = svc_boletos.validar_nf(texto, boleto.prestador,
+                                           posto=boleto.posto)
     if not ok_nf:
-        boleto.nota_fiscal.delete(save=False)
-        boleto.nota_fiscal = None
-        boleto.nota_fiscal_nome = ''
-        boleto.save(update_fields=['nota_fiscal', 'nota_fiscal_nome'])
         return _erro(f'nota fiscal recusada: {motivo}')
+    # Vale sempre a nota nova; se já havia uma, a antiga fica no histórico.
+    anterior = svc_boletos.trocar_nota(boleto, nf, nf.name, quem=up.email,
+                                       via=Boleto.Origem.API)
 
     ja_enviado = (boleto.pagamento_enviado_em is not None
                   or boleto.status in (Boleto.Status.APROVADO,
@@ -351,9 +352,11 @@ def _anexar_nota(request, up, boleto, nf):
                                        Boleto.Status.PAGO))
     AuditLog.registrar(AuditLog.Evento.UPLOAD_BOLETO, request, ator=up.email,
                        detalhe=f'(api) nota fiscal anexada ao boleto '
-                               f'#{boleto.pk}')
+                               f'#{boleto.pk}'
+                               + (' — SUBSTITUI a anterior (guardada no '
+                                  'histórico)' if anterior else ''))
     if ja_enviado:
-        enviar_nota_posterior(boleto)
+        enviar_nota_posterior(boleto, substituicao=anterior is not None)
     else:
         # Ainda não foi ao financeiro (ex.: retido esperando esta nota):
         # volta para a verificação, igual à edição no painel — com o
@@ -365,4 +368,7 @@ def _anexar_nota(request, up, boleto, nf):
         boleto.save(update_fields=['status', 'tentativas', 'verificado_em',
                                    'valor_esperado'])
         processar_async(boleto.pk)
-    return JsonResponse(_serializar(boleto), status=200)
+    # "nota_substituida": o boleto já tinha nota e ela foi trocada por esta
+    return JsonResponse({**_serializar(boleto),
+                         'nota_substituida': anterior is not None},
+                        status=200)
