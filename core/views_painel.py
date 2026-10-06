@@ -1281,9 +1281,53 @@ def gerentes(request, up):
                   {'lista': lista, 'up': up})
 
 
+def _observadores_notificacao():
+    """E-mails que acompanham o sistema por cópia oculta: quem está na
+    EMAIL_COPIA_OCULTA mais quem já tem preferência salva."""
+    return sorted(
+        {e.strip().lower() for e in settings.EMAIL_COPIA_OCULTA if e.strip()}
+        | set(PreferenciaNotificacao.objects.values_list('email', flat=True)))
+
+
+def _linhas_notificacao():
+    """Matriz pessoa × tipo para a tela: caixa marcada = recebe aquele aviso."""
+    desligados = {(p.email, p.tipo) for p in
+                  PreferenciaNotificacao.objects.filter(recebe=False)}
+    return [{
+        'email': email,
+        'tipos': [{'codigo': c, 'rotulo': r,
+                   'recebe': (email, c) not in desligados}
+                  for c, r in TIPOS_PREF],
+    } for email in _observadores_notificacao()]
+
+
+def _salvar_preferencias(request):
+    """Grava a matriz: caixa marcada apaga a linha (padrão = recebe); caixa
+    desmarcada grava recebe=False; marcar de novo apaga a linha. NÃO mexe em
+    quem recebe o e-mail como destinatário (PJ, financeiro) — só na cópia
+    oculta de acompanhamento da equipe."""
+    observadores = _observadores_notificacao()
+    for email in observadores:
+        for codigo in CODIGOS_PREF:
+            marcado = request.POST.get(f'chk__{email}__{codigo}') is not None
+            if marcado:
+                PreferenciaNotificacao.objects.filter(
+                    email=email, tipo=codigo).delete()
+            else:
+                PreferenciaNotificacao.objects.update_or_create(
+                    email=email, tipo=codigo, defaults={'recebe': False})
+    AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                       detalhe='Preferências de notificação atualizadas '
+                               f'({len(observadores)} pessoa(s)).')
+
+
 @admin_required
 def configuracoes(request, up):
     if request.method == 'POST':
+        if request.POST.get('form') == 'notificacoes':
+            _salvar_preferencias(request)
+            messages.success(request, 'Preferências de notificação salvas.')
+            return redirect('painel_config')
         bruto = (request.POST.get('limiar_confianca') or '').strip()
         try:
             limiar = int(bruto)
@@ -1298,47 +1342,20 @@ def configuracoes(request, up):
         messages.success(request, f'Limiar de convicção salvo: {limiar}%.')
         return redirect('painel_config')
     return render(request, 'painel/config.html', {
-        'limiar': Configuracao.get_int('limiar_confianca', 99), 'up': up})
+        'limiar': Configuracao.get_int('limiar_confianca', 99),
+        'linhas': _linhas_notificacao(), 'tipos': TIPOS_PREF, 'up': up})
 
 
 @admin_required
 def preferencias_notificacao(request, up):
-    """Cópia interna por tipo de aviso — a matriz pessoa × tipo.
-
-    'Pessoa' = quem recebe cópia oculta hoje (EMAIL_COPIA_OCULTA) mais quem
-    já tem preferência salva. Caixa marcada = recebe aquele tipo (padrão,
-    tudo ligado); desmarcar grava uma linha recebe=False; marcar de novo
-    apaga a linha. NÃO mexe em quem recebe o e-mail como destinatário (PJ,
-    financeiro) — só na cópia oculta de acompanhamento da equipe."""
-    observadores = sorted(
-        {e.strip().lower() for e in settings.EMAIL_COPIA_OCULTA if e.strip()}
-        | set(PreferenciaNotificacao.objects.values_list('email', flat=True)))
+    """Mesma matriz pessoa × tipo que vive no ⚙️ Configurações, em página
+    própria — rota mantida para links antigos; no menu o controle fica no ⚙️."""
     if request.method == 'POST':
-        for email in observadores:
-            for codigo in CODIGOS_PREF:
-                marcado = request.POST.get(f'chk__{email}__{codigo}') is not None
-                if marcado:
-                    PreferenciaNotificacao.objects.filter(
-                        email=email, tipo=codigo).delete()
-                else:
-                    PreferenciaNotificacao.objects.update_or_create(
-                        email=email, tipo=codigo, defaults={'recebe': False})
-        AuditLog.registrar(AuditLog.Evento.CRUD, request,
-                           detalhe='Preferências de notificação atualizadas '
-                                   f'({len(observadores)} pessoa(s)).')
+        _salvar_preferencias(request)
         messages.success(request, 'Preferências de notificação salvas.')
         return redirect('painel_notificacoes')
-
-    desligados = {(p.email, p.tipo) for p in
-                  PreferenciaNotificacao.objects.filter(recebe=False)}
-    linhas = [{
-        'email': email,
-        'tipos': [{'codigo': c, 'rotulo': r,
-                   'recebe': (email, c) not in desligados}
-                  for c, r in TIPOS_PREF],
-    } for email in observadores]
     return render(request, 'painel/notificacoes.html', {
-        'linhas': linhas, 'tipos': TIPOS_PREF, 'up': up})
+        'linhas': _linhas_notificacao(), 'tipos': TIPOS_PREF, 'up': up})
 
 
 # TIPOS_EMAIL (tipo do e-mail pelo assunto) agora vem de core.notificacoes —

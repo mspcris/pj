@@ -16,10 +16,44 @@
     ela acertar.</p>
   <form method="post">
     {% csrf_token %}
+    <input type="hidden" name="form" value="limiar">
     <label for="id_limiar">Limiar (%)</label>
     <input id="id_limiar" name="limiar_confianca" inputmode="numeric"
            value="{{ limiar }}" style="max-width:140px">
     <button class="btn" type="submit" style="margin-top:18px">Salvar</button>
   </form>
 </div>
+
+<h2 style="font-size:1.15rem;margin-top:30px">🔔 Notificações da equipe</h2>
+<p class="sub">Quem da equipe recebe <strong>cópia oculta</strong> dos e-mails
+  do sistema — e de quais tipos. Caixa marcada = recebe; desmarque para a
+  pessoa parar de receber aquele tipo. Não altera o e-mail que vai ao
+  prestador ou ao financeiro: mexe só na cópia de acompanhamento.</p>
+
+{% if linhas %}
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="form" value="notificacoes">
+  {% for linha in linhas %}
+  <div class="card">
+    <h2 style="font-size:1.05rem;margin:0 0 12px">{{ linha.email }}</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:10px 22px">
+      {% for t in linha.tipos %}
+      <label style="display:flex;align-items:center;gap:7px;font-size:.9rem">
+        <input type="checkbox" value="1"
+               name="chk__{{ linha.email }}__{{ t.codigo }}"
+               {% if t.recebe %}checked{% endif %}>
+        {{ t.rotulo }}
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+  <button class="btn" type="submit" style="margin-top:4px">Salvar notificações</button>
+</form>
+{% else %}
+<div class="card"><p class="sub" style="margin:0">Ninguém está configurado para
+  receber cópia interna ainda. Quando um e-mail for adicionado à cópia oculta
+  do sistema, ele aparece aqui para você escolher os tipos.</p></div>
+{% endif %}
 {% endblock %}
