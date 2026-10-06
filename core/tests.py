@@ -2322,11 +2322,12 @@ class IaRetryTest(TestCase):
 
 
 class CopiaOcultaTest(TestCase):
-    """Leonardo (04/09/2026) recebe cópia OCULTA de todo e-mail do sistema:
-    não conta na trava de 1 cc e some no modo teste."""
+    """Cópia OCULTA interna: quem está em EMAIL_COPIA_OCULTA recebe cópia de
+    todo e-mail (não conta na trava de 1 cc, some no modo teste) — menos os
+    tipos que a pessoa desmarcou no painel Notificações."""
 
     @override_settings(EMAIL_MODO_TESTE=False,
-                       EMAIL_COPIA_OCULTA=['leonardo@camim.com.br'],
+                       EMAIL_COPIA_OCULTA=['observador@camim.com.br'],
                        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
     def test_bcc_em_todo_email(self):
         from django.core import mail
@@ -2336,18 +2337,45 @@ class CopiaOcultaTest(TestCase):
         m = mail.outbox[-1]
         self.assertEqual(m.to, ['pj@x.com'])
         self.assertEqual(m.cc, ['gerente@camim.com.br'])
-        self.assertEqual(m.bcc, ['leonardo@camim.com.br'])
-        self.assertIn('+cco: leonardo@camim.com.br',
+        self.assertEqual(m.bcc, ['observador@camim.com.br'])
+        self.assertIn('+cco: observador@camim.com.br',
                       EmailLog.objects.latest('pk').destinatario)
 
     @override_settings(EMAIL_MODO_TESTE=True, EMAIL_ADMIN='c@camim.com.br',
-                       EMAIL_COPIA_OCULTA=['leonardo@camim.com.br'],
+                       EMAIL_COPIA_OCULTA=['observador@camim.com.br'],
                        EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
     def test_modo_teste_sem_bcc(self):
         from django.core import mail
         from .services import emails
         emails.enviar('pj@x.com', 'a', 'b')
         self.assertEqual(mail.outbox[-1].bcc, [])
+
+    @override_settings(EMAIL_MODO_TESTE=False,
+                       EMAIL_COPIA_OCULTA=['leonardo@camim.com.br'],
+                       EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_leonardo_desligado_nao_recebe(self):
+        # a migração 0038 desligou TODOS os tipos para o Leonardo: mesmo na
+        # EMAIL_COPIA_OCULTA, ele não entra em cópia de nenhum e-mail.
+        from django.core import mail
+        from .services import emails
+        emails.enviar('pj@x.com', 'Boleto recebido — 2026-10', 'b')
+        self.assertEqual(mail.outbox[-1].bcc, [])
+
+    @override_settings(EMAIL_MODO_TESTE=False,
+                       EMAIL_COPIA_OCULTA=['observador@camim.com.br'],
+                       EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_preferencia_por_tipo(self):
+        # desligar só 'lembrete' tira o observador do lembrete diário, mas ele
+        # continua recebendo os demais tipos.
+        from django.core import mail
+        from .models import PreferenciaNotificacao
+        from .services import emails
+        PreferenciaNotificacao.objects.create(
+            email='observador@camim.com.br', tipo='lembrete', recebe=False)
+        emails.enviar('pj@x.com', 'Lembrete diário', 'b')
+        self.assertEqual(mail.outbox[-1].bcc, [])
+        emails.enviar('pj@x.com', 'Boleto recebido — 2026-10', 'b')
+        self.assertEqual(mail.outbox[-1].bcc, ['observador@camim.com.br'])
 
 
 class NfPorPostoTest(BaseSetup):

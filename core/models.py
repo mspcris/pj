@@ -340,6 +340,34 @@ class UsuarioPermitido(models.Model):
         super().save(*args, **kwargs)
 
 
+class PreferenciaNotificacao(models.Model):
+    """Cópia interna (oculta) por tipo de aviso, por pessoa.
+
+    QUEM recebe cópia dos e-mails do sistema continua vindo de
+    EMAIL_COPIA_OCULTA. Aqui cada observador desliga os tipos que não
+    quer: SEM linha = recebe (padrão, tudo ligado); uma linha com
+    recebe=False desliga aquele tipo para aquele e-mail. Os tipos são os
+    de core.notificacoes (classificados pelo assunto)."""
+    email = models.EmailField()
+    tipo = models.CharField(max_length=20)
+    recebe = models.BooleanField(default=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('email', 'tipo')]
+        ordering = ['email', 'tipo']
+        verbose_name = 'preferência de notificação'
+        verbose_name_plural = 'preferências de notificação'
+
+    def __str__(self):
+        estado = 'recebe' if self.recebe else 'não recebe'
+        return f'{self.email} · {self.tipo} · {estado}'
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or '').strip().lower()
+        super().save(*args, **kwargs)
+
+
 class Contrato(models.Model):
     prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
                                   related_name='contratos')

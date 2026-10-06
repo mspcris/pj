@@ -20,8 +20,10 @@ from django.views.decorators.http import require_POST
 from .forms import (BoletoAdminForm, ContratoAdminForm, PostoForm,
                     PrestadorForm, UsuarioForm, ValeForm, ValorBRField)
 from .models import (AjusteDiferenca, AuditLog, Boleto, Configuracao,
-                     Contrato, EmailLog, EmailRecebido, Posto, Prestador,
-                     PrestadorPosto, UsuarioPermitido, Vale)
+                     Contrato, EmailLog, EmailRecebido, Posto,
+                     PreferenciaNotificacao, Prestador, PrestadorPosto,
+                     UsuarioPermitido, Vale)
+from .notificacoes import CODIGOS_PREF, TIPOS_EMAIL, TIPOS_PREF
 from django.contrib.auth.decorators import login_required
 
 from .views import _usuario_real, com_usuario
@@ -1299,17 +1301,48 @@ def configuracoes(request, up):
         'limiar': Configuracao.get_int('limiar_confianca', 99), 'up': up})
 
 
-# Tipo do e-mail pelo começo do assunto (o assunto é nosso e determinístico)
-TIPOS_EMAIL = [
-    ('recebido', 'Boleto recebido', 'Boleto recebido'),
-    ('pagamento', 'Pagamento (equipe@)', 'Pagamento — '),
-    ('aprovado', 'Aprovado (aviso ao PJ)', 'Boleto aprovado'),
-    ('financeiro', 'Financeiro recebeu', 'Boleto com o financeiro'),
-    ('nota', 'Nota fiscal (equipe@)', 'nota fiscal — '),
-    ('divergente', 'Valor a confirmar', 'valor a confirmar'),
-    ('manual', 'Verificar manualmente', 'Verificar boleto manualmente'),
-    ('lembrete', 'Lembrete diário', 'Lembrete'),
-]
+@admin_required
+def preferencias_notificacao(request, up):
+    """Cópia interna por tipo de aviso — a matriz pessoa × tipo.
+
+    'Pessoa' = quem recebe cópia oculta hoje (EMAIL_COPIA_OCULTA) mais quem
+    já tem preferência salva. Caixa marcada = recebe aquele tipo (padrão,
+    tudo ligado); desmarcar grava uma linha recebe=False; marcar de novo
+    apaga a linha. NÃO mexe em quem recebe o e-mail como destinatário (PJ,
+    financeiro) — só na cópia oculta de acompanhamento da equipe."""
+    observadores = sorted(
+        {e.strip().lower() for e in settings.EMAIL_COPIA_OCULTA if e.strip()}
+        | set(PreferenciaNotificacao.objects.values_list('email', flat=True)))
+    if request.method == 'POST':
+        for email in observadores:
+            for codigo in CODIGOS_PREF:
+                marcado = request.POST.get(f'chk__{email}__{codigo}') is not None
+                if marcado:
+                    PreferenciaNotificacao.objects.filter(
+                        email=email, tipo=codigo).delete()
+                else:
+                    PreferenciaNotificacao.objects.update_or_create(
+                        email=email, tipo=codigo, defaults={'recebe': False})
+        AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                           detalhe='Preferências de notificação atualizadas '
+                                   f'({len(observadores)} pessoa(s)).')
+        messages.success(request, 'Preferências de notificação salvas.')
+        return redirect('painel_notificacoes')
+
+    desligados = {(p.email, p.tipo) for p in
+                  PreferenciaNotificacao.objects.filter(recebe=False)}
+    linhas = [{
+        'email': email,
+        'tipos': [{'codigo': c, 'rotulo': r,
+                   'recebe': (email, c) not in desligados}
+                  for c, r in TIPOS_PREF],
+    } for email in observadores]
+    return render(request, 'painel/notificacoes.html', {
+        'linhas': linhas, 'tipos': TIPOS_PREF, 'up': up})
+
+
+# TIPOS_EMAIL (tipo do e-mail pelo assunto) agora vem de core.notificacoes —
+# fonte única, compartilhada com as preferências de cópia interna.
 
 
 @admin_required

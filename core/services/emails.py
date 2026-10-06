@@ -10,7 +10,8 @@ import mimetypes
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 
-from ..models import EmailLog
+from .. import notificacoes
+from ..models import EmailLog, PreferenciaNotificacao
 
 log = logging.getLogger(__name__)
 
@@ -107,9 +108,17 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
             erro='Recusado pela trava: mais de um endereço em cópia. '
                  'Cada gerente só pode ver o boleto do próprio posto.')
         return False
-    # Cópia oculta interna (Leonardo): em TODO e-mail, fora do modo teste.
+    # Cópia oculta interna: quem está em EMAIL_COPIA_OCULTA recebe uma cópia
+    # de TODO e-mail (fora do modo teste) — MENOS os tipos que a pessoa
+    # desmarcou no painel Notificações. O tipo sai do assunto, igual ao
+    # filtro do log; 'outros' cobre o que não casa com os tipos conhecidos.
+    tipo = notificacoes.classificar(assunto)
+    desligados = set(PreferenciaNotificacao.objects
+                     .filter(tipo=tipo, recebe=False)
+                     .values_list('email', flat=True))
     ocultas = [o for o in settings.EMAIL_COPIA_OCULTA
-               if o not in dests and o not in copias]
+               if o not in dests and o not in copias
+               and o.lower() not in desligados]
     if settings.EMAIL_MODO_TESTE:
         assunto = f'[TESTE p/ {", ".join(dests)}] {assunto}'
         dests = [settings.EMAIL_ADMIN]

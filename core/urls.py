@@ -57,6 +57,8 @@ urlpatterns = [
     path('painel/usuarios/', views_painel.usuarios, name='painel_usuarios'),
     path('painel/gerentes/', views_painel.gerentes, name='painel_gerentes'),
     path('painel/config/', views_painel.configuracoes, name='painel_config'),
+    path('painel/notificacoes/', views_painel.preferencias_notificacao,
+         name='painel_notificacoes'),
     path('painel/emails/', views_painel.emails_log, name='painel_emails'),
     path('painel/emails/nao-reconhecidos/',
          views_painel.emails_nao_reconhecidos,
