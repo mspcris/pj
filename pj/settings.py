@@ -176,6 +176,11 @@ EMAIL_MODO_TESTE = os.getenv('EMAIL_MODO_TESTE', 'false').lower() == 'true'
 # -----------------------------------------------------------------------------
 OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
 IA_MODEL = os.getenv('IA_MODEL', 'google/gemini-2.5-flash')
+# Fallback de VISÃO (pedido do dono, 08/10/2026): quando o boleto não tem
+# texto (PDF vetorial/escaneado) ou a confiança do texto fica abaixo do
+# limiar, o opus LÊ a imagem do boleto. Se a OpenRouter publicar o opus com
+# outro slug, basta trocar IA_MODEL_VISAO no .env — nada de código.
+IA_MODEL_VISAO = os.getenv('IA_MODEL_VISAO', 'anthropic/claude-opus-5')
 
 # Upload
 DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024

@@ -181,14 +181,34 @@ class VerificacaoTest(BaseSetup):
         self.assertIn('pj@empresa.com.br', destinos)
 
     @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor_imagem',
+                return_value=(None, ''))
+    @mock.patch('core.services.pdf.primeira_pagina_png', return_value=b'img')
     @mock.patch('core.services.pdf.extrair_texto', return_value='')
-    def test_pdf_ilegivel_vira_manual(self, m_pdf, m_mail):
+    def test_pdf_sem_texto_e_opus_nao_le_vira_manual(
+            self, m_pdf, m_png, m_img, m_mail):
+        # Sem texto E o opus (visão) também não leu → conferência manual.
         b = self._boleto()
         verificacao.processar(b.pk)
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.MANUAL)
-        destinos = _destinos(m_mail)
-        self.assertIn('cristiano@camim.com.br', destinos)
+        self.assertIn('cristiano@camim.com.br', _destinos(m_mail))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor_imagem',
+                return_value=(Decimal('1500.00'),
+                              '{"valor":"1500.00","confianca":100}'))
+    @mock.patch('core.services.pdf.primeira_pagina_png', return_value=b'img')
+    @mock.patch('core.services.pdf.extrair_texto', return_value='')
+    def test_pdf_vetorial_opus_le_e_aprova(self, m_pdf, m_png, m_img, m_mail):
+        # Boleto vetorial (sem texto): o opus ENXERGA o valor → segue normal.
+        b = self._boleto()
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertEqual(b.valor_extraido, Decimal('1500.00'))
+        self.assertIn('equipe@camim.com.br', _destinos(m_mail))
+        self.assertTrue(m_img.called)  # o fallback de visão realmente rodou
 
     @mock.patch('core.services.emails.enviar', return_value=True)
     @mock.patch('core.services.ia.extrair_valor',

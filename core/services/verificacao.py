@@ -12,6 +12,7 @@ A IA só extrai número e redige frase — nunca decide pagamento.
 """
 import json
 import logging
+import mimetypes
 import re
 import threading
 from datetime import date, datetime
@@ -323,27 +324,59 @@ def diferenca_do_combinado(boleto):
     return dif if abs(dif) > TOLERANCIA else None
 
 
+def _conf_ia(dados):
+    """Confiança 0-100 que a IA declarou; 50 quando não declarou ou veio
+    ilegível (trata como incerto)."""
+    try:
+        return max(0, min(100, int(dados.get('confianca'))))
+    except (TypeError, ValueError):
+        return 50
+
+
+def _imagem_do_boleto(boleto):
+    """(bytes, mime) de UMA imagem do boleto para a IA ENXERGAR (fallback de
+    visão): a 1ª página renderizada quando é PDF, ou o próprio arquivo quando
+    já é imagem. (b'', '') quando não dá."""
+    nome = (boleto.arquivo.name or '').lower()
+    if nome.endswith('.pdf'):
+        return pdf.primeira_pagina_png(boleto.arquivo.path), 'image/png'
+    if nome.endswith(('.jpg', '.jpeg', '.png', '.webp')):
+        try:
+            with open(boleto.arquivo.path, 'rb') as fh:
+                return fh.read(), (mimetypes.guess_type(nome)[0]
+                                   or 'image/jpeg')
+        except Exception as e:
+            log.warning('não li a imagem do boleto #%s: %s', boleto.pk, e)
+    return b'', ''
+
+
 def ler_dados_do_pdf(boleto):
     """Preenche valor, vencimento e linha digitável a partir do PDF quando
     a verificação não chegou a ler (boleto que caiu em MANUAL antes da IA
     e foi aprovado no olho). Sem isso o e-mail ao financeiro saía com o
     valor COMBINADO no lugar do valor do BOLETO (Meriti, 04/09/2026:
-    R$ 7.175,70 no e-mail, R$ 7.095,70 no boleto). Nunca levanta."""
+    R$ 7.175,70 no e-mail, R$ 7.095,70 no boleto). Boleto sem texto
+    (vetorial) cai no fallback de visão (opus). Nunca levanta."""
     if boleto.valor_extraido is not None or not boleto.arquivo:
         return False
     try:
-        texto = pdf.extrair_texto(boleto.arquivo.path)
-        if not texto.strip():
-            return False
-        valor_pdf, bruto = ia.extrair_valor(texto)
-        boleto.ia_resposta = bruto[:4000]
+        eh_pdf = boleto.arquivo.name.lower().endswith('.pdf')
+        texto = pdf.extrair_texto(boleto.arquivo.path) if eh_pdf else ''
+        bruto = ''
+        valor_pdf = None
+        if texto.strip():
+            valor_pdf, bruto = ia.extrair_valor(texto)
+        if valor_pdf is None:  # sem texto, ou a IA não achou → opus enxerga
+            img, mime = _imagem_do_boleto(boleto)
+            if img:
+                valor_pdf, bruto = ia.extrair_valor_imagem(img, mime=mime)
         if valor_pdf is None:
-            boleto.save(update_fields=['ia_resposta'])
+            if bruto:
+                boleto.ia_resposta = bruto[:4000]
+                boleto.save(update_fields=['ia_resposta'])
             return False
-        try:
-            dados = json.loads(bruto)
-        except Exception:
-            dados = {}
+        boleto.ia_resposta = bruto[:4000]
+        dados = ia.carregar_json(bruto)
         boleto.valor_extraido = valor_pdf
         if not boleto.linha_digitavel:
             ld = re.sub(r'\D', '', str(dados.get('linha_digitavel') or ''))
@@ -826,22 +859,82 @@ def processar(boleto_pk):
             _para_manual(boleto, motivo_nf)
             return
 
-    # 1) Valor do PDF (via IA) — quando há PDF. Imagem/foto: a IA não lê,
-    # mas com linha digitável a conferência sai pelo código de barras e a
-    # imagem segue de anexo para o financeiro.
+    # 1) VALOR DO PDF. Primeiro pelo TEXTO (IA barata). Sem texto (boleto
+    # vetorial/escaneado — ex.: Meriti), ou a IA não achou o valor, ou a
+    # confiança abaixo do limiar → FALLBACK: o opus ENXERGA a imagem
+    # (pedido do dono, 08/10/2026). Imagem/foto entra direto pela visão.
     valor_pdf = None
     confianca_pdf = None
+    dados = {}
+    motivo_conf = ''
+    por_visao = False
+    limiar = Configuracao.get_int('limiar_confianca', 99)
     eh_pdf = bool(boleto.arquivo
                   and boleto.arquivo.name.lower().endswith('.pdf'))
-    if boleto.arquivo and not eh_pdf and not boleto.linha_digitavel:
-        _para_manual(boleto, 'arquivo é imagem (IA não lê) e sem linha '
-                             'digitável — nada para conferir')
-        return
-    if eh_pdf:
-        texto = pdf.extrair_texto(boleto.arquivo.path)
-        if not texto:
-            _para_manual(boleto, 'PDF sem texto legível (escaneado?)')
+    eh_imagem = bool(boleto.arquivo and not eh_pdf
+                     and boleto.arquivo.name.lower().endswith(
+                         ('.jpg', '.jpeg', '.png', '.webp')))
+
+    texto = pdf.extrair_texto(boleto.arquivo.path) if eh_pdf else ''
+    if texto:
+        try:
+            valor_pdf, bruto = ia.extrair_valor(texto)
+            boleto.ia_resposta = bruto[:4000]
+        except Exception as e:
+            log.error('IA falhou no boleto #%s: %s', boleto_pk, e)
+            if boleto.tentativas >= MAX_TENTATIVAS:
+                _para_manual(boleto, f'IA indisponível após '
+                                     f'{MAX_TENTATIVAS} tentativas: {e}')
+            else:
+                boleto.save()  # continua RECEBIDO; o cron tenta de novo
             return
+        if valor_pdf is not None:
+            dados = ia.carregar_json(bruto)
+            confianca_pdf = _conf_ia(dados)
+
+    # FALLBACK OPUS-VISÃO: só entra quando o texto não resolveu com a
+    # precisão cadastrada. NÃO afrouxa nada — as travas (favorecido,
+    # código×valor, mês, limiar) continuam valendo; isto só troca a FONTE
+    # do valor, do texto para o que o opus enxerga na imagem.
+    if (eh_pdf or eh_imagem) and (valor_pdf is None
+                                  or (confianca_pdf or 0) < limiar):
+        img, mime = _imagem_do_boleto(boleto)
+        if img:
+            try:
+                v_img, bruto_img = ia.extrair_valor_imagem(img, mime=mime)
+            except Exception as e:
+                log.warning('fallback de visão falhou no boleto #%s: %s',
+                            boleto_pk, e)
+                v_img, bruto_img = None, ''
+            if v_img is not None:
+                dados_img = ia.carregar_json(bruto_img)
+                conf_img = _conf_ia(dados_img)
+                # fica com a visão quando o texto não deu valor OU quando a
+                # visão está mais confiante.
+                if valor_pdf is None or conf_img > (confianca_pdf or 0):
+                    valor_pdf, confianca_pdf, dados = v_img, conf_img, dados_img
+                    por_visao = True
+                    boleto.ia_resposta = (bruto_img or '')[:4000]
+
+    if valor_pdf is not None:
+        # o modelo barato às vezes estropia o nome do campo
+        # ("motivo_confiacao", "motivo_confianca?") — aceita qualquer chave
+        # que comece com "motivo".
+        for _k, _v in dados.items():
+            if _k.lower().startswith('motivo') and str(_v or '').strip():
+                motivo_conf = str(_v).strip()
+                break
+
+        # Dígitos para as conferências abaixo: o texto do PDF quando há; na
+        # leitura por imagem, os documentos (CNPJ/CPF) + a linha que o opus
+        # enxergou — assim a trava do FAVORECIDO vale mesmo sem texto.
+        if por_visao:
+            texto_doc = (
+                ' '.join(str(d) for d in (dados.get('documentos') or []))
+                + ' ' + str(dados.get('linha_digitavel') or ''))
+        else:
+            texto_doc = texto
+
         # FAVORECIDO: basta QUALQUER documento do prestador (CNPJ OU CPF do
         # representante) constar no boleto — proteção contra pagar boleto de
         # terceiros. Antes o "bit" recebe_por_cpf exigia SÓ o CPF; mas o C6
@@ -850,7 +943,7 @@ def processar(boleto_pk):
         # bancos variam qual documento imprimem, aceitar os dois cobre todo
         # formato sem abrir a porta a terceiros (teria de bater 11/14 dígitos
         # por acaso).
-        digitos_txt = re.sub(r'\D', '', texto)
+        digitos_txt = re.sub(r'\D', '', texto_doc)
         docs = [d for d in (boleto.prestador.cnpj,
                             boleto.prestador.representante_cpf) if d]
         if docs and not any(re.sub(r'\D', '', d) in digitos_txt for d in docs):
@@ -866,7 +959,7 @@ def processar(boleto_pk):
         if (boleto.posto_id is None
                 and boleto.prestador.modo_boleto ==
                 Prestador.ModoBoleto.POR_POSTO):
-            posto = svc_boletos.identificar_posto(texto)
+            posto = svc_boletos.identificar_posto(texto_doc)
             if posto is None:
                 vinculos = list(boleto.prestador.vinculos_ativos())
                 if len(vinculos) == 1:  # só atende um posto: é ele
@@ -880,32 +973,7 @@ def processar(boleto_pk):
                     AuditLog.Evento.STATUS, ator='sistema',
                     detalhe=f'Boleto #{boleto.pk} destinado a {posto} '
                             'pelo CNPJ do sacado')
-        try:
-            valor_pdf, bruto = ia.extrair_valor(texto)
-            boleto.ia_resposta = bruto[:4000]
-        except Exception as e:
-            log.error('IA falhou no boleto #%s: %s', boleto_pk, e)
-            if boleto.tentativas >= MAX_TENTATIVAS:
-                _para_manual(boleto, f'IA indisponível após '
-                                     f'{MAX_TENTATIVAS} tentativas: {e}')
-            else:
-                boleto.save()  # continua RECEBIDO; o cron tenta de novo
-            return
-        if valor_pdf is None:
-            _para_manual(boleto, 'IA não identificou o valor no PDF')
-            return
-        try:
-            dados = json.loads(bruto)
-        except Exception:
-            dados = {}
-        # o modelo barato às vezes estropia o nome do campo
-        # ("motivo_confiacao", "motivo_confianca?") — aceita qualquer chave
-        # que comece com "motivo".
-        motivo_conf = ''
-        for _k, _v in dados.items():
-            if _k.lower().startswith('motivo') and str(_v or '').strip():
-                motivo_conf = str(_v).strip()
-                break
+
         if not boleto.linha_digitavel:
             ld = re.sub(r'\D', '', str(dados.get('linha_digitavel') or ''))
             if 40 <= len(ld) <= 48:
@@ -916,10 +984,16 @@ def processar(boleto_pk):
                     str(dados.get('vencimento') or ''), '%d/%m/%Y').date()
             except ValueError:
                 pass
-        try:
-            confianca_pdf = max(0, min(100, int(dados.get('confianca'))))
-        except (TypeError, ValueError):
-            confianca_pdf = 50  # IA não declarou — trata como incerto
+    elif eh_pdf:
+        # PDF sem texto e o opus também não leu → como antes, vai a manual.
+        _para_manual(boleto, 'PDF sem texto legível e o opus (visão) também '
+                             'não conseguiu ler o valor — confira manualmente')
+        return
+    elif eh_imagem and not boleto.linha_digitavel:
+        # Imagem que o opus não leu e sem linha: nada para conferir.
+        _para_manual(boleto, 'arquivo é imagem, o opus (visão) não leu e não '
+                             'há linha digitável — nada para conferir')
+        return
 
     # 2) Valor embutido no código de barras (determinístico, sem IA).
     valor_linha = valor_da_linha(boleto.linha_digitavel)
