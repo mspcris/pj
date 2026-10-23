@@ -3341,3 +3341,223 @@ class NotaSubstituidaTest(BaseSetup):
         self.assertEqual(b.status, Boleto.Status.FIN_RECEBIDO)
         from .services.boletos import duplicado_de
         self.assertEqual(duplicado_de(Boleto.objects.latest('pk')), b)
+
+
+# ===========================================================================
+# Assinatura digital de contratos pelo gov.br (23/10/2026)
+# ===========================================================================
+# Um "/Sig" com /ByteRange colado no fim do PDF — é assim (atualização
+# incremental, em texto claro) que o PAdES do gov.br fica gravado.
+_SIG = (b'\n99 0 obj\n<< /Type /Sig /Filter /Adobe.PPKLite '
+        b'/SubFilter /ETSI.CAdES.detached /ByteRange [0 10 20 5] '
+        b'/Contents <00> >>\nendobj\n')
+
+
+def _pdf_assinado(n=1, nome='contrato-assinado.pdf'):
+    return SimpleUploadedFile(nome, PDF_MINI + _SIG * n,
+                              content_type='application/pdf')
+
+
+class AssinaturaContratoTest(BaseSetup):
+    def setUp(self):
+        super().setUp()
+        from core.models import Contrato
+        self.contrato = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            arquivo=_pdf('contrato.pdf'), nome_original='contrato.pdf',
+            vigencia_inicio=date(2026, 10, 23),
+            vigencia_fim=date(2027, 10, 22), assinatura_govbr=True)
+
+    def test_contar_assinaturas(self):
+        from core.services.assinaturas import contar_assinaturas
+        self.assertEqual(contar_assinaturas(PDF_MINI), 0)
+        self.assertEqual(contar_assinaturas(PDF_MINI + _SIG), 1)
+        self.assertEqual(contar_assinaturas(PDF_MINI + _SIG * 2), 2)
+        self.assertEqual(contar_assinaturas(b''), 0)
+
+    def test_regua_do_modelo(self):
+        c = self.contrato
+        self.assertTrue(c.falta_prestador and c.falta_gestor)
+        self.assertEqual(c.situacao_assinatura,
+                         'falta assinatura: prestador e gestor')
+        c.assinatura_govbr = False
+        self.assertFalse(c.falta_assinatura)
+        self.assertEqual(c.situacao_assinatura, '')
+
+    def test_home_destaca_contrato_a_assinar(self):
+        self.login_pj()
+        resp = self.client.get('/')
+        self.assertContains(resp, 'ASSINAR CONTRATO')
+        self.assertContains(resp, f'/contratos/assinar/{self.contrato.pk}/')
+
+    def test_pagina_de_assinatura_do_pj(self):
+        self.login_pj()
+        resp = self.client.get(f'/contratos/assinar/{self.contrato.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'assinador.iti.br')
+        self.assertContains(resp, 'BAIXAR O PDF')
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_pj_anexa_pdf_sem_assinatura_e_barrado(self, m_mail):
+        self.login_pj()
+        resp = self.client.post(f'/contratos/assinar/{self.contrato.pk}/',
+                                {'arquivo': _pdf('contrato.pdf')})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Não encontrei assinatura digital nova')
+        self.contrato.refresh_from_db()
+        self.assertIsNone(self.contrato.assinado_prestador_em)
+        self.assertEqual(self.contrato.versoes.count(), 0)
+        m_mail.assert_not_called()
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_pj_assina_guarda_versao_e_avisa_gestor(self, m_mail):
+        from core.models import AuditLog, ContratoVersao
+        self.login_pj()
+        resp = self.client.post(f'/contratos/assinar/{self.contrato.pk}/',
+                                {'arquivo': _pdf_assinado()})
+        self.assertEqual(resp.status_code, 302)
+        c = self.contrato
+        c.refresh_from_db()
+        self.assertIsNotNone(c.assinado_prestador_em)
+        self.assertEqual(c.assinado_prestador_por, 'pj@empresa.com.br')
+        self.assertIsNone(c.assinado_gestor_em)
+        self.assertEqual(c.nome_original, 'contrato-assinado-prestador.pdf')
+        with c.arquivo.open('rb') as f:
+            self.assertIn(b'/ByteRange', f.read())
+        v = ContratoVersao.objects.get(contrato=c)
+        self.assertEqual(v.etapa, ContratoVersao.Etapa.ORIGINAL)
+        self.assertEqual(v.nome, 'contrato.pdf')
+        with v.arquivo.open('rb') as f:
+            self.assertNotIn(b'/ByteRange', f.read())
+        self.assertTrue(AuditLog.objects.filter(
+            evento=AuditLog.Evento.ASSINATURA_CONTRATO).exists())
+        # aviso ao gestor
+        self.assertIn('cristiano@camim.com.br', _destinos(m_mail))
+        self.assertIn('assinado pelo prestador',
+                      m_mail.call_args.args[1].lower())
+        # segunda vez: já assinado, não registra de novo
+        resp = self.client.post(f'/contratos/assinar/{c.pk}/',
+                                {'arquivo': _pdf_assinado(2)})
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(c.versoes.count(), 1)
+
+    def test_pj_nao_assina_contrato_de_outro(self):
+        from core.models import Contrato, Prestador
+        outro = Prestador.objects.create(nome='Outra LTDA')
+        c2 = Contrato.objects.create(prestador=outro, posto=self.posto1,
+                                     arquivo=_pdf(), assinatura_govbr=True)
+        self.login_pj()
+        self.assertEqual(
+            self.client.get(f'/contratos/assinar/{c2.pk}/').status_code, 404)
+        # contrato sem régua gov.br também não tem página de assinatura
+        self.contrato.assinatura_govbr = False
+        self.contrato.save()
+        self.assertEqual(self.client.get(
+            f'/contratos/assinar/{self.contrato.pk}/').status_code, 404)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_admin_em_ver_como_nao_assina_pelo_pj(self, m_mail):
+        self.login_admin()
+        self.client.post(f'/painel/ver-como/{self.prestador.pk}/')
+        resp = self.client.post(f'/contratos/assinar/{self.contrato.pk}/',
+                                {'arquivo': _pdf_assinado()})
+        self.assertEqual(resp.status_code, 302)
+        self.contrato.refresh_from_db()
+        self.assertIsNone(self.contrato.assinado_prestador_em)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_gestor_assina_depois_do_prestador_e_completa(self, m_mail):
+        from core.models import ContratoVersao
+        from core.services import assinaturas
+        assinaturas.registrar(self.contrato, _pdf_assinado(), 'a.pdf',
+                              'prestador', quem='pj@empresa.com.br')
+        self.login_admin()
+        url = f'/painel/contratos/{self.contrato.pk}/assinar/'
+        self.assertEqual(self.client.get(url).status_code, 200)
+        # o PDF com UMA assinatura (a do prestador) não serve: precisa de 2
+        resp = self.client.post(url, {'arquivo': _pdf_assinado(1)})
+        self.assertContains(resp, 'Não encontrei assinatura digital nova')
+        resp = self.client.post(url, {'arquivo': _pdf_assinado(2)})
+        self.assertEqual(resp.status_code, 302)
+        c = self.contrato
+        c.refresh_from_db()
+        self.assertTrue(c.assinaturas_completas)
+        self.assertEqual(c.assinado_gestor_por, 'cristiano@camim.com.br')
+        etapas = list(c.versoes.values_list('etapa', flat=True))
+        self.assertEqual(etapas, [ContratoVersao.Etapa.ORIGINAL,
+                                  ContratoVersao.Etapa.PRESTADOR])
+
+    def test_gestor_pode_forcar_sem_deteccao(self):
+        from core.models import AuditLog
+        self.login_admin()
+        url = f'/painel/contratos/{self.contrato.pk}/assinar/'
+        resp = self.client.post(url, {'arquivo': _pdf('x.pdf'),
+                                      'forcar': 'on'})
+        self.assertEqual(resp.status_code, 302)
+        self.contrato.refresh_from_db()
+        self.assertIsNotNone(self.contrato.assinado_gestor_em)
+        self.assertTrue(AuditLog.objects.filter(
+            detalhe__contains='forçado pelo admin').exists())
+
+    @mock.patch('core.services.contratos.aplicar_dados_async')
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_painel_anexa_com_govbr_e_avisa_prestador(self, m_mail, _m_ia):
+        from core.models import Contrato
+        self.login_admin()
+        resp = self.client.post(
+            f'/painel/prestadores/{self.prestador.pk}/',
+            {'qual': 'contrato', 'posto': self.posto2.pk,
+             'arquivo': _pdf('novo.pdf'), 'assinatura_govbr': 'on',
+             'vigencia_inicio': '2026-10-23'})
+        self.assertEqual(resp.status_code, 302)
+        c = Contrato.objects.get(prestador=self.prestador, posto=self.posto2)
+        self.assertTrue(c.assinatura_govbr)
+        self.assertIn('pj@empresa.com.br', _destinos(m_mail))
+        assunto, corpo = m_mail.call_args.args[1], m_mail.call_args.args[2]
+        self.assertIn('para assinatura', assunto)
+        self.assertIn('pj.camim.com.br/contratos/', corpo)
+        self.assertIn('assinador.iti.br', corpo)
+        # Nenhum valor no e-mail
+        self.assertNotIn('R$', corpo)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_botao_avisar_manda_um_email_para_todos_os_pendentes(self, m_mail):
+        from core.models import Contrato
+        Contrato.objects.create(prestador=self.prestador, posto=self.posto2,
+                                arquivo=_pdf(), assinatura_govbr=True)
+        self.login_admin()
+        resp = self.client.post(
+            f'/painel/contratos/{self.contrato.pk}/avisar/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(m_mail.call_count, 1)
+        self.assertIn('Contratos para assinatura (2)',
+                      m_mail.call_args.args[1])
+
+    def test_toggle_govbr_e_listas_do_painel(self):
+        self.login_admin()
+        resp = self.client.get('/painel/prestadores/')
+        self.assertContains(resp, 'Falta SUA assinatura')
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'assinatura gov.br pendente')
+        self.client.post(f'/painel/contratos/{self.contrato.pk}/govbr/')
+        self.contrato.refresh_from_db()
+        self.assertFalse(self.contrato.assinatura_govbr)
+        resp = self.client.get('/painel/')
+        self.assertNotContains(resp, 'assinatura gov.br pendente')
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_versao_anterior_so_para_o_dono(self, m_mail):
+        from core.models import Prestador, UsuarioPermitido
+        from core.services import assinaturas
+        assinaturas.registrar(self.contrato, _pdf_assinado(), 'a.pdf',
+                              'prestador', quem='pj@empresa.com.br')
+        v = self.contrato.versoes.get()
+        self.login_pj()
+        self.assertEqual(self.client.get(
+            f'/arquivo/contrato_versao/{v.pk}/').status_code, 200)
+        outro = Prestador.objects.create(nome='Outra LTDA')
+        UsuarioPermitido.objects.create(email='outro@x.com', prestador=outro)
+        self.client.force_login(User.objects.create_user(
+            username='outro@x.com', email='outro@x.com'))
+        self.assertEqual(self.client.get(
+            f'/arquivo/contrato_versao/{v.pk}/').status_code, 404)

@@ -3,6 +3,17 @@
 <h1>Olá{% if up.nome %}, {{ up.nome|truncatewords:1 }}{% endif %}! 👋</h1>
 <p class="sub">{{ up.prestador.nome }} — o que você quer fazer?</p>
 
+{% if a_assinar %}
+<a class="btn-giant" style="border-color:var(--dourado);background:#fff8e8"
+   href="{% if a_assinar|length == 1 %}{% url 'contrato_assinar' a_assinar.0.pk %}{% else %}{% url 'contratos_postos' %}{% endif %}">
+  <div class="icone" style="background:#fdeccb">✍️</div>
+  <div>
+    <div class="titulo" style="color:#7a4b00">ASSINAR CONTRATO{{ a_assinar|length|pluralize }}</div>
+    <div class="desc">{{ a_assinar|length }} contrato{{ a_assinar|length|pluralize }} esperando a sua assinatura pelo gov.br{% if a_assinar|length > 1 %}: {% for c in a_assinar %}{{ c.posto.nome|default:"geral" }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</div>
+  </div>
+</a>
+{% endif %}
+
 <a class="btn-giant" href="{% url 'anexar_boleto' %}">
   <div class="icone">📎</div>
   <div>

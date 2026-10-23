@@ -108,6 +108,29 @@ _NAO_RECONHECIDO = [
 ]
 
 
+# Contrato gerado na plataforma esperando a assinatura digital do PJ. Sem
+# valores nem dados sensíveis — só o chamado para assinar e onde.
+_CONTRATO_ASSINAR = [
+    ('Prezado(a) {contato},\n\nO seu contrato de prestação de serviços com '
+     'a CAMIM ({postos}) já está disponível na plataforma e aguarda a sua '
+     'assinatura digital. É simples: entre em {url}, baixe o PDF, assine '
+     'pelo assinador do gov.br ({assinador}) e anexe o arquivo assinado no '
+     'mesmo lugar. Depois disso a CAMIM assina a parte dela.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+    ('Prezado(a) {contato},\n\nInformamos que o contrato referente a '
+     '{postos} foi publicado na plataforma dos prestadores e precisa da sua '
+     'assinatura pelo gov.br. Acesse {url}, baixe o documento, assine em '
+     '{assinador} e envie o PDF assinado de volta pela própria plataforma. '
+     'Em seguida o gestor da CAMIM fará a assinatura dele.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+    ('Prezado(a) {contato},\n\nHá contrato aguardando a sua assinatura na '
+     'plataforma da CAMIM ({postos}). O caminho é: baixar o PDF em {url}, '
+     'assinar digitalmente no gov.br ({assinador}) e anexar o arquivo '
+     'assinado na plataforma. Qualquer dúvida, fale com o Cristiano.\n\n'
+     'Atenciosamente,\nCristiano — CAMIM'),
+]
+
+
 def _fallback(pool, fatos):
     fatos = dict(fatos)
     fatos.setdefault('contato', fatos.get('prestador', ''))
@@ -131,6 +154,7 @@ def corpo(tipo, fatos, instrucao_ia=None):
         'divergente': _DIVERGENTE,
         'manual_admin': _MANUAL_ADMIN,
         'nao_reconhecido': _NAO_RECONHECIDO,
+        'contrato_assinar': _CONTRATO_ASSINAR,
     }
     if fatos.get('parcial_frase'):
         pools['aprovado_pj'] = _APROVADO_PJ_PARCIAL

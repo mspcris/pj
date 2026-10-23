@@ -14,11 +14,13 @@ from django.contrib import messages
 from django.db import transaction
 from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .forms import (BoletoAdminForm, ContratoAdminForm, PostoForm,
-                    PrestadorForm, UsuarioForm, ValeForm, ValorBRField)
+from .forms import (BoletoAdminForm, ContratoAdminForm,
+                    ContratoAssinadoAdminForm, PostoForm, PrestadorForm,
+                    UsuarioForm, ValeForm, ValorBRField)
 from .models import (AjusteDiferenca, AuditLog, Boleto, Configuracao,
                      Contrato, EmailLog, EmailRecebido, Posto,
                      PreferenciaNotificacao, Prestador, PrestadorPosto,
@@ -58,6 +60,18 @@ def _mes_param(request):
         return date.fromisoformat(request.GET.get('m', '') + '-01')
     except ValueError:
         return timezone.localdate().replace(day=1)
+
+
+def _contratos_a_assinar():
+    """Contratos (gov.br) sem alguma assinatura — para o banner do
+    dashboard: o Cristiano não pode esquecer de assinar a parte dele."""
+    return list(Contrato.objects
+                .filter(assinatura_govbr=True,
+                        prestador__excluido_em__isnull=True)
+                .filter(Q(assinado_prestador_em__isnull=True)
+                        | Q(assinado_gestor_em__isnull=True))
+                .select_related('prestador', 'posto')
+                .order_by('prestador__nome', 'posto__nome'))
 
 
 @admin_required
@@ -372,6 +386,7 @@ def dashboard(request, up):
     qs_filtro = ''.join(
         f'&{k}={v.pk}' for k, v in filtro.items() if v is not None)
     return render(request, 'painel/dashboard.html', {
+        'contratos_a_assinar': _contratos_a_assinar(),
         'grupos_parciais': grupos_parciais, 'parciais_soltas': soltas,
         'filtro': filtro, 'qs_filtro': qs_filtro,
         'resumo_filtro': resumo_filtro,
@@ -940,6 +955,11 @@ def prestadores(request, up):
         p.sem_contrato = bool(faltam) or not vigentes
         p.total_mensal = sum((v for _, v in postos if v is not None),
                              Decimal('0'))
+        # Contratos gerados na plataforma ainda sem as duas assinaturas.
+        p.falta_prestador = [c.posto.nome if c.posto else 'geral'
+                             for c in vigentes if c.falta_prestador]
+        p.falta_gestor = [c.posto.nome if c.posto else 'geral'
+                          for c in vigentes if c.falta_gestor]
     return render(request, 'painel/prestadores.html',
                   {'lista': lista, 'form': form, 'up': up})
 
@@ -1045,19 +1065,31 @@ def prestador_detalhe(request, up, pk):
                     arquivo=arq, nome_original=arq.name[:255],
                     enviado_por=up.email,
                     vigencia_inicio=cform.cleaned_data['vigencia_inicio'],
-                    vigencia_fim=cform.cleaned_data['vigencia_fim'])
+                    vigencia_fim=cform.cleaned_data['vigencia_fim'],
+                    assinatura_govbr=cform.cleaned_data['assinatura_govbr'])
                 AuditLog.registrar(AuditLog.Evento.UPLOAD_CONTRATO, request,
                                    detalhe=f'(painel) {prestador} — '
-                                           f'{arq.name[:60]}')
+                                           f'{arq.name[:60]}'
+                                           + (' [assinatura gov.br]'
+                                              if contrato.assinatura_govbr
+                                              else ''))
                 from .services.contratos import aplicar_dados_async
                 aplicar_dados_async(contrato.pk)
+                aviso = ''
+                if contrato.assinatura_govbr:
+                    from .services import assinaturas
+                    ok = assinaturas.avisar_prestador_para_assinar([contrato])
+                    aviso = (' O prestador foi avisado por e-mail para '
+                             'assinar pelo gov.br.' if ok else
+                             ' NÃO consegui avisar o prestador (sem e-mail '
+                             'cadastrado?) — use o botão "Avisar" na lista.')
                 messages.success(
                     request,
                     'Contrato anexado. Estou lendo o PDF em segundo plano '
                     'para completar o cadastro (endereço, representante, '
                     'prazos) — só o que estiver em branco; em até 1 minuto '
                     'recarregue a página e confira a ficha. O que foi '
-                    'preenchido fica na Auditoria.')
+                    'preenchido fica na Auditoria.' + aviso)
             else:
                 messages.error(request, f'Contrato inválido: {cform.errors}')
             return redirect('painel_prestador', pk=pk)
@@ -1079,8 +1111,8 @@ def prestador_detalhe(request, up, pk):
     linhas_postos = [{'posto': p, 'vinculo': vinculos.get(p.pk),
                       'tem_contrato': p.pk in postos_com_contrato}
                      for p in postos]
-    contratos = Contrato.objects.filter(prestador=prestador) \
-        .select_related('posto')
+    contratos = (Contrato.objects.filter(prestador=prestador)
+                 .select_related('posto').prefetch_related('versoes'))
     mes_atual = timezone.localdate().replace(day=1)
     vales = []
     for v in prestador.vales.all().select_related('posto'):
@@ -1098,6 +1130,107 @@ def prestador_detalhe(request, up, pk):
         'contratos': contratos, 'usuarios': prestador.usuarios.all(),
         'vales': vales, 'vale_form': ValeForm(),
         'contrato_form': contrato_form, 'anexar': anexar, 'up': up})
+
+
+@admin_required
+def contrato_assinar_gestor(request, up, pk):
+    """Assinatura do GESTOR: mesmos 3 passos do PJ, pelo painel."""
+    from .services import assinaturas
+    contrato = get_object_or_404(
+        Contrato.objects.select_related('posto', 'prestador'),
+        pk=pk, assinatura_govbr=True)
+    form = ContratoAssinadoAdminForm()
+    voltar = reverse('painel_prestador', args=[contrato.prestador_id]) \
+        + '#contratos'
+    if request.method == 'POST':
+        if not contrato.falta_gestor:
+            messages.info(request, 'Este contrato já tem a assinatura do '
+                                   'gestor.')
+            return redirect(voltar)
+        form = ContratoAssinadoAdminForm(request.POST, request.FILES)
+        if form.is_valid():
+            arq = form.cleaned_data['arquivo']
+            dados = arq.read()
+            arq.seek(0)
+            forcado = False
+            try:
+                assinaturas.conferir_pdf_assinado(contrato, dados)
+            except assinaturas.PdfSemAssinaturaNova:
+                if not form.cleaned_data.get('forcar'):
+                    form.add_error(
+                        'arquivo',
+                        'Não encontrei assinatura digital nova neste PDF — '
+                        'anexe o arquivo que o gov.br devolveu assinado. '
+                        'Se tiver certeza, marque "Registrar mesmo assim".')
+                else:
+                    forcado = True
+            if not form.errors:
+                assinaturas.registrar(
+                    contrato, arq,
+                    assinaturas.nome_assinado(contrato, 'gestor'),
+                    'gestor', quem=up.email, request=request)
+                if forcado:
+                    AuditLog.registrar(
+                        AuditLog.Evento.ASSINATURA_CONTRATO, request,
+                        detalhe=f'Contrato #{contrato.pk}: assinatura do '
+                                'gestor registrada SEM detecção de '
+                                'assinatura digital (forçado pelo admin)')
+                if contrato.assinaturas_completas:
+                    messages.success(request, 'Contrato assinado pelas duas '
+                                              'partes — concluído! ✅')
+                else:
+                    messages.success(request, 'Sua assinatura foi '
+                                              'registrada. Falta a do '
+                                              'prestador.')
+                return redirect(voltar)
+    return render(request, 'contrato_assinar.html', {
+        'contrato': contrato, 'form': form, 'up': up, 'papel': 'gestor',
+        'url_assinador': assinaturas.URL_ASSINADOR,
+        'url_validar': assinaturas.URL_VALIDAR, 'voltar': voltar})
+
+
+@admin_required
+@require_POST
+def contrato_acao(request, up, pk, acao):
+    """Ações rápidas na lista de contratos do prestador:
+    avisar  — reenvia ao PJ o e-mail pedindo a assinatura;
+    govbr   — liga/desliga a régua de assinatura gov.br do contrato."""
+    contrato = get_object_or_404(
+        Contrato.objects.select_related('posto', 'prestador'), pk=pk)
+    voltar = reverse('painel_prestador', args=[contrato.prestador_id]) \
+        + '#contratos'
+    if acao == 'avisar':
+        from .services import assinaturas
+        pendentes = list(Contrato.objects.filter(
+            prestador=contrato.prestador, assinatura_govbr=True,
+            assinado_prestador_em__isnull=True).select_related('posto'))
+        if not pendentes:
+            messages.info(request, 'Não há contrato esperando a assinatura '
+                                   'do prestador.')
+        elif assinaturas.avisar_prestador_para_assinar(pendentes):
+            AuditLog.registrar(AuditLog.Evento.CRUD, request,
+                               detalhe=f'{contrato.prestador}: avisado para '
+                                       f'assinar {len(pendentes)} contrato(s)')
+            messages.success(request, f'E-mail enviado ao prestador '
+                                      f'({len(pendentes)} contrato(s) a '
+                                      'assinar).')
+        else:
+            messages.error(request, 'Não consegui enviar — o prestador '
+                                    'tem e-mail cadastrado?')
+    elif acao == 'govbr':
+        contrato.assinatura_govbr = not contrato.assinatura_govbr
+        contrato.save(update_fields=['assinatura_govbr'])
+        AuditLog.registrar(
+            AuditLog.Evento.CRUD, request,
+            detalhe=f'Contrato #{contrato.pk}: assinatura gov.br '
+                    f'{"ligada" if contrato.assinatura_govbr else "desligada"}')
+        messages.success(request, 'Assinatura pelo gov.br '
+                         + ('ligada — o contrato aparece como pendente até '
+                            'as duas partes assinarem.'
+                            if contrato.assinatura_govbr else 'desligada.'))
+    else:
+        messages.error(request, 'Ação desconhecida.')
+    return redirect(voltar)
 
 
 @admin_required

@@ -189,12 +189,23 @@
   {% if anexar %}<p style="color:#c0392b;font-weight:700">📄 {{ anexar.nome }} está sem contrato vigente — anexe abaixo.</p>{% endif %}
   {% if contratos %}
   <div class="rolagem"><table>
-    <tr><th>Posto</th><th>Arquivo</th><th>Vigência</th></tr>
+    <tr><th>Posto</th><th>Arquivo</th><th>Vigência</th><th>Assinaturas (gov.br)</th></tr>
     {% for c in contratos %}
-    <tr><td>{{ c.posto|default:"— (geral)" }}</td>
+    <tr{% if c.falta_assinatura %} style="background:#fff8e8"{% endif %}>
+        <td>{{ c.posto|default:"— (geral)" }}</td>
         <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}"
-            onclick="return abrirPdf(this.href, '{{ c.nome_original|escapejs|truncatechars:60 }}')">📎 {{ c.nome_original|truncatechars:32 }}</a></td>
-        <td>{{ c.vigencia_inicio|date:"d/m/Y" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td></tr>
+            onclick="return abrirPdf(this.href, '{{ c.nome_original|escapejs|truncatechars:60 }}')">📎 {{ c.nome_original|truncatechars:32 }}</a>
+          {% for v in c.versoes.all %}<div class="sub" style="font-size:.72rem">↳ versão anterior ({{ v.get_etapa_display|lower }}, {{ v.substituida_em|date:"d/m/Y" }}): <a href="{% url 'baixar_arquivo' 'contrato_versao' v.pk %}">{{ v.nome|default:"pdf"|truncatechars:28 }}</a></div>{% endfor %}</td>
+        <td>{{ c.vigencia_inicio|date:"d/m/Y" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td>
+        <td>{% if c.assinatura_govbr %}
+            <div>{% if c.assinado_prestador_em %}<span class="chip APROVADO" title="{{ c.assinado_prestador_por }}">✅ Prestador {{ c.assinado_prestador_em|date:"d/m" }}</span>{% else %}<span class="chip MANUAL">⏳ Falta o prestador</span>{% endif %}</div>
+            <div style="margin-top:4px">{% if c.assinado_gestor_em %}<span class="chip APROVADO" title="{{ c.assinado_gestor_por }}">✅ Gestor {{ c.assinado_gestor_em|date:"d/m" }}</span>{% else %}<a class="btn mini dourado" href="{% url 'painel_contrato_assinar' c.pk %}">✍️ Assinar como gestor</a>{% endif %}</div>
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+              {% if c.falta_prestador %}<form method="post" action="{% url 'painel_contrato_acao' c.pk 'avisar' %}" style="display:inline">{% csrf_token %}<button class="btn mini claro" type="submit" title="Reenvia ao prestador o e-mail pedindo a assinatura (um e-mail cobre todos os contratos pendentes dele)">📨 Avisar</button></form>{% endif %}
+              <form method="post" action="{% url 'painel_contrato_acao' c.pk 'govbr' %}" style="display:inline">{% csrf_token %}<button class="btn mini claro" type="submit" title="Tirar este contrato da régua de assinatura gov.br">desligar gov.br</button></form>
+            </div>
+          {% else %}<span class="sub" style="font-size:.76rem">—</span>
+            <form method="post" action="{% url 'painel_contrato_acao' c.pk 'govbr' %}" style="display:inline">{% csrf_token %}<button class="btn mini claro" type="submit" title="Passar a colher as assinaturas deste contrato pelo gov.br">ligar gov.br</button></form>{% endif %}</td></tr>
     {% endfor %}
   </table></div>
   {% else %}<p class="sub">Nenhum contrato anexado.</p>{% endif %}

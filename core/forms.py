@@ -273,12 +273,44 @@ class ContratoAdminForm(ContratoForm):
         label='Posto (vazio = contrato geral da empresa)', required=False,
         queryset=Posto.objects.filter(ativo=True,
                                       excluido_em__isnull=True))
+    assinatura_govbr = forms.BooleanField(
+        label='Colher assinaturas digitais pelo gov.br — o PDF ainda NÃO '
+              'está assinado: o prestador é avisado por e-mail para assinar '
+              'e depois você assina como gestor',
+        required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['vigencia_inicio'].required = False
         self.fields['vigencia_inicio'].label = \
             'Início da vigência (opcional)'
+
+    def clean(self):
+        dados = super().clean()
+        arq = dados.get('arquivo')
+        if dados.get('assinatura_govbr') and arq \
+                and not arq.name.lower().endswith('.pdf'):
+            raise forms.ValidationError(
+                'Para colher assinaturas pelo gov.br o contrato precisa '
+                'ser um PDF.')
+        return dados
+
+
+class ContratoAssinadoForm(forms.Form):
+    """Anexar o PDF que voltou assinado do gov.br (prestador ou gestor)."""
+    arquivo = forms.FileField(label='PDF assinado pelo gov.br')
+
+    def clean_arquivo(self):
+        return _validar_arquivo(self.cleaned_data['arquivo'], _EXT_BOLETO)
+
+
+class ContratoAssinadoAdminForm(ContratoAssinadoForm):
+    """O gestor pode forçar o registro quando o PDF é legítimo mas a
+    contagem de assinaturas não reconheceu (caso raro — fica na auditoria)."""
+    forcar = forms.BooleanField(
+        label='Registrar mesmo que eu não detecte assinatura digital nova '
+              'no PDF (use só se tiver certeza de que assinou)',
+        required=False)
 
 
 class ValorBRField(forms.Field):

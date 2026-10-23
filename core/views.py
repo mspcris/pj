@@ -10,10 +10,11 @@ from django.contrib.auth.decorators import login_required
 from django.http import FileResponse, Http404
 from django.utils import timezone
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 
-from .forms import BoletoForm, ContratoForm
-from .models import (AuditLog, Boleto, Contrato, NotaAnterior, Posto,
-                     Prestador, UsuarioPermitido)
+from .forms import BoletoForm, ContratoAssinadoForm, ContratoForm
+from .models import (AuditLog, Boleto, Contrato, ContratoVersao,
+                     NotaAnterior, Posto, Prestador, UsuarioPermitido)
 
 
 def _usuario_real(request):
@@ -89,9 +90,14 @@ def home(request, up):
         limite = timezone.now() - timezone.timedelta(days=60)
         qs = qs.filter(criado_em__gte=limite)
     boletos = list(qs)
+    # Contratos esperando a assinatura digital do PJ — destaque no topo.
+    a_assinar = list(Contrato.objects
+                     .filter(prestador=up.prestador, assinatura_govbr=True,
+                             assinado_prestador_em__isnull=True)
+                     .select_related('posto').order_by('posto__nome'))
     return render(request, 'home.html', {
         'up': up, 'boletos': boletos, 'todos': todos,
-        'ocultos': total - len(boletos)})
+        'ocultos': total - len(boletos), 'a_assinar': a_assinar})
 
 
 def _postos_do_prestador(prestador):
@@ -210,11 +216,70 @@ def contratos_lista(request, up, posto_id):
     else:
         form = ContratoForm()
     from django.db.models import Q
-    contratos = Contrato.objects.filter(
-        Q(posto=posto) | Q(posto__isnull=True), prestador=up.prestador)
+    contratos = (Contrato.objects
+                 .filter(Q(posto=posto) | Q(posto__isnull=True),
+                         prestador=up.prestador)
+                 .prefetch_related('versoes'))
     return render(request, 'contrato_lista.html',
                   {'posto': posto, 'contratos': contratos,
                    'form': form, 'up': up})
+
+
+def _ver_como_ativo(request):
+    """Admin disfarçado de PJ: pode OLHAR, mas não assinar por ele."""
+    real = _usuario_real(request)
+    return bool(real and real.is_admin and request.session.get('ver_como'))
+
+
+@prestador_required
+def contrato_assinar(request, up, pk):
+    """Assinatura pelo PJ em 3 passos: baixar o PDF atual → assinar no
+    gov.br → anexar o PDF assinado. O mesmo fluxo existe no painel para o
+    gestor (views_painel.contrato_assinar_gestor)."""
+    from .services import assinaturas
+    contrato = get_object_or_404(
+        Contrato.objects.select_related('posto', 'prestador'),
+        pk=pk, prestador=up.prestador, assinatura_govbr=True)
+    form = ContratoAssinadoForm()
+    if request.method == 'POST':
+        if _ver_como_ativo(request):
+            messages.error(request, 'Você está no modo "ver como": saia '
+                                    'dele para assinar como gestor pelo '
+                                    'painel.')
+            return redirect('contrato_assinar', pk=pk)
+        if not contrato.falta_prestador:
+            messages.info(request, 'Este contrato já está assinado por você.')
+            return redirect('contratos_lista',
+                            posto_id=contrato.posto_id or 0)
+        form = ContratoAssinadoForm(request.POST, request.FILES)
+        if form.is_valid():
+            arq = form.cleaned_data['arquivo']
+            dados = arq.read()
+            arq.seek(0)
+            try:
+                assinaturas.conferir_pdf_assinado(contrato, dados)
+            except assinaturas.PdfSemAssinaturaNova:
+                form.add_error(
+                    'arquivo',
+                    'Não encontrei assinatura digital nova neste PDF. '
+                    'Confira se você baixou o arquivo ASSINADO do gov.br '
+                    '(passo 2) e anexou esse arquivo, e não o original.')
+            else:
+                assinaturas.registrar(
+                    contrato, arq, assinaturas.nome_assinado(contrato,
+                                                             'prestador'),
+                    'prestador', quem=up.email, request=request)
+                assinaturas.avisar_gestor_assinado(contrato)
+                messages.success(
+                    request, 'Contrato assinado e anexado! Agora falta só '
+                             'a assinatura do gestor da CAMIM.')
+                return redirect('home')
+    return render(request, 'contrato_assinar.html', {
+        'contrato': contrato, 'form': form, 'up': up, 'papel': 'prestador',
+        'url_assinador': assinaturas.URL_ASSINADOR,
+        'url_validar': assinaturas.URL_VALIDAR,
+        'voltar': reverse('contratos_lista', args=[contrato.posto_id])
+        if contrato.posto_id else reverse('home')})
 
 
 # ---------------------------------------------------------------------------
@@ -228,13 +293,18 @@ def _pode_ver(up, prestador_id):
 @com_usuario
 def baixar_arquivo(request, up, tipo, pk):
     # 'nf_anterior': nota que foi substituída (histórico do boleto)
+    # 'contrato_versao': versão anterior do contrato (antes de uma
+    # assinatura substituir o PDF)
     modelo = {'boleto': Boleto, 'contrato': Contrato, 'nf': Boleto,
-              'nf_anterior': NotaAnterior}.get(tipo)
+              'nf_anterior': NotaAnterior,
+              'contrato_versao': ContratoVersao}.get(tipo)
     if modelo is None:
         raise Http404
     obj = get_object_or_404(modelo, pk=pk)
     if tipo == 'nf_anterior':
         campo, dono, nome = obj.arquivo, obj.boleto.prestador_id, obj.nome
+    elif tipo == 'contrato_versao':
+        campo, dono, nome = obj.arquivo, obj.contrato.prestador_id, obj.nome
     elif tipo == 'nf':
         campo, dono, nome = (obj.nota_fiscal, obj.prestador_id,
                              obj.nota_fiscal_nome)

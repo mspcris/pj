@@ -7,7 +7,7 @@
 <div class="card">
   {% if contratos %}
   <div class="rolagem"><table>
-    <tr><th>Arquivo</th><th>Vigência</th><th>Situação</th></tr>
+    <tr><th>Arquivo</th><th>Vigência</th><th>Situação</th><th>Assinaturas</th></tr>
     {% for c in contratos %}
     <tr>
       <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}">
@@ -16,6 +16,11 @@
           {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td>
       <td>{% if c.vigente %}<span class="chip APROVADO">Vigente</span>
           {% else %}<span class="chip SUBSTITUIDO">Fora de vigência</span>{% endif %}</td>
+      <td>{% if c.assinatura_govbr %}
+            {% if c.falta_prestador %}<a class="btn mini dourado" href="{% url 'contrato_assinar' c.pk %}">✍️ ASSINAR AGORA</a>
+            {% else %}<span class="chip APROVADO">✅ Você assinou</span>{% endif %}
+            <div style="margin-top:4px">{% if c.falta_gestor %}<span class="chip MANUAL">⏳ Falta o gestor CAMIM</span>{% else %}<span class="chip APROVADO">✅ Gestor CAMIM assinou</span>{% endif %}</div>
+          {% else %}<span class="sub" style="font-size:.78rem">—</span>{% endif %}</td>
     </tr>
     {% endfor %}
   </table></div>

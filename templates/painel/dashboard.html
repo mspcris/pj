@@ -162,6 +162,14 @@
 </div>
 {% endif %}
 
+{% if contratos_a_assinar %}
+<div style="background:#fff8e8;border:1.5px solid var(--dourado);color:#7a4b00;
+     border-radius:12px;padding:11px 16px;margin-bottom:14px;font-weight:700">
+  ✍️ Contrato{{ contratos_a_assinar|length|pluralize }} com assinatura gov.br pendente:
+  {% for c in contratos_a_assinar %}<a href="{% url 'painel_prestador' c.prestador.pk %}#contratos" style="color:#7a4b00;text-decoration:underline dotted">{{ c.prestador.nome|truncatechars:28 }}{% if c.posto %} ({{ c.posto.nome }}){% endif %}</a> — {% if c.falta_gestor and c.falta_prestador %}faltam os dois{% elif c.falta_gestor %}<strong>falta VOCÊ</strong>{% else %}falta o prestador{% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}
+</div>
+{% endif %}
+
 {% if pendentes_baixo %}
 <a href="#secoes-extras" style="display:block;background:#fdf3e3;
    border:1.5px solid var(--dourado);color:#7a5a10;border-radius:12px;

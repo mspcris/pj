@@ -1,0 +1,81 @@
+{% extends 'base.html' %}
+{% block title %}Assinar contrato · Camim PJs{% endblock %}
+{% block conteudo %}
+<style>
+.passo{display:flex;gap:16px;align-items:flex-start;background:var(--branco);
+  border:2px solid var(--linha);border-radius:22px;padding:22px;margin-bottom:14px;
+  box-shadow:var(--sombra)}
+.passo .num{flex:none;width:52px;height:52px;border-radius:16px;display:grid;
+  place-items:center;font-size:1.5rem;font-weight:800;background:var(--verde-claro);
+  color:var(--verde-esc)}
+.passo .titulo{font-size:1.15rem;font-weight:800;color:var(--verde-esc);margin-bottom:4px}
+.passo .desc{color:var(--cinza);font-size:.92rem;margin-bottom:12px}
+.passo .btn{font-size:1.05rem}
+.passo.feito{border-color:var(--verde);background:#f1faf6}
+.estado{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 18px}
+</style>
+
+<h1>✍️ Assinar contrato{% if contrato.posto %} — {{ contrato.posto.nome }}{% endif %}</h1>
+<p class="sub">{{ contrato.prestador.nome }}{% if contrato.vigencia_inicio %} · vigência {{ contrato.vigencia_inicio|date:"d/m/Y" }} — {{ contrato.vigencia_fim|date:"d/m/Y"|default:"indeterminada" }}{% endif %}</p>
+
+<div class="estado">
+  {% if contrato.assinado_prestador_em %}<span class="chip APROVADO">✅ Prestador assinou em {{ contrato.assinado_prestador_em|date:"d/m/Y" }}</span>
+  {% else %}<span class="chip MANUAL">⏳ Falta a assinatura do prestador</span>{% endif %}
+  {% if contrato.assinado_gestor_em %}<span class="chip APROVADO">✅ Gestor CAMIM assinou em {{ contrato.assinado_gestor_em|date:"d/m/Y" }}</span>
+  {% else %}<span class="chip MANUAL">⏳ Falta a assinatura do gestor CAMIM</span>{% endif %}
+</div>
+
+{% if papel == 'prestador' and not contrato.falta_prestador %}
+<div class="card"><strong>Você já assinou este contrato.</strong>
+  {% if contrato.falta_gestor %} Agora é a vez do gestor da CAMIM.{% else %} Está tudo assinado. ✅{% endif %}
+  <div style="margin-top:14px"><a class="btn claro" href="{{ voltar }}">Voltar</a></div></div>
+{% elif papel == 'gestor' and not contrato.falta_gestor %}
+<div class="card"><strong>Você já assinou este contrato como gestor.</strong>
+  {% if contrato.falta_prestador %} Falta a assinatura do prestador.{% else %} Está tudo assinado. ✅{% endif %}
+  <div style="margin-top:14px"><a class="btn claro" href="{{ voltar }}">Voltar</a></div></div>
+{% else %}
+
+<div class="passo">
+  <div class="num">1</div>
+  <div style="flex:1">
+    <div class="titulo">Baixe o contrato</div>
+    <div class="desc">Este é o PDF atual{% if contrato.assinado_prestador_em or contrato.assinado_gestor_em %} (já com a outra assinatura){% endif %}. Guarde-o no seu computador ou celular.</div>
+    <a class="btn" href="{% url 'baixar_arquivo' 'contrato' contrato.pk %}">⬇️ BAIXAR O PDF</a>
+  </div>
+</div>
+
+<div class="passo">
+  <div class="num">2</div>
+  <div style="flex:1">
+    <div class="titulo">Assine no gov.br</div>
+    <div class="desc">Abra o assinador do governo, entre com a sua conta gov.br, envie o PDF que você baixou, assine e <strong>baixe o arquivo assinado</strong> que ele devolve.</div>
+    <a class="btn dourado" href="{{ url_assinador }}" target="_blank" rel="noopener">🔐 ABRIR O ASSINADOR GOV.BR ↗</a>
+  </div>
+</div>
+
+<div class="passo" id="anexar">
+  <div class="num">3</div>
+  <div style="flex:1">
+    <div class="titulo">Anexe o PDF assinado aqui</div>
+    <div class="desc">Escolha o arquivo que o gov.br devolveu (o nome costuma terminar em "assinado" ou "signed"). Eu confiro se ele traz a assinatura digital.</div>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {% for campo in form %}
+        {% if campo.name == 'forcar' %}
+          <label style="font-weight:600;display:flex;gap:8px;align-items:flex-start;font-size:.88rem;color:var(--cinza)">{{ campo }} <span>{{ campo.label }}</span></label>
+        {% else %}
+          <label for="{{ campo.id_for_label }}">{{ campo.label }}</label>{{ campo }}
+        {% endif %}
+        {% if campo.errors %}<ul class="errolista">{% for e in campo.errors %}<li>⚠️ {{ e }}</li>{% endfor %}</ul>{% endif %}
+      {% endfor %}
+      {% if form.non_field_errors %}<ul class="errolista">{% for e in form.non_field_errors %}<li>⚠️ {{ e }}</li>{% endfor %}</ul>{% endif %}
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn" type="submit" style="flex:1">✅ ENVIAR CONTRATO ASSINADO</button>
+        <a class="btn claro" href="{{ voltar }}">Voltar</a>
+      </div>
+    </form>
+  </div>
+</div>
+<p class="sub" style="font-size:.8rem">Dúvida se o arquivo está assinado? Confira em <a href="{{ url_validar }}" target="_blank" rel="noopener">{{ url_validar }}</a>.</p>
+{% endif %}
+{% endblock %}

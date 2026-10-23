@@ -381,12 +381,58 @@ class Contrato(models.Model):
     vigencia_fim = models.DateField(null=True, blank=True)
     enviado_por = models.EmailField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
+    # Assinatura digital pelo gov.br (23/10/2026): o contrato nasce SEM
+    # assinatura; prestador e gestor, cada um, baixam o PDF atual, assinam
+    # no assinador do gov.br e anexam de volta. `arquivo` é SEMPRE a versão
+    # mais recente (com as assinaturas já colhidas); as versões anteriores
+    # ficam em ContratoVersao — nada é apagado. Contratos antigos (anexados
+    # já assinados no papel) ficam com assinatura_govbr=False e não entram
+    # nessa régua.
+    assinatura_govbr = models.BooleanField(
+        default=False,
+        verbose_name='Colher assinaturas digitais pelo gov.br')
+    assinado_prestador_em = models.DateTimeField(null=True, blank=True)
+    assinado_prestador_por = models.EmailField(blank=True)
+    assinado_gestor_em = models.DateTimeField(null=True, blank=True)
+    assinado_gestor_por = models.EmailField(blank=True)
 
     class Meta:
         ordering = ['-vigencia_inicio']
 
     def __str__(self):
         return f'Contrato {self.prestador} @ {self.posto}'
+
+    # --- régua de assinaturas -------------------------------------------
+    @property
+    def falta_prestador(self):
+        return self.assinatura_govbr and self.assinado_prestador_em is None
+
+    @property
+    def falta_gestor(self):
+        return self.assinatura_govbr and self.assinado_gestor_em is None
+
+    @property
+    def falta_assinatura(self):
+        return self.falta_prestador or self.falta_gestor
+
+    @property
+    def assinaturas_completas(self):
+        return (self.assinatura_govbr and self.assinado_prestador_em
+                is not None and self.assinado_gestor_em is not None)
+
+    @property
+    def situacao_assinatura(self):
+        """Texto curto para listas e e-mails."""
+        if not self.assinatura_govbr:
+            return ''
+        if self.assinaturas_completas:
+            return 'assinado por prestador e gestor'
+        faltam = []
+        if self.falta_prestador:
+            faltam.append('prestador')
+        if self.falta_gestor:
+            faltam.append('gestor')
+        return 'falta assinatura: ' + ' e '.join(faltam)
 
     @property
     def vigente(self):
@@ -395,6 +441,33 @@ class Contrato(models.Model):
         if self.vigencia_inicio and self.vigencia_inicio > hoje:
             return False
         return self.vigencia_fim is None or self.vigencia_fim >= hoje
+
+
+class ContratoVersao(models.Model):
+    """Versão ANTERIOR do PDF de um contrato, guardada quando uma versão
+    assinada substitui a atual (mesmo princípio da NotaAnterior: o arquivo
+    antigo nunca é apagado). Só `assinaturas.registrar` cria registros."""
+    class Etapa(models.TextChoices):
+        ORIGINAL = 'ORIGINAL', 'Sem assinatura (versão original)'
+        PRESTADOR = 'PRESTADOR', 'Assinada pelo prestador'
+        GESTOR = 'GESTOR', 'Assinada pelo gestor'
+
+    contrato = models.ForeignKey(Contrato, on_delete=models.CASCADE,
+                                 related_name='versoes')
+    # Aponta para o arquivo que JÁ estava no contrato (nada é copiado).
+    arquivo = models.FileField(upload_to='contratos/')
+    nome = models.CharField(max_length=255, blank=True)
+    # O que esta versão ERA quando foi substituída.
+    etapa = models.CharField(max_length=10, choices=Etapa.choices,
+                             default=Etapa.ORIGINAL)
+    substituida_em = models.DateTimeField(auto_now_add=True)
+    substituida_por = models.EmailField(blank=True)
+
+    class Meta:
+        ordering = ['substituida_em', 'pk']
+
+    def __str__(self):
+        return f'Versão anterior do contrato #{self.contrato_id} ({self.etapa})'
 
 
 class Boleto(models.Model):
@@ -649,6 +722,7 @@ class AuditLog(models.Model):
         LOGIN_NEGADO = 'LOGIN_NEGADO', 'Login negado'
         UPLOAD_BOLETO = 'UP_BOLETO', 'Upload de boleto'
         UPLOAD_CONTRATO = 'UP_CONTRATO', 'Upload de contrato'
+        ASSINATURA_CONTRATO = 'ASSINATURA', 'Assinatura de contrato (gov.br)'
         DOWNLOAD = 'DOWNLOAD', 'Download de arquivo'
         DOWNLOAD_NEGADO = 'DL_NEGADO', 'Download negado'
         STATUS = 'STATUS', 'Mudança de status'
