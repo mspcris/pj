@@ -195,8 +195,19 @@ class Prestador(models.Model):
                     Decimal('0'))
         return total or None
 
-    def boletos_esperados(self):
-        """Lista [(posto|None, valor_esperado)] do mês — a régua do dashboard."""
+    # Primeiro mês (de PAGAMENTO) em que a régua espera boleto. Vazio =
+    # sempre. Lucas (23/10/2026): começou em outubro, 1º boleto em novembro
+    # — sem isso o painel e o lembrete cobravam outubro.
+    primeiro_mes = models.DateField(
+        null=True, blank=True,
+        verbose_name='Primeiro mês com boleto (antes disso a régua não cobra)')
+
+    def boletos_esperados(self, mes=None):
+        """Lista [(posto|None, valor_esperado)] do mês — a régua do dashboard.
+        Vazia se `mes` vem antes do primeiro mês com boleto."""
+        if (mes is not None and self.primeiro_mes is not None
+                and mes.replace(day=1) < self.primeiro_mes.replace(day=1)):
+            return []
         if self.modo_boleto == self.ModoBoleto.UNICO:
             return [(self.posto_cobranca, self.valor_esperado_unico())]
         return [(v.posto, v.valor_mensal) for v in

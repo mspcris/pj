@@ -95,7 +95,7 @@ def dashboard(request, up):
     linhas, casados = [], set()
     for prestador in (Prestador.objects.filter(ativo=True)
                       .prefetch_related('vinculos__posto')):
-        for posto, _valor in prestador.boletos_esperados():
+        for posto, _valor in prestador.boletos_esperados(mes):
             # valor esperado do MÊS (já com parcelas de vale abatidas)
             valor = svc_boletos.valor_esperado_para(prestador, posto, mes)
             achado = None

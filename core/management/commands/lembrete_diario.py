@@ -36,7 +36,7 @@ class Command(BaseCommand):
         faltando, atencao, aguardando = [], [], []
         for prestador in (Prestador.objects.filter(ativo=True)
                           .prefetch_related('vinculos__posto')):
-            for posto, _valor in prestador.boletos_esperados():
+            for posto, _valor in prestador.boletos_esperados(mes):
                 # valor do MÊS já com as parcelas de vale abatidas — igual ao
                 # painel; sem isso o e-mail cobra o cheio de quem tem vale.
                 valor = svc_boletos.valor_esperado_para(prestador, posto, mes)

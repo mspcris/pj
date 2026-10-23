@@ -354,8 +354,11 @@ class PrestadorForm(forms.ModelForm):
                   'endereco', 'bairro', 'cidade', 'uf', 'cep', 'telefone',
                   'emails_aviso', 'email_empresa', 'modo_boleto',
                   'posto_cobranca', 'valor_unico', 'regime_pagamento',
-                  'dia_pagamento', 'exige_nf', 'ativo', 'observacao']
+                  'dia_pagamento', 'primeiro_mes', 'exige_nf', 'ativo',
+                  'observacao']
         widgets = {'observacao': forms.Textarea(attrs={'rows': 2}),
+                   'primeiro_mes': forms.DateInput(attrs={'type': 'month'},
+                                                   format='%Y-%m'),
                    'emails_aviso': forms.TextInput(attrs={
                        'placeholder': 'fulano@gmail.com'})}
         labels = {'regime_pagamento': 'Regime de pagamento',
@@ -386,6 +389,12 @@ class PrestadorForm(forms.ModelForm):
         self.fields['valor_unico'].label = \
             'Valor do boleto único (só no modo ÚNICO; vazio = soma dos postos)'
         self.fields['regime_pagamento'].required = False
+        # <input type=month> manda "2026-11"
+        self.fields['primeiro_mes'].input_formats = ['%Y-%m', '%Y-%m-%d']
+
+    def clean_primeiro_mes(self):
+        d = self.cleaned_data.get('primeiro_mes')
+        return d.replace(day=1) if d else None
 
     def clean_regime_pagamento(self):
         return (self.cleaned_data.get('regime_pagamento')

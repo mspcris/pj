@@ -3627,3 +3627,49 @@ class DesativarContratoTest(BaseSetup):
         self.assertTrue(c.vigente)
         self.login_pj()
         self.assertContains(self.client.get('/'), 'ASSINAR CONTRATO')
+
+
+class PrimeiroMesTest(BaseSetup):
+    """Prestador que começou agora: a régua só cobra a partir do primeiro
+    mês com boleto (Lucas, 23/10/2026: começou em outubro, 1º boleto em
+    novembro)."""
+    def test_regua_ignora_meses_anteriores(self):
+        p = self.prestador
+        self.assertEqual(len(p.boletos_esperados(date(2026, 10, 1))), 2)
+        p.primeiro_mes = date(2026, 11, 1)
+        p.save()
+        self.assertEqual(p.boletos_esperados(date(2026, 10, 1)), [])
+        self.assertEqual(p.boletos_esperados(date(2026, 10, 31)), [])
+        self.assertEqual(len(p.boletos_esperados(date(2026, 11, 1))), 2)
+        self.assertEqual(len(p.boletos_esperados()), 2)
+
+    def test_dashboard_e_lembrete_nao_cobram_antes(self):
+        from io import StringIO
+        from django.core.management import call_command
+        self.prestador.primeiro_mes = date(2026, 11, 1)
+        self.prestador.save()
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=sem_boleto')
+        self.assertEqual(len(resp.context['linhas']), 0)
+        resp = self.client.get('/painel/?m=2026-11&vista=sem_boleto')
+        self.assertEqual(len(resp.context['linhas']), 2)
+        with mock.patch('core.services.emails.enviar',
+                        return_value=True) as m_mail, \
+                mock.patch('django.utils.timezone.localdate',
+                           return_value=date(2026, 10, 23)):
+            call_command('lembrete_diario', stdout=StringIO())
+        corpo = m_mail.call_args.args[2]
+        self.assertNotIn('Limpeza Total', corpo)
+
+    def test_form_aceita_mes(self):
+        self.login_admin()
+        from core.forms import PrestadorForm
+        dados = {f: '' for f in PrestadorForm.Meta.fields}
+        dados.update({'nome': 'Limpeza Total LTDA', 'modo_boleto': 'POR_POSTO',
+                      'regime_pagamento': 'POSTERIOR', 'ativo': 'on',
+                      'primeiro_mes': '2026-11', 'qual': 'dados'})
+        resp = self.client.post(f'/painel/prestadores/{self.prestador.pk}/',
+                                dados)
+        self.assertEqual(resp.status_code, 302)
+        self.prestador.refresh_from_db()
+        self.assertEqual(self.prestador.primeiro_mes, date(2026, 11, 1))
