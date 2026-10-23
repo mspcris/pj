@@ -66,7 +66,7 @@ def _contratos_a_assinar():
     """Contratos (gov.br) sem alguma assinatura — para o banner do
     dashboard: o Cristiano não pode esquecer de assinar a parte dele."""
     return list(Contrato.objects
-                .filter(assinatura_govbr=True,
+                .filter(assinatura_govbr=True, desativado_em__isnull=True,
                         prestador__excluido_em__isnull=True)
                 .filter(Q(assinado_prestador_em__isnull=True)
                         | Q(assinado_gestor_em__isnull=True))
@@ -929,7 +929,7 @@ def prestadores(request, up):
     for p in lista:
         # Contrato vigente por posto (contrato "geral", sem posto, cobre
         # todos). Posto sem contrato vigente = vermelho + link p/ anexar.
-        todos = list(p.contratos.all())
+        todos = [c for c in p.contratos.all() if not c.desativado]
         vigentes = [c for c in todos if c.vigente]
         geral = any(c.posto_id is None for c in vigentes)
         cobertos = {c.posto_id for c in vigentes}
@@ -1106,7 +1106,8 @@ def prestador_detalhe(request, up, pk):
     vinculos = {v.posto_id: v for v in
                 PrestadorPosto.objects.filter(prestador=prestador, ativo=True)}
     postos_com_contrato = set(
-        Contrato.objects.filter(prestador=prestador, posto__isnull=False)
+        Contrato.objects.filter(prestador=prestador, posto__isnull=False,
+                                desativado_em__isnull=True)
         .values_list('posto_id', flat=True))
     linhas_postos = [{'posto': p, 'vinculo': vinculos.get(p.pk),
                       'tem_contrato': p.pk in postos_com_contrato}
@@ -1138,7 +1139,7 @@ def contrato_assinar_gestor(request, up, pk):
     from .services import assinaturas
     contrato = get_object_or_404(
         Contrato.objects.select_related('posto', 'prestador'),
-        pk=pk, assinatura_govbr=True)
+        pk=pk, assinatura_govbr=True, desativado_em__isnull=True)
     form = ContratoAssinadoAdminForm()
     voltar = reverse('painel_prestador', args=[contrato.prestador_id]) \
         + '#contratos'
@@ -1193,8 +1194,10 @@ def contrato_assinar_gestor(request, up, pk):
 @require_POST
 def contrato_acao(request, up, pk, acao):
     """Ações rápidas na lista de contratos do prestador:
-    avisar  — reenvia ao PJ o e-mail pedindo a assinatura;
-    govbr   — liga/desliga a régua de assinatura gov.br do contrato."""
+    avisar    — reenvia ao PJ o e-mail pedindo a assinatura;
+    govbr     — liga/desliga a régua de assinatura gov.br do contrato;
+    desativar / reativar — soft delete: some do portal do PJ, fica no
+    painel marcado como desativado."""
     contrato = get_object_or_404(
         Contrato.objects.select_related('posto', 'prestador'), pk=pk)
     voltar = reverse('painel_prestador', args=[contrato.prestador_id]) \
@@ -1203,7 +1206,8 @@ def contrato_acao(request, up, pk, acao):
         from .services import assinaturas
         pendentes = list(Contrato.objects.filter(
             prestador=contrato.prestador, assinatura_govbr=True,
-            assinado_prestador_em__isnull=True).select_related('posto'))
+            assinado_prestador_em__isnull=True,
+            desativado_em__isnull=True).select_related('posto'))
         if not pendentes:
             messages.info(request, 'Não há contrato esperando a assinatura '
                                    'do prestador.')
@@ -1228,6 +1232,21 @@ def contrato_acao(request, up, pk, acao):
                          + ('ligada — o contrato aparece como pendente até '
                             'as duas partes assinarem.'
                             if contrato.assinatura_govbr else 'desligada.'))
+    elif acao in ('desativar', 'reativar'):
+        ligar = acao == 'reativar'
+        contrato.desativado_em = None if ligar else timezone.now()
+        contrato.desativado_por = '' if ligar else up.email
+        contrato.save(update_fields=['desativado_em', 'desativado_por'])
+        AuditLog.registrar(
+            AuditLog.Evento.CRUD, request,
+            detalhe=f'Contrato #{contrato.pk} ({contrato}) '
+                    f'{"reativado" if ligar else "DESATIVADO"}')
+        messages.success(
+            request,
+            'Contrato reativado — volta a aparecer para o prestador.'
+            if ligar else
+            'Contrato desativado. Continua aqui no painel (em cinza), mas o '
+            'prestador não o vê mais; "Reativar" desfaz.')
     else:
         messages.error(request, 'Ação desconhecida.')
     return redirect(voltar)

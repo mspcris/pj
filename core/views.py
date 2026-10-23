@@ -93,7 +93,8 @@ def home(request, up):
     # Contratos esperando a assinatura digital do PJ — destaque no topo.
     a_assinar = list(Contrato.objects
                      .filter(prestador=up.prestador, assinatura_govbr=True,
-                             assinado_prestador_em__isnull=True)
+                             assinado_prestador_em__isnull=True,
+                             desativado_em__isnull=True)
                      .select_related('posto').order_by('posto__nome'))
     return render(request, 'home.html', {
         'up': up, 'boletos': boletos, 'todos': todos,
@@ -177,7 +178,8 @@ def _postos_para_contrato(prestador):
     tenha contrato dele (Fátima: contrato com Anchieta, paga Nilópolis)."""
     from django.db.models import Q
     filtro = (Q(vinculos__prestador=prestador, vinculos__ativo=True)
-              | Q(contratos__prestador=prestador))
+              | Q(contratos__prestador=prestador,
+                  contratos__desativado_em__isnull=True))
     if prestador.posto_cobranca_id:
         filtro |= Q(pk=prestador.posto_cobranca_id)
     return Posto.objects.filter(filtro, ativo=True).distinct().order_by('nome')
@@ -218,7 +220,7 @@ def contratos_lista(request, up, posto_id):
     from django.db.models import Q
     contratos = (Contrato.objects
                  .filter(Q(posto=posto) | Q(posto__isnull=True),
-                         prestador=up.prestador)
+                         prestador=up.prestador, desativado_em__isnull=True)
                  .prefetch_related('versoes'))
     return render(request, 'contrato_lista.html',
                   {'posto': posto, 'contratos': contratos,
@@ -239,7 +241,8 @@ def contrato_assinar(request, up, pk):
     from .services import assinaturas
     contrato = get_object_or_404(
         Contrato.objects.select_related('posto', 'prestador'),
-        pk=pk, prestador=up.prestador, assinatura_govbr=True)
+        pk=pk, prestador=up.prestador, assinatura_govbr=True,
+        desativado_em__isnull=True)
     form = ContratoAssinadoForm()
     if request.method == 'POST':
         if _ver_como_ativo(request):
@@ -312,7 +315,11 @@ def baixar_arquivo(request, up, tipo, pk):
         campo, dono, nome = obj.arquivo, obj.prestador_id, obj.nome_original
     if not campo:
         raise Http404
-    if not _pode_ver(up, dono):
+    # Contrato desativado: só o admin ainda enxerga (e as versões dele).
+    desativado = (obj.desativado if tipo == 'contrato' else
+                  obj.contrato.desativado if tipo == 'contrato_versao'
+                  else False)
+    if not _pode_ver(up, dono) or (desativado and not up.is_admin):
         AuditLog.registrar(AuditLog.Evento.DOWNLOAD_NEGADO, request,
                            detalhe=f'{tipo} #{pk}')
         raise Http404

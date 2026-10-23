@@ -3561,3 +3561,69 @@ class AssinaturaContratoTest(BaseSetup):
             username='outro@x.com', email='outro@x.com'))
         self.assertEqual(self.client.get(
             f'/arquivo/contrato_versao/{v.pk}/').status_code, 404)
+
+
+class DesativarContratoTest(BaseSetup):
+    def setUp(self):
+        super().setUp()
+        from core.models import Contrato
+        self.contrato = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            arquivo=_pdf('contrato.pdf'), nome_original='contrato.pdf',
+            vigencia_inicio=date(2026, 10, 23), assinatura_govbr=True)
+
+    def test_desativar_some_do_pj_e_fica_cinza_no_painel(self):
+        from core.models import AuditLog
+        self.login_admin()
+        resp = self.client.post(
+            f'/painel/contratos/{self.contrato.pk}/desativar/')
+        self.assertEqual(resp.status_code, 302)
+        c = self.contrato
+        c.refresh_from_db()
+        self.assertTrue(c.desativado)
+        self.assertEqual(c.desativado_por, 'cristiano@camim.com.br')
+        self.assertFalse(c.vigente)
+        self.assertFalse(c.falta_assinatura)
+        self.assertTrue(AuditLog.objects.filter(
+            detalhe__contains='DESATIVADO').exists())
+        # painel: continua listado, com o selo
+        resp = self.client.get(f'/painel/prestadores/{self.prestador.pk}/')
+        self.assertContains(resp, 'desativado em')
+        self.assertContains(resp, 'Reativar')
+        self.assertNotContains(resp, 'Assinar como gestor')
+        resp = self.client.get('/painel/')
+        self.assertNotContains(resp, 'assinatura gov.br pendente')
+        # lista de prestadores: o posto fica "sem contrato" de novo
+        resp = self.client.get('/painel/prestadores/')
+        self.assertNotContains(resp, 'Falta SUA assinatura')
+        self.assertContains(resp, 'Sem contrato')
+        # admin ainda baixa; página de assinar some
+        self.assertEqual(self.client.get(
+            f'/arquivo/contrato/{c.pk}/').status_code, 200)
+        self.assertEqual(self.client.get(
+            f'/painel/contratos/{c.pk}/assinar/').status_code, 404)
+        # PJ: não vê, não baixa, não assina
+        self.login_pj()
+        self.assertNotContains(self.client.get('/'), 'ASSINAR CONTRATO')
+        resp = self.client.get(f'/contratos/{self.posto1.pk}/')
+        self.assertNotContains(resp, 'contrato.pdf')
+        self.assertEqual(self.client.get(
+            f'/arquivo/contrato/{c.pk}/').status_code, 404)
+        self.assertEqual(self.client.get(
+            f'/contratos/assinar/{c.pk}/').status_code, 404)
+
+    def test_reativar_desfaz(self):
+        from django.utils import timezone
+        c = self.contrato
+        c.desativado_em = timezone.now()
+        c.desativado_por = 'x@y.com'
+        c.save()
+        self.login_admin()
+        resp = self.client.post(f'/painel/contratos/{c.pk}/reativar/')
+        self.assertEqual(resp.status_code, 302)
+        c.refresh_from_db()
+        self.assertFalse(c.desativado)
+        self.assertEqual(c.desativado_por, '')
+        self.assertTrue(c.vigente)
+        self.login_pj()
+        self.assertContains(self.client.get('/'), 'ASSINAR CONTRATO')

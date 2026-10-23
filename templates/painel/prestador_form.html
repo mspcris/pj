@@ -191,21 +191,26 @@
   <div class="rolagem"><table>
     <tr><th>Posto</th><th>Arquivo</th><th>Vigência</th><th>Assinaturas (gov.br)</th></tr>
     {% for c in contratos %}
-    <tr{% if c.falta_assinatura %} style="background:#fff8e8"{% endif %}>
-        <td>{{ c.posto|default:"— (geral)" }}</td>
+    <tr{% if c.desativado %} style="opacity:.55;background:#f3f3f3"{% elif c.falta_assinatura %} style="background:#fff8e8"{% endif %}>
+        <td>{{ c.posto|default:"— (geral)" }}
+          {% if c.desativado %}<div><span class="chip SUBSTITUIDO" title="Desativado por {{ c.desativado_por }}">⛔ desativado em {{ c.desativado_em|date:"d/m/Y" }}</span></div>{% endif %}</td>
         <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}"
             onclick="return abrirPdf(this.href, '{{ c.nome_original|escapejs|truncatechars:60 }}')">📎 {{ c.nome_original|truncatechars:32 }}</a>
           {% for v in c.versoes.all %}<div class="sub" style="font-size:.72rem">↳ versão anterior ({{ v.get_etapa_display|lower }}, {{ v.substituida_em|date:"d/m/Y" }}): <a href="{% url 'baixar_arquivo' 'contrato_versao' v.pk %}">{{ v.nome|default:"pdf"|truncatechars:28 }}</a></div>{% endfor %}</td>
         <td>{{ c.vigencia_inicio|date:"d/m/Y" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td>
-        <td>{% if c.assinatura_govbr %}
+        <td>{% if c.desativado %}
+            <form method="post" action="{% url 'painel_contrato_acao' c.pk 'reativar' %}" style="display:inline">{% csrf_token %}<button class="btn mini claro" type="submit" title="Volta a valer e a aparecer para o prestador">↩ Reativar</button></form>
+          {% elif c.assinatura_govbr %}
             <div>{% if c.assinado_prestador_em %}<span class="chip APROVADO" title="{{ c.assinado_prestador_por }}">✅ Prestador {{ c.assinado_prestador_em|date:"d/m" }}</span>{% else %}<span class="chip MANUAL">⏳ Falta o prestador</span>{% endif %}</div>
             <div style="margin-top:4px">{% if c.assinado_gestor_em %}<span class="chip APROVADO" title="{{ c.assinado_gestor_por }}">✅ Gestor {{ c.assinado_gestor_em|date:"d/m" }}</span>{% else %}<a class="btn mini dourado" href="{% url 'painel_contrato_assinar' c.pk %}">✍️ Assinar como gestor</a>{% endif %}</div>
             <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
               {% if c.falta_prestador %}<form method="post" action="{% url 'painel_contrato_acao' c.pk 'avisar' %}" style="display:inline">{% csrf_token %}<button class="btn mini claro" type="submit" title="Reenvia ao prestador o e-mail pedindo a assinatura (um e-mail cobre todos os contratos pendentes dele)">📨 Avisar</button></form>{% endif %}
               <form method="post" action="{% url 'painel_contrato_acao' c.pk 'govbr' %}" style="display:inline">{% csrf_token %}<button class="btn mini claro" type="submit" title="Tirar este contrato da régua de assinatura gov.br">desligar gov.br</button></form>
+              <form method="post" action="{% url 'painel_contrato_acao' c.pk 'desativar' %}" style="display:inline">{% csrf_token %}<button class="btn mini vermelho" type="submit" title="Some do portal do prestador e deixa de valer; fica aqui em cinza (reversível)">Desativar</button></form>
             </div>
           {% else %}<span class="sub" style="font-size:.76rem">—</span>
-            <form method="post" action="{% url 'painel_contrato_acao' c.pk 'govbr' %}" style="display:inline">{% csrf_token %}<button class="btn mini claro" type="submit" title="Passar a colher as assinaturas deste contrato pelo gov.br">ligar gov.br</button></form>{% endif %}</td></tr>
+            <form method="post" action="{% url 'painel_contrato_acao' c.pk 'govbr' %}" style="display:inline">{% csrf_token %}<button class="btn mini claro" type="submit" title="Passar a colher as assinaturas deste contrato pelo gov.br">ligar gov.br</button></form>
+            <form method="post" action="{% url 'painel_contrato_acao' c.pk 'desativar' %}" style="display:inline">{% csrf_token %}<button class="btn mini vermelho" type="submit" title="Some do portal do prestador e deixa de valer; fica aqui em cinza (reversível)">Desativar</button></form>{% endif %}</td></tr>
     {% endfor %}
   </table></div>
   {% else %}<p class="sub">Nenhum contrato anexado.</p>{% endif %}

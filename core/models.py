@@ -395,6 +395,11 @@ class Contrato(models.Model):
     assinado_prestador_por = models.EmailField(blank=True)
     assinado_gestor_em = models.DateTimeField(null=True, blank=True)
     assinado_gestor_por = models.EmailField(blank=True)
+    # Soft delete (regra do projeto): contrato desativado continua no banco
+    # e no painel (cinza, selo "desativado"), mas o prestador não o vê, ele
+    # não conta como vigente nem entra na régua de assinaturas. Reversível.
+    desativado_em = models.DateTimeField(null=True, blank=True)
+    desativado_por = models.EmailField(blank=True)
 
     class Meta:
         ordering = ['-vigencia_inicio']
@@ -402,14 +407,20 @@ class Contrato(models.Model):
     def __str__(self):
         return f'Contrato {self.prestador} @ {self.posto}'
 
+    @property
+    def desativado(self):
+        return self.desativado_em is not None
+
     # --- régua de assinaturas -------------------------------------------
     @property
     def falta_prestador(self):
-        return self.assinatura_govbr and self.assinado_prestador_em is None
+        return (self.assinatura_govbr and not self.desativado
+                and self.assinado_prestador_em is None)
 
     @property
     def falta_gestor(self):
-        return self.assinatura_govbr and self.assinado_gestor_em is None
+        return (self.assinatura_govbr and not self.desativado
+                and self.assinado_gestor_em is None)
 
     @property
     def falta_assinatura(self):
@@ -437,6 +448,8 @@ class Contrato(models.Model):
     @property
     def vigente(self):
         from django.utils import timezone
+        if self.desativado:
+            return False
         hoje = timezone.localdate()
         if self.vigencia_inicio and self.vigencia_inicio > hoje:
             return False
