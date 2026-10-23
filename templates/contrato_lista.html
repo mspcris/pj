@@ -4,6 +4,7 @@
 <h1>📄 Contratos — {{ posto.nome }}</h1>
 <p class="sub">Arquivos e período de validade de cada contrato.</p>
 
+{% with n=contratos|length %}{% endwith %}
 <div class="card">
   {% if contratos %}
   <div class="rolagem"><table>

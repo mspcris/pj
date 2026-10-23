@@ -285,6 +285,81 @@ def contrato_assinar(request, up, pk):
         if contrato.posto_id else reverse('home')})
 
 
+def _ler_lote(request):
+    """Arquivos do envio em lote: valida forma (PDF, tamanho) e devolve
+    ([(nome, bytes)], [(nome, erro)])."""
+    from .forms import _EXT_BOLETO, _validar_arquivo
+    ok, ruins = [], []
+    for arq in request.FILES.getlist('arquivos'):
+        try:
+            _validar_arquivo(arq, _EXT_BOLETO)
+        except forms.ValidationError as e:
+            ruins.append((arq.name, '; '.join(e.messages)))
+            continue
+        ok.append((arq.name, arq.read()))
+    return ok, ruins
+
+
+def _mensagens_lote(request, assinados, erros, papel):
+    if assinados:
+        messages.success(
+            request, f'{len(assinados)} contrato(s) assinado(s) e '
+                     'anexado(s): '
+                     + ', '.join(c.posto.nome if c.posto else 'geral'
+                                 for c in assinados)
+                     + ('. Agora falta só a assinatura do gestor da CAMIM.'
+                        if papel == 'prestador' else '.'))
+    for nome, erro in erros:
+        messages.error(request, f'{nome}: {erro}')
+    if not assinados and not erros:
+        messages.error(request, 'Nenhum arquivo foi enviado.')
+
+
+@prestador_required
+def contratos_lote(request, up):
+    """Assinar TODOS de uma vez: baixa um ZIP com os contratos que faltam
+    a assinatura do PJ, ele assina todos no gov.br e sobe todos aqui; cada
+    PDF é casado com o contrato certo pelo conteúdo."""
+    from .services import assinaturas
+    pendentes = list(Contrato.objects
+                     .filter(prestador=up.prestador, assinatura_govbr=True,
+                             assinado_prestador_em__isnull=True,
+                             desativado_em__isnull=True)
+                     .select_related('posto').order_by('posto__nome'))
+    if request.GET.get('zip') == '1':
+        if not pendentes:
+            raise Http404
+        AuditLog.registrar(AuditLog.Evento.DOWNLOAD, request,
+                           detalhe=f'ZIP com {len(pendentes)} contrato(s) '
+                                   'a assinar')
+        from django.http import HttpResponse
+        resp = HttpResponse(assinaturas.zip_de(pendentes),
+                            content_type='application/zip')
+        resp['Content-Disposition'] = ('attachment; filename="contratos-'
+                                       'para-assinar.zip"')
+        return resp
+    if request.method == 'POST':
+        if _ver_como_ativo(request):
+            messages.error(request, 'Você está no modo "ver como": saia '
+                                    'dele para assinar como gestor pelo '
+                                    'painel.')
+            return redirect('contratos_lote')
+        arquivos, ruins = _ler_lote(request)
+        assinados, erros = assinaturas.registrar_lote(
+            pendentes, arquivos, 'prestador', quem=up.email, request=request)
+        _mensagens_lote(request, assinados, ruins + erros, 'prestador')
+        if assinados:
+            assinaturas.avisar_gestor_assinado(assinados)
+            if len(assinados) == len(pendentes):
+                return redirect('home')
+        return redirect('contratos_lote')
+    return render(request, 'contrato_lote.html', {
+        'up': up, 'papel': 'prestador', 'pendentes': pendentes,
+        'url_zip': reverse('contratos_lote') + '?zip=1',
+        'url_assinador': assinaturas.URL_ASSINADOR,
+        'voltar': reverse('home')})
+
+
 # ---------------------------------------------------------------------------
 # Download de arquivos — SEMPRE por aqui, nunca direto do nginx.
 # PJ só baixa o que é do próprio prestador; admin baixa tudo.

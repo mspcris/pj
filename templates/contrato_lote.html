@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block title %}Assinar contratos em lote · Camim{% endblock %}
+{% block conteudo %}
+<style>
+.passo{display:flex;gap:16px;align-items:flex-start;background:var(--branco);
+  border:2px solid var(--linha);border-radius:22px;padding:22px;margin-bottom:14px;
+  box-shadow:var(--sombra)}
+.passo .num{flex:none;width:52px;height:52px;border-radius:16px;display:grid;
+  place-items:center;font-size:1.5rem;font-weight:800;background:var(--verde-claro);
+  color:var(--verde-esc)}
+.passo .titulo{font-size:1.15rem;font-weight:800;color:var(--verde-esc);margin-bottom:4px}
+.passo .desc{color:var(--cinza);font-size:.92rem;margin-bottom:12px}
+.passo .btn{font-size:1.05rem}
+.lista{margin:0 0 10px;padding-left:18px;font-size:.92rem}
+.lista li{margin:3px 0}
+</style>
+
+<h1>✍️ Assinar {{ pendentes|length }} contrato{{ pendentes|length|pluralize }} de uma vez</h1>
+<p class="sub">{% if papel == 'gestor' %}{% if prestador %}{{ prestador.nome }} — {% endif %}contratos que faltam a assinatura do gestor da CAMIM.{% else %}Contratos que faltam a sua assinatura.{% endif %}</p>
+
+{% if not pendentes %}
+<div class="card"><strong>Nada pendente.</strong> Todos os contratos já têm {% if papel == 'gestor' %}a assinatura do gestor{% else %}a sua assinatura{% endif %}. ✅
+  <div style="margin-top:14px"><a class="btn claro" href="{{ voltar }}">Voltar</a></div></div>
+{% else %}
+
+<div class="passo">
+  <div class="num">1</div>
+  <div style="flex:1">
+    <div class="titulo">Baixe todos num ZIP</div>
+    <div class="desc">Um arquivo só com os {{ pendentes|length }} PDF{{ pendentes|length|pluralize }} atuais. Descompacte numa pasta.</div>
+    {% if grupos %}{% for p, cs in grupos %}<div style="font-weight:700;font-size:.9rem;margin-top:6px">{{ p.nome }}</div><ul class="lista">{% for c in cs %}<li>{{ c.posto.nome|default:"geral" }} — {{ c.nome_original|truncatechars:60 }}{% if c.falta_prestador %} <span class="chip MANUAL">prestador ainda não assinou</span>{% endif %}</li>{% endfor %}</ul>{% endfor %}
+    {% else %}<ul class="lista">{% for c in pendentes %}<li>{{ c.posto.nome|default:"geral" }} — {{ c.nome_original|truncatechars:60 }}</li>{% endfor %}</ul>{% endif %}
+    <a class="btn" href="{{ url_zip }}">⬇️ BAIXAR TODOS (ZIP)</a>
+  </div>
+</div>
+
+<div class="passo">
+  <div class="num">2</div>
+  <div style="flex:1">
+    <div class="titulo">Assine todos no gov.br</div>
+    <div class="desc">No assinador, selecione <strong>todos os PDFs da pasta de uma vez</strong>, assine e baixe os arquivos assinados (o nome termina em "_assinado").</div>
+    <a class="btn dourado" href="{{ url_assinador }}" target="_blank" rel="noopener">🔐 ABRIR O ASSINADOR GOV.BR ↗</a>
+  </div>
+</div>
+
+<div class="passo">
+  <div class="num">3</div>
+  <div style="flex:1">
+    <div class="titulo">Suba todos os assinados</div>
+    <div class="desc">Selecione todos os PDFs assinados de uma vez. Eu reconheço de qual contrato é cada um pelo conteúdo (o PDF assinado começa com o PDF que você baixou) e confiro a assinatura digital.</div>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <label for="arquivos">PDFs assinados pelo gov.br (vários)</label>
+      <input type="file" id="arquivos" name="arquivos" accept="application/pdf,.pdf" multiple required>
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn" type="submit" style="flex:1">✅ ENVIAR TODOS OS ASSINADOS</button>
+        <a class="btn claro" href="{{ voltar }}">Voltar</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -18,6 +18,8 @@ urlpatterns = [
          name='contratos_lista'),
     path('contratos/assinar/<int:pk>/', views.contrato_assinar,
          name='contrato_assinar'),
+    path('contratos/assinar-todos/', views.contratos_lote,
+         name='contratos_lote'),
     path('arquivo/<str:tipo>/<int:pk>/', views.baixar_arquivo,
          name='baixar_arquivo'),
 
@@ -55,6 +57,8 @@ urlpatterns = [
          views_painel.prestador_excluir, name='painel_prestador_excluir'),
     path('painel/prestadores/<int:pk>/restaurar/',
          views_painel.prestador_restaurar, name='painel_prestador_restaurar'),
+    path('painel/assinaturas/', views_painel.assinaturas_lote,
+         name='painel_assinaturas_lote'),
     path('painel/contratos/<int:pk>/assinar/',
          views_painel.contrato_assinar_gestor,
          name='painel_contrato_assinar'),

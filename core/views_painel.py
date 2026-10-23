@@ -1129,6 +1129,7 @@ def prestador_detalhe(request, up, pk):
     return render(request, 'painel/prestador_form.html', {
         'prestador': prestador, 'form': form, 'linhas_postos': linhas_postos,
         'contratos': contratos, 'usuarios': prestador.usuarios.all(),
+        'pendentes_gestor': sum(1 for c in contratos if c.falta_gestor),
         'vales': vales, 'vale_form': ValeForm(),
         'contrato_form': contrato_form, 'anexar': anexar, 'up': up})
 
@@ -1188,6 +1189,63 @@ def contrato_assinar_gestor(request, up, pk):
         'contrato': contrato, 'form': form, 'up': up, 'papel': 'gestor',
         'url_assinador': assinaturas.URL_ASSINADOR,
         'url_validar': assinaturas.URL_VALIDAR, 'voltar': voltar})
+
+
+@admin_required
+def assinaturas_lote(request, up):
+    """Gestor assina TODOS de uma vez: ZIP com tudo que falta a assinatura
+    dele (de um prestador ou de todos), assina no gov.br, sobe tudo."""
+    from django.http import Http404, HttpResponse
+
+    from .services import assinaturas
+    from .views import _ler_lote, _mensagens_lote
+    qs = (Contrato.objects
+          .filter(assinatura_govbr=True, assinado_gestor_em__isnull=True,
+                  desativado_em__isnull=True,
+                  prestador__excluido_em__isnull=True)
+          .select_related('prestador', 'posto')
+          .order_by('prestador__nome', 'posto__nome'))
+    prestador = None
+    if request.GET.get('prestador'):
+        prestador = get_object_or_404(Prestador,
+                                      pk=request.GET['prestador'])
+        qs = qs.filter(prestador=prestador)
+    pendentes = list(qs)
+    sufixo = f'?prestador={prestador.pk}' if prestador else ''
+    if request.GET.get('zip') == '1':
+        if not pendentes:
+            raise Http404
+        AuditLog.registrar(AuditLog.Evento.DOWNLOAD, request,
+                           detalhe=f'ZIP com {len(pendentes)} contrato(s) '
+                                   'para o gestor assinar')
+        resp = HttpResponse(assinaturas.zip_de(pendentes),
+                            content_type='application/zip')
+        nome = (f'contratos-{prestador.nome}' if prestador
+                else 'contratos-para-assinar')
+        nome = re.sub(r'[^\w.-]+', '-', nome)
+        resp['Content-Disposition'] = f'attachment; filename="{nome}.zip"'
+        return resp
+    if request.method == 'POST':
+        arquivos, ruins = _ler_lote(request)
+        assinados, erros = assinaturas.registrar_lote(
+            pendentes, arquivos, 'gestor', quem=up.email, request=request)
+        _mensagens_lote(request, assinados, ruins + erros, 'gestor')
+        return redirect(reverse('painel_assinaturas_lote') + sufixo)
+    # Também os que faltam o PRESTADOR (só para ver; o gestor pode assinar
+    # antes dele — ordem livre).
+    grupos = {}
+    for c in pendentes:
+        grupos.setdefault(c.prestador, []).append(c)
+    return render(request, 'contrato_lote.html', {
+        'up': up, 'papel': 'gestor', 'pendentes': pendentes,
+        'grupos': list(grupos.items()), 'prestador': prestador,
+        'url_zip': reverse('painel_assinaturas_lote') + (sufixo + '&'
+                                                        if sufixo else '?')
+                   + 'zip=1',
+        'url_assinador': assinaturas.URL_ASSINADOR,
+        'voltar': (reverse('painel_prestador', args=[prestador.pk])
+                   + '#contratos') if prestador
+                  else reverse('painel_dashboard')})
 
 
 @admin_required

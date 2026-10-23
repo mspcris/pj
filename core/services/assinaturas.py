@@ -174,28 +174,129 @@ def avisar_prestador_para_assinar(contratos, de=None):
     return emails.enviar(dests, assunto, corpo, de=de)
 
 
-def avisar_gestor_assinado(contrato):
-    """E-mail ao admin: o prestador assinou; falta (ou não) a dele."""
+def avisar_gestor_assinado(contratos):
+    """E-mail ao admin: o prestador assinou (um contrato ou um lote);
+    falta (ou não) a dele. Aceita um Contrato ou uma lista."""
     from django.conf import settings
 
     from . import emails
-    prestador = contrato.prestador
-    alvo = contrato.posto.nome if contrato.posto else 'contrato geral'
-    url = f'{SITE_URL}/painel/prestadores/{prestador.pk}/#contratos'
-    if contrato.falta_gestor:
-        pede = ('Falta agora a assinatura do gestor: baixe o PDF já '
-                'assinado pelo prestador no painel, assine no gov.br e '
-                'anexe de volta.')
+    if not isinstance(contratos, (list, tuple)):
+        contratos = [contratos]
+    if not contratos:
+        return False
+    prestador = contratos[0].prestador
+    alvos = [c.posto.nome if c.posto else 'contrato geral' for c in contratos]
+    alvo = ', '.join(alvos)
+    url = f'{SITE_URL}/painel/assinaturas/?prestador={prestador.pk}'
+    if any(c.falta_gestor for c in contratos):
+        pede = ('Falta agora a assinatura do gestor: no painel, "Assinar em '
+                'lote" baixa todos os pendentes num ZIP; assine no gov.br e '
+                'suba todos de uma vez.')
     else:
         pede = 'Com isso o contrato está assinado pelas duas partes.'
+    plural = len(contratos) > 1
     corpo = ('Prezado Cristiano,\n\n'
-             f'{prestador.contato} ({prestador.nome}) acabou de anexar o '
-             f'contrato de {alvo} assinado digitalmente pelo gov.br. {pede}'
-             '\n\n----------\n'
+             f'{prestador.contato} ({prestador.nome}) acabou de anexar '
+             f'{"os contratos" if plural else "o contrato"} de {alvo} '
+             f'assinado{"s" if plural else ""} digitalmente pelo gov.br. '
+             f'{pede}\n\n----------\n'
              f'Prestador: {prestador.nome}\n'
-             f'Posto: {alvo}\n'
-             f'Situação: {contrato.situacao_assinatura}\n'
+             f'Posto{"s" if plural else ""}: {alvo}\n'
+             f'Situação: {contratos[0].situacao_assinatura}\n'
              f'Painel: {url}\n')
-    return emails.enviar(settings.EMAIL_ADMIN,
-                         f'Contrato assinado pelo prestador — '
-                         f'{prestador.nome} ({alvo})', corpo)
+    assunto = (f'Contratos assinados pelo prestador ({len(contratos)}) — '
+               f'{prestador.nome}' if plural else
+               f'Contrato assinado pelo prestador — {prestador.nome} ({alvo})')
+    return emails.enviar(settings.EMAIL_ADMIN, assunto, corpo)
+
+
+# --------------------------------------------------------------------------
+# LOTE (23/10/2026): baixar todos os pendentes num ZIP, assinar todos no
+# gov.br e subir todos de uma vez. O casamento arquivo ↔ contrato é pelo
+# CONTEÚDO: o gov.br grava a assinatura como atualização incremental, então
+# o PDF assinado começa com os bytes exatos do PDF que foi baixado. Nome
+# de arquivo é só o plano B (o gov.br troca espaço por "_", tira acento e
+# põe "_assinado" no fim).
+# --------------------------------------------------------------------------
+def zip_de(contratos):
+    """Bytes de um ZIP com o PDF atual de cada contrato (nome_original)."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    usados = set()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        for c in contratos:
+            nome = c.nome_original or f'contrato-{c.pk}.pdf'
+            if nome in usados:
+                nome = f'{c.pk}-{nome}'
+            usados.add(nome)
+            z.writestr(nome, _bytes_do_campo(c.arquivo))
+    return buf.getvalue()
+
+
+def _normalizar_nome(nome):
+    import unicodedata
+    from urllib.parse import unquote
+    n = unquote(nome or '').rsplit('/', 1)[-1]
+    n = n[:-4] if n.lower().endswith('.pdf') else n
+    n = unicodedata.normalize('NFKD', n).encode('ascii', 'ignore').decode()
+    n = re.sub(r'[-_ ]?assinad[oa]([-_ ]?(prestador|gestor))?$', '', n,
+               flags=re.I)
+    return re.sub(r'[^a-z0-9]', '', n.lower())
+
+
+def casar(contratos, arquivos):
+    """Para cada (nome, bytes) em `arquivos`, acha o contrato de `contratos`
+    cujo PDF atual é prefixo do arquivo; senão, casa pelo nome. Devolve
+    lista de dicts {nome, dados, contrato|None, erro}."""
+    atuais = [(c, _bytes_do_campo(c.arquivo)) for c in contratos]
+    por_nome = {}
+    for c, _ in atuais:
+        por_nome.setdefault(_normalizar_nome(c.nome_original), []).append(c)
+    saida, vistos = [], set()
+    for nome, dados in arquivos:
+        contrato, erro = None, ''
+        for c, orig in atuais:
+            if orig and dados.startswith(orig):
+                contrato = c
+                break
+        if contrato is None:
+            cands = por_nome.get(_normalizar_nome(nome), [])
+            if len(cands) == 1:
+                contrato = cands[0]
+            elif len(cands) > 1:
+                erro = 'nome bate com mais de um contrato'
+            else:
+                erro = ('não reconheci de qual contrato é este PDF (não '
+                        'começa com o PDF baixado nem o nome confere)')
+        if contrato is not None and contrato.pk in vistos:
+            contrato, erro = None, 'outro arquivo do lote já é deste contrato'
+        if contrato is not None:
+            vistos.add(contrato.pk)
+        saida.append({'nome': nome, 'dados': dados, 'contrato': contrato,
+                      'erro': erro})
+    return saida
+
+
+def registrar_lote(contratos, arquivos, papel, quem='', request=None):
+    """Casa, confere a assinatura e registra cada PDF do lote. Devolve
+    (assinados, erros) — erros = [(nome, motivo)]. Quem chama já validou
+    forma (PDF, tamanho) de cada arquivo."""
+    from django.core.files.base import ContentFile
+    assinados, erros = [], []
+    for item in casar(contratos, arquivos):
+        c = item['contrato']
+        if c is None:
+            erros.append((item['nome'], item['erro']))
+            continue
+        try:
+            conferir_pdf_assinado(c, item['dados'])
+        except PdfSemAssinaturaNova:
+            erros.append((item['nome'], 'sem assinatura digital nova — é o '
+                                        'PDF assinado pelo gov.br?'))
+            continue
+        nome = nome_assinado(c, papel)
+        registrar(c, ContentFile(item['dados'], name=nome), nome, papel,
+                  quem=quem, request=request)
+        assinados.append(c)
+    return assinados, erros

@@ -5,11 +5,11 @@
 
 {% if a_assinar %}
 <a class="btn-giant" style="border-color:var(--dourado);background:#fff8e8"
-   href="{% if a_assinar|length == 1 %}{% url 'contrato_assinar' a_assinar.0.pk %}{% else %}{% url 'contratos_postos' %}{% endif %}">
+   href="{% if a_assinar|length == 1 %}{% url 'contrato_assinar' a_assinar.0.pk %}{% else %}{% url 'contratos_lote' %}{% endif %}">
   <div class="icone" style="background:#fdeccb">✍️</div>
   <div>
     <div class="titulo" style="color:#7a4b00">ASSINAR CONTRATO{{ a_assinar|length|pluralize:"S" }}</div>
-    <div class="desc">{{ a_assinar|length }} contrato{{ a_assinar|length|pluralize }} esperando a sua assinatura pelo gov.br{% if a_assinar|length > 1 %}: {% for c in a_assinar %}{{ c.posto.nome|default:"geral" }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</div>
+    <div class="desc">{{ a_assinar|length }} contrato{{ a_assinar|length|pluralize }} esperando a sua assinatura pelo gov.br{% if a_assinar|length > 1 %}: {% for c in a_assinar %}{{ c.posto.nome|default:"geral" }}{% if not forloop.last %}, {% endif %}{% endfor %} — baixe todos de uma vez, assine todos e envie todos juntos{% endif %}</div>
   </div>
 </a>
 {% endif %}

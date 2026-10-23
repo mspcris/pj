@@ -186,6 +186,7 @@
 
 <div class="card" id="contratos" {% if anexar %}style="border:2px solid #c0392b"{% endif %}>
   <h2 style="font-size:1.05rem">Contratos</h2>
+  {% if pendentes_gestor %}<p><a class="btn dourado" href="{% url 'painel_assinaturas_lote' %}?prestador={{ prestador.pk }}">✍️ Assinar os {{ pendentes_gestor }} pendentes em lote (baixar todos → gov.br → subir todos)</a></p>{% endif %}
   {% if anexar %}<p style="color:#c0392b;font-weight:700">📄 {{ anexar.nome }} está sem contrato vigente — anexe abaixo.</p>{% endif %}
   {% if contratos %}
   <div class="rolagem"><table>

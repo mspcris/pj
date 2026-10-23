@@ -3673,3 +3673,101 @@ class PrimeiroMesTest(BaseSetup):
         self.assertEqual(resp.status_code, 302)
         self.prestador.refresh_from_db()
         self.assertEqual(self.prestador.primeiro_mes, date(2026, 11, 1))
+
+
+class AssinaturaLoteTest(BaseSetup):
+    """Baixar todos (ZIP) → assinar no gov.br → subir todos: o casamento é
+    pelo conteúdo (PDF assinado = PDF baixado + atualização incremental)."""
+    def setUp(self):
+        super().setUp()
+        from core.models import Contrato
+        self.c1 = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto1, assinatura_govbr=True,
+            nome_original='Contrato X - Anchieta.pdf',
+            arquivo=SimpleUploadedFile('a.pdf', PDF_MINI + b' anchieta'))
+        self.c2 = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto2, assinatura_govbr=True,
+            nome_original='Contrato X - Bangu.pdf',
+            arquivo=SimpleUploadedFile('b.pdf', PDF_MINI + b' bangu'))
+
+    def _assinado(self, contrato, nome):
+        with contrato.arquivo.open('rb') as f:
+            return SimpleUploadedFile(nome, f.read() + _SIG,
+                                      content_type='application/pdf')
+
+    def test_casar_por_conteudo_e_por_nome(self):
+        from core.services.assinaturas import casar
+        itens = casar([self.c1, self.c2], [
+            ('qualquer.pdf', PDF_MINI + b' bangu' + _SIG),         # conteúdo
+            ('Contrato_X_-_Anchieta_assinado.pdf', b'%PDF-x' + _SIG),  # nome
+            ('outro.pdf', b'%PDF-y'),                                 # nada
+            ('de_novo.pdf', PDF_MINI + b' bangu' + _SIG),            # repetido
+        ])
+        self.assertEqual([i['contrato'] for i in itens],
+                         [self.c2, self.c1, None, None])
+        self.assertIn('não reconheci', itens[2]['erro'])
+        self.assertIn('já é deste contrato', itens[3]['erro'])
+
+    def test_zip_tem_todos(self):
+        import io
+        import zipfile
+        from core.services.assinaturas import zip_de
+        z = zipfile.ZipFile(io.BytesIO(zip_de([self.c1, self.c2])))
+        self.assertEqual(sorted(z.namelist()),
+                         ['Contrato X - Anchieta.pdf', 'Contrato X - Bangu.pdf'])
+        self.assertEqual(z.read('Contrato X - Bangu.pdf'), PDF_MINI + b' bangu')
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_pj_baixa_zip_e_sobe_todos(self, m_mail):
+        self.login_pj()
+        resp = self.client.get('/')
+        self.assertContains(resp, '/contratos/assinar-todos/')
+        resp = self.client.get('/contratos/assinar-todos/?zip=1')
+        self.assertEqual(resp['Content-Type'], 'application/zip')
+        resp = self.client.post('/contratos/assinar-todos/', {'arquivos': [
+            self._assinado(self.c2, 'Contrato_X_-_Bangu_assinado.pdf'),
+            self._assinado(self.c1, 'Contrato_X_-_Anchieta_assinado.pdf'),
+            _pdf('sem-assinatura.pdf')]})
+        self.assertEqual(resp.status_code, 302)
+        for c in (self.c1, self.c2):
+            c.refresh_from_db()
+            self.assertIsNotNone(c.assinado_prestador_em)
+            self.assertEqual(c.versoes.count(), 1)
+        # um e-mail só ao gestor, com os dois
+        self.assertEqual(m_mail.call_count, 1)
+        self.assertIn('(2)', m_mail.call_args.args[1])
+        msgs = [str(m) for m in self.client.get('/').context['messages']]
+        self.assertTrue(any('2 contrato(s) assinado(s)' in m for m in msgs))
+        self.assertTrue(any('sem-assinatura.pdf' in m for m in msgs))
+        # nada mais pendente → ZIP some
+        self.assertEqual(self.client.get(
+            '/contratos/assinar-todos/?zip=1').status_code, 404)
+
+    def test_gestor_lote_por_prestador_e_global(self):
+        from core.models import Contrato, Prestador
+        outro = Prestador.objects.create(nome='Outra LTDA')
+        c3 = Contrato.objects.create(
+            prestador=outro, posto=self.posto1, assinatura_govbr=True,
+            nome_original='Outro.pdf',
+            arquivo=SimpleUploadedFile('o.pdf', PDF_MINI + b' outro'))
+        self.login_admin()
+        resp = self.client.get('/painel/assinaturas/')
+        self.assertContains(resp, 'Assinar 3 contratos')
+        resp = self.client.get(
+            f'/painel/assinaturas/?prestador={self.prestador.pk}')
+        self.assertContains(resp, 'Assinar 2 contratos')
+        self.assertContains(resp, 'zip=1')
+        # sobe os 3 pela tela global
+        resp = self.client.post('/painel/assinaturas/', {'arquivos': [
+            self._assinado(self.c1, 'a_assinado.pdf'),
+            self._assinado(self.c2, 'b_assinado.pdf'),
+            self._assinado(c3, 'c_assinado.pdf')]})
+        self.assertEqual(resp.status_code, 302)
+        for c in (self.c1, self.c2, c3):
+            c.refresh_from_db()
+            self.assertEqual(c.assinado_gestor_por, 'cristiano@camim.com.br')
+        resp = self.client.get('/painel/assinaturas/')
+        self.assertContains(resp, 'Nada pendente')
+        # ficha do prestador mostra o atalho só quando há pendência
+        resp = self.client.get(f'/painel/prestadores/{self.prestador.pk}/')
+        self.assertNotContains(resp, 'pendentes em lote')
