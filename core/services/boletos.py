@@ -85,7 +85,7 @@ def identificar_posto(texto):
 def vales_aplicaveis(prestador, posto, competencia):
     """[(vale, nº da parcela)] que abatem o boleto desta competência."""
     qs = Vale.objects.filter(prestador=prestador, ativo=True)
-    if prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO:
+    if prestador.modo_boleto_em(competencia) == Prestador.ModoBoleto.POR_POSTO:
         qs = qs.filter(posto=posto)
     achados = []
     for v in qs:
@@ -96,7 +96,7 @@ def vales_aplicaveis(prestador, posto, competencia):
 
 
 def valor_esperado_para(prestador, posto, competencia=None):
-    if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
+    if prestador.modo_boleto_em(competencia) == Prestador.ModoBoleto.UNICO:
         base = prestador.valor_esperado_unico()
     else:
         vinculo = prestador.vinculos_ativos().filter(posto=posto).first()
@@ -116,7 +116,8 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
     MANUAL) da mesma chave — um boleto já APROVADO ou PAGO NUNCA é
     substituído em silêncio: a duplicidade é barrada na verificação.
     `origem` (Boleto.Origem) é a porta por onde ele entrou."""
-    if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
+    modo = prestador.modo_boleto_em(competencia)  # mês antigo pode ser ÚNICO
+    if modo == Prestador.ModoBoleto.UNICO:
         posto = None
 
     # Substituição só quando a chave é definida. No modo POR_POSTO com posto
@@ -124,8 +125,7 @@ def registrar(prestador, competencia, enviado_por, posto=None, arquivo=None,
     # destinação), cada boleto é uma cobrança distinta — NÃO substitui.
     # Cobrança extra/parcial nunca substitui (convivem entre si e com o mês).
     if not extra and not parcial and not (
-            prestador.modo_boleto == Prestador.ModoBoleto.POR_POSTO
-            and posto is None):
+            modo == Prestador.ModoBoleto.POR_POSTO and posto is None):
         (Boleto.objects
          .filter(prestador=prestador, posto=posto, competencia=competencia,
                  extra=False,

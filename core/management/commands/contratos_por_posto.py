@@ -65,6 +65,11 @@ class Command(BaseCommand):
                        help='pks de contratos antigos a desativar (43,44)')
         p.add_argument('--manter-modo', action='store_true', dest='manter_modo',
                        help='NÃO trocar modo_boleto para POR_POSTO')
+        p.add_argument('--por-posto-desde', dest='por_posto_desde',
+                       metavar='YYYY-MM',
+                       help='mês a partir do qual a régua espera um boleto '
+                            'por posto (padrão: mês do 1º pagamento; antes '
+                            'disso o mês segue como boleto único)')
         p.add_argument('--manter-outros-vinculos', action='store_true',
                        dest='manter_outros',
                        help='NÃO desativar vínculos de postos fora da lista')
@@ -150,16 +155,30 @@ class Command(BaseCommand):
                     or prestador.posto_cobranca_id or prestador.valor_unico):
                 antes = {'modo_boleto': prestador.modo_boleto,
                          'posto_cobranca': str(prestador.posto_cobranca),
-                         'valor_unico': str(prestador.valor_unico)}
+                         'valor_unico': str(prestador.valor_unico),
+                         'por_posto_desde': str(prestador.por_posto_desde)}
+                desde = ''
+                if prestador.modo_boleto != Prestador.ModoBoleto.POR_POSTO:
+                    # Era boleto ÚNICO: os meses já pagos num boleto só
+                    # ficam como estão; a régua por posto começa no 1º
+                    # pagamento dos contratos novos (ou no mês pedido).
+                    if o['por_posto_desde']:
+                        prestador.por_posto_desde = date.fromisoformat(
+                            o['por_posto_desde'] + '-01')
+                    else:
+                        prestador.por_posto_desde = contratos_pdf.\
+                            primeiro_pagamento(inicio, dia).replace(day=1)
+                    desde = (f', um por posto a partir de '
+                             f'{prestador.por_posto_desde:%m/%Y}')
                 prestador.modo_boleto = Prestador.ModoBoleto.POR_POSTO
                 prestador.posto_cobranca = None
                 prestador.valor_unico = None
                 prestador.save(update_fields=['modo_boleto', 'posto_cobranca',
-                                              'valor_unico'])
+                                              'valor_unico', 'por_posto_desde'])
                 AuditLog.registrar(AuditLog.Evento.CRUD, ator=ator, detalhe=(
                     f'Prestador {prestador.pk} ({nome_curto}): modo de boleto → '
                     f'POR_POSTO ({valor_formatado(total)} em {len(postos)} '
-                    f'postos). Antes: {antes}'))
+                    f'postos{desde}). Antes: {antes}'))
 
             ativos = {}
             for posto, valor in zip(postos, valores):

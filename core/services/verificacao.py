@@ -957,7 +957,7 @@ def processar(boleto_pk):
         # PDF. NÃO é rigoroso — muitos PJs emitem contra si mesmos; se não
         # achar, fica aguardando destinação manual no painel.
         if (boleto.posto_id is None
-                and boleto.prestador.modo_boleto ==
+                and boleto.prestador.modo_boleto_em(boleto.competencia) ==
                 Prestador.ModoBoleto.POR_POSTO):
             posto = svc_boletos.identificar_posto(texto_doc)
             if posto is None:

@@ -32,13 +32,14 @@ sudo -u www-data .venv/bin/python manage.py contratos_por_posto \
 | `--dia` | dia do vencimento no texto (padrão `dia_pagamento` do prestador). O 1º vencimento é esse dia do mês SEGUINTE ao início (regime POSTERIOR) |
 | `--desativar` | pks de contratos antigos — soft delete (ficam em cinza no painel, com Reativar) |
 | `--manter-modo` | não trocar `modo_boleto` para POR_POSTO |
+| `--por-posto-desde YYYY-MM` | mês a partir do qual a régua espera um boleto por posto (padrão: mês do 1º pagamento). Só vale quando o prestador ERA boleto único: os meses anteriores seguem como boleto único (`Prestador.por_posto_desde`) |
 | `--manter-outros-vinculos` | não desativar vínculos de postos fora da lista |
 | `--so-pdf PASTA` | só gera os PDFs; nada no banco |
 
 O que ele grava, dentro de uma transação, com auditoria em cada passo
 (`AuditLog`, ator = `--ator`):
 
-1. `Prestador.modo_boleto` = POR_POSTO, `posto_cobranca` e `valor_unico` zerados.
+1. `Prestador.modo_boleto` = POR_POSTO, `posto_cobranca` e `valor_unico` zerados. Se era ÚNICO, `por_posto_desde` recebe o mês do 1º pagamento — outubro pago num boleto só continua casando (Caio e Victória, 26/10/2026).
 2. Vínculos dos postos da lista ativos com o valor; os outros desativados.
 3. Um `Contrato` por posto, `assinatura_govbr=True`, vigência, nome
    `Contrato <Nome Sobrenome> - <Posto> - <AAAA-MM-DD>.pdf`.

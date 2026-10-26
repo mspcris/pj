@@ -212,13 +212,31 @@ class Prestador(models.Model):
         null=True, blank=True,
         verbose_name='Primeiro mês com boleto (antes disso a régua não cobra)')
 
+    # Quem passou de boleto ÚNICO para POR POSTO: a partir de qual mês (de
+    # pagamento) a régua espera um boleto por posto. Antes disso o mês
+    # continua como boleto único (Caio e Victória, 26/10/2026: outubro já
+    # foi pago num boleto só; os separados começam em novembro).
+    por_posto_desde = models.DateField(
+        null=True, blank=True,
+        verbose_name='Um boleto por posto a partir de (mês de pagamento; '
+                     'antes disso a régua trata como boleto único)')
+
+    def modo_boleto_em(self, mes=None):
+        """Modo de boleto que vale para a competência `mes` (None = hoje)."""
+        if (mes is not None and self.por_posto_desde is not None
+                and self.modo_boleto == self.ModoBoleto.POR_POSTO
+                and mes.replace(day=1) < self.por_posto_desde.replace(day=1)):
+            return self.ModoBoleto.UNICO
+        return self.modo_boleto
+
     def boletos_esperados(self, mes=None):
         """Lista [(posto|None, valor_esperado)] do mês — a régua do dashboard.
-        Vazia se `mes` vem antes do primeiro mês com boleto."""
+        Vazia se `mes` vem antes do primeiro mês com boleto. Antes de
+        `por_posto_desde`, uma linha só (boleto único, soma dos postos)."""
         if (mes is not None and self.primeiro_mes is not None
                 and mes.replace(day=1) < self.primeiro_mes.replace(day=1)):
             return []
-        if self.modo_boleto == self.ModoBoleto.UNICO:
+        if self.modo_boleto_em(mes) == self.ModoBoleto.UNICO:
             return [(self.posto_cobranca, self.valor_esperado_unico())]
         return [(v.posto, v.valor_mensal) for v in
                 self.vinculos_ativos().select_related('posto')]

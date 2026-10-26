@@ -354,11 +354,13 @@ class PrestadorForm(forms.ModelForm):
                   'endereco', 'bairro', 'cidade', 'uf', 'cep', 'telefone',
                   'emails_aviso', 'email_empresa', 'modo_boleto',
                   'posto_cobranca', 'valor_unico', 'regime_pagamento',
-                  'dia_pagamento', 'primeiro_mes', 'exige_nf', 'ativo',
-                  'observacao']
+                  'dia_pagamento', 'primeiro_mes', 'por_posto_desde',
+                  'exige_nf', 'ativo', 'observacao']
         widgets = {'observacao': forms.Textarea(attrs={'rows': 2}),
                    'primeiro_mes': forms.DateInput(attrs={'type': 'month'},
                                                    format='%Y-%m'),
+                   'por_posto_desde': forms.DateInput(attrs={'type': 'month'},
+                                                      format='%Y-%m'),
                    'emails_aviso': forms.TextInput(attrs={
                        'placeholder': 'fulano@gmail.com'})}
         labels = {'regime_pagamento': 'Regime de pagamento',
@@ -391,9 +393,14 @@ class PrestadorForm(forms.ModelForm):
         self.fields['regime_pagamento'].required = False
         # <input type=month> manda "2026-11"
         self.fields['primeiro_mes'].input_formats = ['%Y-%m', '%Y-%m-%d']
+        self.fields['por_posto_desde'].input_formats = ['%Y-%m', '%Y-%m-%d']
 
     def clean_primeiro_mes(self):
         d = self.cleaned_data.get('primeiro_mes')
+        return d.replace(day=1) if d else None
+
+    def clean_por_posto_desde(self):
+        d = self.cleaned_data.get('por_posto_desde')
         return d.replace(day=1) if d else None
 
     def clean_regime_pagamento(self):
@@ -466,6 +473,8 @@ class PrestadorForm(forms.ModelForm):
         if dados.get('modo_boleto') == Prestador.ModoBoleto.POR_POSTO:
             dados['valor_unico'] = None
             dados['posto_cobranca'] = None
+        else:
+            dados['por_posto_desde'] = None  # só faz sentido no POR_POSTO
         return dados
 
 

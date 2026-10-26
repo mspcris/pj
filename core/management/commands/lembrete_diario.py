@@ -46,7 +46,8 @@ class Command(BaseCommand):
                      not b.extra and
                      b.prestador_id == prestador.pk and
                      (b.posto_id is None
-                      if prestador.modo_boleto == Prestador.ModoBoleto.UNICO
+                      if (prestador.modo_boleto_em(mes)
+                          == Prestador.ModoBoleto.UNICO)
                       else (posto and b.posto_id == posto.pk))), None)
                 alvo = posto.nome if posto else 'boleto único'
                 ajuste = ajustes.get(

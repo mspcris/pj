@@ -3675,6 +3675,83 @@ class PrimeiroMesTest(BaseSetup):
         self.assertEqual(self.prestador.primeiro_mes, date(2026, 11, 1))
 
 
+class PorPostoDesdeTest(BaseSetup):
+    """Quem passou de boleto ÚNICO para POR POSTO (Caio e Victória,
+    26/10/2026): outubro já foi pago num boleto só; os separados começam em
+    novembro. Antes de `por_posto_desde` a régua segue como boleto único."""
+    def setUp(self):
+        super().setUp()
+        self.prestador.modo_boleto = Prestador.ModoBoleto.POR_POSTO
+        self.prestador.por_posto_desde = date(2026, 11, 1)
+        self.prestador.save()
+
+    def test_modo_por_competencia(self):
+        p = self.prestador
+        self.assertEqual(p.modo_boleto_em(date(2026, 10, 1)),
+                         Prestador.ModoBoleto.UNICO)
+        self.assertEqual(p.modo_boleto_em(date(2026, 11, 1)),
+                         Prestador.ModoBoleto.POR_POSTO)
+        self.assertEqual(p.modo_boleto_em(None), Prestador.ModoBoleto.POR_POSTO)
+        self.assertEqual(p.boletos_esperados(date(2026, 10, 1)),
+                         [(None, Decimal('3500.00'))])
+        self.assertEqual(len(p.boletos_esperados(date(2026, 11, 1))), 2)
+        # Sem a data, vale o modo atual para qualquer mês
+        p.por_posto_desde = None
+        self.assertEqual(len(p.boletos_esperados(date(2026, 10, 1))), 2)
+
+    def test_dashboard_casa_o_boleto_unico_antigo(self):
+        from core.services import boletos as svc_boletos
+        pago = Boleto.objects.create(
+            prestador=self.prestador, posto=None,
+            competencia=date(2026, 10, 1), arquivo=_pdf(),
+            enviado_por='pj@empresa.com.br',
+            valor_extraido=Decimal('3500.00'),
+            valor_esperado=Decimal('3500.00'), status=Boleto.Status.PAGO)
+        self.assertEqual(svc_boletos.valor_esperado_para(
+            self.prestador, None, date(2026, 10, 1)), Decimal('3500.00'))
+        self.assertEqual(svc_boletos.valor_esperado_para(
+            self.prestador, self.posto1, date(2026, 11, 1)),
+            Decimal('1500.00'))
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=todos')
+        linhas = resp.context['linhas']
+        self.assertEqual(len(linhas), 1)
+        self.assertEqual(linhas[0]['categoria'], 'pagos')
+        self.assertEqual(linhas[0]['boleto'], pago)
+        self.assertIsNone(linhas[0]['posto'])
+        resp = self.client.get('/painel/?m=2026-10&vista=sem_boleto')
+        self.assertEqual(len(resp.context['linhas']), 0)
+        resp = self.client.get('/painel/?m=2026-11&vista=sem_boleto')
+        self.assertEqual(len(resp.context['linhas']), 2)
+
+    def test_registrar_mes_antigo_fica_sem_posto(self):
+        from core.services import boletos as svc_boletos
+        b = svc_boletos.registrar(self.prestador, date(2026, 10, 1),
+                                  'pj@empresa.com.br', posto=self.posto1,
+                                  arquivo=_pdf())
+        self.assertIsNone(b.posto)
+        b = svc_boletos.registrar(self.prestador, date(2026, 11, 1),
+                                  'pj@empresa.com.br', posto=self.posto1,
+                                  arquivo=_pdf())
+        self.assertEqual(b.posto, self.posto1)
+
+    def test_form_aceita_mes_e_limpa_no_modo_unico(self):
+        self.login_admin()
+        from core.forms import PrestadorForm
+        dados = {f: '' for f in PrestadorForm.Meta.fields}
+        dados.update({'nome': 'Limpeza Total LTDA', 'modo_boleto': 'POR_POSTO',
+                      'regime_pagamento': 'POSTERIOR', 'ativo': 'on',
+                      'por_posto_desde': '2026-12', 'qual': 'dados'})
+        url = f'/painel/prestadores/{self.prestador.pk}/'
+        self.assertEqual(self.client.post(url, dados).status_code, 302)
+        self.prestador.refresh_from_db()
+        self.assertEqual(self.prestador.por_posto_desde, date(2026, 12, 1))
+        dados.update({'modo_boleto': 'UNICO', 'posto_cobranca': self.posto1.pk})
+        self.assertEqual(self.client.post(url, dados).status_code, 302)
+        self.prestador.refresh_from_db()
+        self.assertIsNone(self.prestador.por_posto_desde)
+
+
 class AssinaturaLoteTest(BaseSetup):
     """Baixar todos (ZIP) → assinar no gov.br → subir todos: o casamento é
     pelo conteúdo (PDF assinado = PDF baixado + atualização incremental)."""

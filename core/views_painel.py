@@ -95,6 +95,7 @@ def dashboard(request, up):
     linhas, casados = [], set()
     for prestador in (Prestador.objects.filter(ativo=True)
                       .prefetch_related('vinculos__posto')):
+        modo = prestador.modo_boleto_em(mes)  # mês antigo pode ser ÚNICO
         for posto, _valor in prestador.boletos_esperados(mes):
             # valor esperado do MÊS (já com parcelas de vale abatidas)
             valor = svc_boletos.valor_esperado_para(prestador, posto, mes)
@@ -106,7 +107,7 @@ def dashboard(request, up):
                         or b.parcial:
                     continue  # duplicado/extra/parcial não representam
                               # sozinhos a régua
-                if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
+                if modo == Prestador.ModoBoleto.UNICO:
                     if b.posto_id is None:
                         achado = b
                         break
@@ -120,7 +121,7 @@ def dashboard(request, up):
                 b for b in boletos_mes
                 if b.parcial and b.prestador_id == prestador.pk
                 and (b.posto_id is None
-                     if prestador.modo_boleto == Prestador.ModoBoleto.UNICO
+                     if modo == Prestador.ModoBoleto.UNICO
                      else (posto and b.posto_id == posto.pk))]
             soma_parc = sum((b.valor_extraido or 0 for b in parciais_linha
                              if b.status in (Boleto.Status.APROVADO,
@@ -815,7 +816,8 @@ def boleto_editar(request, up, pk):
         if form.is_valid():
             d = form.cleaned_data
             posto = d['posto']
-            if prestador.modo_boleto == Prestador.ModoBoleto.UNICO:
+            if (prestador.modo_boleto_em(d['competencia'])
+                    == Prestador.ModoBoleto.UNICO):
                 posto = None
             mudou = (posto != boleto.posto
                      or d['competencia'] != boleto.competencia
