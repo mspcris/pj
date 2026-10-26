@@ -35,6 +35,16 @@ class Posto(models.Model):
     # sacado impresso no PDF (determinístico, sem IA).
     razao_social = models.CharField(max_length=200, blank=True)
     cnpj = models.CharField(max_length=20, blank=True)
+    # Qualificação do posto como CONTRATANTE nos contratos gerados pelo
+    # comando `contratos_por_posto` (26/10/2026): razão social como está na
+    # Receita (com LTDA) e sede completa. Vazio → usa razao_social e não
+    # cita sede. Seed dos 8 postos do Altamiro na migração 0042.
+    razao_social_contrato = models.CharField(
+        max_length=200, blank=True,
+        verbose_name='Razão social nos contratos (Receita)')
+    sede = models.CharField(
+        max_length=300, blank=True,
+        verbose_name='Sede nos contratos (rua, nº, bairro, cidade/UF, CEP)')
     # Gerente do posto — ESPELHO do cadastro de gestores do CRM (fonte
     # única, decisão de 10/08/2026). Editar no CRM; o sync_gerentes espelha.
     gerente_nome = models.CharField(max_length=120, blank=True)

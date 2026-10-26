@@ -500,7 +500,7 @@ class ValeForm(forms.Form):
 class PostoForm(forms.ModelForm):
     class Meta:
         model = Posto
-        fields = ['nome', 'codigo', 'ativo']
+        fields = ['nome', 'codigo', 'ativo', 'razao_social_contrato', 'sede']
 
 
 class UsuarioForm(forms.ModelForm):

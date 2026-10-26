@@ -1,0 +1,39 @@
+{
+  "_comentario": "Texto do contrato de consultoria operacional e comercial do Lincoln Fernandes (contrato #25, Nova Iguaçu, vigência até 14/04/2027), parametrizado por posto. Diferenças em relação ao original: Cláusula Quarta fala em valor MENSAL por posto (o original dava o total anual de uma vez), a vigência cita início e fim (o original dizia 'na data da assinatura') e a numeração ficou sequencial (o original pulava a Sexta).",
+  "titulo": "CONTRATO DE PRESTAÇÃO DE SERVIÇOS\nDE CONSULTORIA OPERACIONAL E COMERCIAL",
+  "rodape": "CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA OPERACIONAL E COMERCIAL",
+  "contratada": "{razao_social}, pessoa jurídica de direito privado, inscrita no CNPJ/MF sob o nº {cnpj}, com sede na {sede}, endereço eletrônico {email}, neste ato representada em conformidade com seu Contrato Social por {representante}, brasileiro, empresário, inscrito no CPF sob o nº {cpf}.",
+  "preambulo": [
+    "CONTRATANTE e CONTRATADA, assim qualificadas, resolvem firmar o presente CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE CONSULTORIA OPERACIONAL E COMERCIAL, mediante as cláusulas e condições a seguir articuladas:"
+  ],
+  "clausulas": [
+    {"titulo": "DO OBJETO", "itens": [
+      "Cláusula Primeira – A CONTRATADA compromete-se a prestar serviços de Consultoria Comercial, elaboração de estratégias comerciais, desenvolvimento de softwares, treinamento e o que for necessário para impulsionar o negócio, a depender de comum acordo entre as partes.",
+      "Cláusula Segunda – Os serviços ora contratados deverão ser executados pela CONTRATADA, observando-se a melhor técnica e qualidade, e lhe caberá adotar todas as providências que se fizerem necessárias para a execução do objeto deste contrato, respondendo pelas perdas e danos que venham a ser suportados pela CONTRATANTE, em decorrência da má gestão e execução dos serviços prestados em vendas.",
+      "Cláusula Terceira – Os serviços acima descritos serão prestados em horário comercial, com total autonomia por parte da CONTRATADA em sua execução, restando descaracterizada qualquer subordinação e/ou preposição em relação à CONTRATANTE.",
+      "Parágrafo Primeiro – A CONTRATADA será a única e integralmente responsável por todas as despesas de seus produtores para a comercialização dos Serviços, tais como: locomoção, transporte, hospedagem, alimentação; bem como responderá pelos ônus trabalhistas, fiscais e/ou previdenciários.",
+      "Parágrafo Segundo – O presente contrato não confere exclusividade a nenhuma das partes (CONTRATANTE e/ou CONTRATADA), portanto, a CONTRATADA estará livre para prestar os mesmos serviços para outras empresas do mercado, assim como a CONTRATANTE poderá ajustar com outras empresas do mercado a execução dos serviços objeto deste contrato.",
+      "Parágrafo Terceiro – A CONTRATADA assume inteira responsabilidade pela prestação dos Serviços, responsabilizando-se integralmente por todo e qualquer ato, fato ou omissão de seus sócios, empregados ou prepostos envolvidos na sua execução, que cause ou possa vir a causar perdas e/ou danos à CONTRATANTE e/ou a terceiros."
+    ]},
+    {"titulo": "DA REMUNERAÇÃO", "itens": [
+      "Cláusula Quarta – Pela prestação dos serviços de Consultoria Comercial previstos na Cláusula Primeira, a CONTRATANTE pagará à CONTRATADA, a título de remuneração, o valor mensal de {valor} ({valor_extenso}), por meio de boleto bancário emitido pela CONTRATADA, com vencimento todo dia {dia_pagamento} de cada mês, sendo o primeiro em {primeiro_pagamento}. Projetos diferenciados serão passíveis de aditivos com comissionamentos diferenciados, conforme acordado entre as partes.",
+      "Parágrafo Primeiro – A CONTRATADA se obriga a emitir a respectiva nota fiscal relativa aos serviços contratados, na medida em que a sua não apresentação resultará na suspensão dos pagamentos vencidos e vincendos até a resolução desta pendência.",
+      "Parágrafo Segundo – A remuneração pelos serviços prestados pela CONTRATADA incluirá todos os encargos fiscais, sejam eles trabalhistas ou previdenciários, nada mais sendo devido pela CONTRATANTE à CONTRATADA a qualquer título."
+    ]},
+    {"titulo": "DA INEXISTÊNCIA DE VÍNCULO EMPREGATÍCIO", "itens": [
+      "Cláusula Quinta – Este instrumento contratual não resulta em vínculo empregatício de qualquer natureza, visto que a prestação de serviços ora ajustada possui caráter eventual e não exclusivo.",
+      "Parágrafo Primeiro – A CONTRATADA declara expressamente a inexistência de qualquer vínculo de natureza trabalhista, exonerando a CONTRATANTE de quaisquer obrigações previdenciárias, tributárias e/ou trabalhistas.",
+      "Parágrafo Segundo – Os encargos trabalhistas, previdenciários, fiscais, comerciais e outros de igual natureza, relativos aos funcionários e prestadores de serviços da CONTRATADA, são de responsabilidade exclusiva desta, ficando vedado acionar judicial ou extrajudicialmente a CONTRATANTE para responder solidária e/ou subsidiariamente às obrigações da CONTRATADA.",
+      "Parágrafo Terceiro – Caso a CONTRATANTE venha a ser acionada, em juízo ou fora dele, por preposto, funcionário, autônomo ou qualquer terceiro que tenha prestado serviço para a CONTRATADA, deverá esta última assumir as responsabilidades por tal contratação, sendo certo que, se a CONTRATANTE tiver que arcar com quaisquer custos e honorários desta natureza, ficará a CONTRATADA obrigada a ressarci-la por todos os prejuízos causados."
+    ]},
+    {"titulo": "DA VIGÊNCIA E RESCISÃO", "itens": [
+      "Cláusula Sexta – O presente contrato terá início em {inicio}, com validade de {meses} ({meses_extenso}) meses, até {fim}, podendo ser renovado após esse período.",
+      "Cláusula Sétima – Qualquer parte pode pedir o distrato, respeitando o prazo de 30 (trinta) dias de antecedência, cessando a responsabilidade pelas demais parcelas."
+    ]},
+    {"titulo": "DO FORO", "itens": [
+      "Cláusula Oitava – As partes elegem o Foro Central da Comarca do Rio de Janeiro para dirimir eventuais dúvidas oriundas deste contrato, com renúncia de qualquer outro, por mais privilegiado que seja."
+    ]}
+  ],
+  "encerramento": "E por estarem justos e acertados, assinam o presente instrumento em duas vias de igual teor e forma, na presença de duas testemunhas, para que produza os efeitos jurídicos visados.",
+  "cidade": "Rio de Janeiro"
+}

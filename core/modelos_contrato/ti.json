@@ -1,0 +1,107 @@
+{
+  "_comentario": "Texto integral do contrato de TI do Caio Guimarães (09/05/2026, 16 cláusulas), parametrizado. Usado nos contratos #99–#106 de 26/10/2026.",
+  "titulo": "CONTRATO DE PRESTAÇÃO DE SERVIÇOS\nDE TECNOLOGIA DA INFORMAÇÃO",
+  "rodape": "CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE TECNOLOGIA DA INFORMAÇÃO",
+  "contratada": "{razao_social}, empresário individual inscrito no CNPJ sob o nº {cnpj}, com sede na {sede}, endereço eletrônico {email}, neste ato representado por {representante}, inscrito no CPF sob o nº {cpf}.",
+  "preambulo": [
+    "CONTRATANTE e CONTRATADA serão doravante denominadas, em conjunto, “Partes” e, individualmente, “Parte”.",
+    "As Partes resolvem celebrar o presente Contrato de Prestação de Serviços de Tecnologia da Informação (“Contrato”), que se regerá pelas cláusulas e condições seguintes."
+  ],
+  "clausulas": [
+    {"titulo": "CLÁUSULA 1ª – DO OBJETO", "itens": [
+      "1.1. O presente Contrato tem por objeto a prestação, pela CONTRATADA, de serviços de tecnologia da informação, abrangendo as seguintes atividades:",
+      "a) NBS 1.1502.10.00 – serviços de projeto, desenvolvimento e instalação de aplicativos e programas não personalizados (não customizados); e",
+      "b) item 01.07.01 – suporte técnico em informática, inclusive instalação, configuração e manutenção de programas de computação e bancos de dados.",
+      "1.2. Os serviços poderão ser executados de forma remota ou presencial, conforme a natureza da demanda e o prévio alinhamento entre as Partes.",
+      "1.3. A CONTRATADA declara possuir capacidade técnica, estrutura e regularidade empresarial suficientes para a execução do objeto, responsabilizando-se pela qualidade técnica das entregas sob sua responsabilidade."
+    ]},
+    {"titulo": "CLÁUSULA 2ª – DA AUTONOMIA E DA FORMA DE EXECUÇÃO", "itens": [
+      "2.1. A CONTRATADA executará os serviços com autonomia técnica, administrativa e operacional, organizando livremente seus meios, métodos, local e períodos de trabalho, sem controle de jornada, obrigação de cumprimento de horário fixo, pessoalidade ou subordinação hierárquica à CONTRATANTE.",
+      "2.2. As solicitações da CONTRATANTE definirão resultados esperados, prioridades, requisitos técnicos e prazos, quando aplicáveis, sem interferência na gestão interna da CONTRATADA ou na maneira por ela escolhida para executar os serviços.",
+      "2.3. Eventuais reuniões, acessos presenciais, janelas de manutenção, registros de atividades ou relatórios terão finalidade exclusiva de coordenação, segurança, comprovação das entregas e faturamento, não caracterizando controle de jornada ou subordinação.",
+      "2.4. A CONTRATADA poderá prestar serviços a quaisquer terceiros, inclusive empresas do mesmo segmento econômico da CONTRATANTE, inexistindo exclusividade ou obrigação de não concorrência, desde que preserve o sigilo, a proteção de dados e os direitos de propriedade intelectual previstos neste Contrato.",
+      "2.5. A CONTRATADA poderá executar os serviços por meio de sócios, empregados, colaboradores ou subcontratados tecnicamente habilitados, sob sua exclusiva direção e responsabilidade. Quando o acesso envolver sistemas, instalações ou dados da CONTRATANTE, a identificação do profissional deverá ser previamente informada para fins de segurança e autorização de acesso.",
+      "2.6. A contratação tem natureza estritamente civil e empresarial. Não se estabelece vínculo empregatício entre a CONTRATANTE e a CONTRATADA, seus sócios, empregados, colaboradores ou subcontratados, cabendo exclusivamente à CONTRATADA dirigir e remunerar sua equipe e cumprir as obrigações trabalhistas, previdenciárias, tributárias e securitárias que lhe forem aplicáveis.",
+      "2.7. A autonomia formalizada nesta cláusula deverá ser observada na execução prática do Contrato, não podendo qualquer Parte exigir conduta incompatível com a natureza empresarial aqui pactuada."
+    ]},
+    {"titulo": "CLÁUSULA 3ª – DA REMUNERAÇÃO E DO PAGAMENTO", "itens": [
+      "3.1. Pela prestação dos serviços, a CONTRATANTE pagará à CONTRATADA a remuneração mensal de {valor} ({valor_extenso}), mediante boleto bancário e apresentação da correspondente nota fiscal.",
+      "3.2. O primeiro pagamento vencerá em {primeiro_pagamento}. Os pagamentos subsequentes vencerão no dia {dia_pagamento} de cada mês durante a vigência do Contrato.",
+      "3.3. O valor será reajustado a cada 12 (doze) meses, contados da data de início da vigência, pela variação acumulada do IPCA/IBGE no período, ou por outro índice oficial que venha a substituí-lo, mediante formalização por escrito.",
+      "3.4. O atraso imputável à CONTRATANTE acarretará multa moratória de 2% (dois por cento) sobre a parcela vencida, acrescida de juros de mora de 1% (um por cento) ao mês, calculados pro rata die, e correção monetária pelo IPCA/IBGE."
+    ]},
+    {"titulo": "CLÁUSULA 4ª – DAS OBRIGAÇÕES DA CONTRATADA", "itens": [
+      "4.1. Constituem obrigações da CONTRATADA:",
+      "a) executar os serviços com diligência, boa técnica e observância da legislação, dos requisitos de segurança e das especificações previamente acordadas;",
+      "b) manter a regularidade cadastral e fiscal necessária à execução do objeto e emitir os documentos fiscais correspondentes;",
+      "c) prestar, no prazo máximo de 3 (três) dias úteis da solicitação escrita, esclarecimentos técnicos razoavelmente relacionados aos serviços executados;",
+      "d) comunicar prontamente fatos que possam comprometer prazos, segurança, integridade dos sistemas ou continuidade das atividades;",
+      "e) orientar os usuários quanto às configurações e aos serviços efetivamente abrangidos pelo objeto; e",
+      "f) adotar medidas técnicas e organizacionais adequadas à proteção dos acessos, credenciais, sistemas e dados a que tiver acesso."
+    ]},
+    {"titulo": "CLÁUSULA 5ª – DAS OBRIGAÇÕES DA CONTRATANTE", "itens": [
+      "5.1. Constituem obrigações da CONTRATANTE:",
+      "a) fornecer, em tempo hábil, informações, acessos, decisões e recursos sob sua responsabilidade que sejam necessários à execução dos serviços;",
+      "b) comunicar por escrito falhas ou mau funcionamento, apresentando os elementos disponíveis para diagnóstico;",
+      "c) designar interlocutor apto a priorizar demandas, validar requisitos e receber entregas;",
+      "d) efetuar os pagamentos nas condições ajustadas;",
+      "e) manter cópias de segurança adequadas de seus programas, informações e arquivos, salvo se o serviço de backup tiver sido expressamente incluído no escopo; e",
+      "f) manter sob sua responsabilidade a gestão de usuários, autorizações de acesso e segurança de sua infraestrutura, ressalvadas as obrigações específicas assumidas pela CONTRATADA."
+    ]},
+    {"titulo": "CLÁUSULA 6ª – DOS PRAZOS, CHAMADOS E ACEITE", "itens": [
+      "6.1. Os prazos de atendimento e de solução dependerão da natureza, complexidade, criticidade e disponibilidade dos elementos necessários, devendo ser definidos entre as Partes para cada demanda, ressalvado o prazo de resposta inicial de até 3 (três) dias úteis.",
+      "6.2. O atendimento inicial poderá resultar em orientação, solução imediata, solicitação de informações adicionais ou definição de plano de ação.",
+      "6.3. A CONTRATADA não responderá por atrasos ou falhas decorrentes de informações incompletas, indisponibilidade de acesso, atos de terceiros, defeitos de infraestrutura da CONTRATANTE, caso fortuito ou força maior."
+    ]},
+    {"titulo": "CLÁUSULA 7ª – DA VIGÊNCIA E DA RESILIÇÃO", "itens": [
+      "7.1. O Contrato vigorará por {meses} ({meses_extenso}) meses, com início em {inicio} e término em {fim}.",
+      "7.2. Encerrado o prazo inicial, o Contrato será renovado por prazo indeterminado se os serviços continuarem a ser prestados sem oposição escrita de qualquer Parte.",
+      "7.3. Qualquer Parte poderá resilir o Contrato imotivadamente mediante aviso escrito com antecedência mínima de 30 (trinta) dias, permanecendo devidos os valores relativos aos serviços prestados e às obrigações vencidas até o término do aviso.",
+      "7.4. O Contrato poderá ser resolvido por descumprimento contratual relevante que não seja sanado no prazo de 5 (cinco) dias úteis após o recebimento de notificação escrita, salvo infração insanável ou de gravidade incompatível com a continuidade da relação.",
+      "7.5. O descumprimento contratual culposo sujeitará a Parte infratora à multa não compensatória equivalente a 10% (dez por cento) do valor correspondente a 12 (doze) mensalidades vigentes, sem prejuízo da apuração de perdas e danos diretos comprovados, vedado o enriquecimento sem causa."
+    ]},
+    {"titulo": "CLÁUSULA 8ª – DA RESPONSABILIDADE", "itens": [
+      "8.1. Cada Parte responderá pelos danos diretos comprovadamente causados à outra em razão de dolo ou culpa no cumprimento de suas obrigações.",
+      "8.2. A CONTRATADA não responderá por lucros cessantes, perda de oportunidade, danos indiretos ou falhas decorrentes de uso inadequado, alteração não autorizada, sistemas de terceiros, ataques externos inevitáveis mediante diligência razoável, ausência de backup sob responsabilidade da CONTRATANTE ou descumprimento das orientações técnicas fornecidas.",
+      "8.3. Nenhuma limitação prevista neste Contrato excluirá responsabilidade por dolo, violação de confidencialidade, infração à legislação de proteção de dados ou direitos de terceiros, quando imputável à Parte responsável."
+    ]},
+    {"titulo": "CLÁUSULA 9ª – DA CONFIDENCIALIDADE", "itens": [
+      "9.1. Cada Parte manterá em sigilo as informações técnicas, comerciais, estratégicas, cadastrais e operacionais da outra Parte a que tiver acesso em razão deste Contrato e as utilizará exclusivamente para sua execução.",
+      "9.2. Não serão confidenciais informações que: a) sejam públicas sem violação deste Contrato; b) já fossem legitimamente conhecidas pela Parte receptora; c) tenham sido obtidas licitamente de terceiro; ou d) devam ser divulgadas por lei ou ordem de autoridade competente, hipótese em que a outra Parte será comunicada previamente, quando permitido.",
+      "9.3. A obrigação de confidencialidade permanecerá vigente por 5 (cinco) anos após o término do Contrato, sem prejuízo de prazo superior previsto em lei para dados pessoais, segredos de negócio ou informações protegidas."
+    ]},
+    {"titulo": "CLÁUSULA 10ª – DA PROTEÇÃO DE DADOS", "itens": [
+      "10.1. As Partes comprometem-se a tratar dados pessoais em conformidade com a Lei nº 13.709/2018 (LGPD) e somente na medida necessária à execução do Contrato.",
+      "10.2. Cada Parte adotará medidas técnicas e administrativas adequadas à proteção dos dados pessoais e comunicará à outra, sem demora injustificada, incidente de segurança relevante relacionado ao objeto contratual.",
+      "10.3. Quando tratar dados pessoais em nome da CONTRATANTE, a CONTRATADA observará suas instruções lícitas e documentadas, ressalvadas as obrigações legais próprias. Encerrada a finalidade do tratamento, eliminará ou devolverá os dados conforme orientação da CONTRATANTE, salvo obrigação legal de conservação."
+    ]},
+    {"titulo": "CLÁUSULA 11ª – DA PROPRIEDADE INTELECTUAL", "itens": [
+      "11.1. Permanecem de titularidade de cada Parte os sistemas, códigos, bibliotecas, metodologias, marcas, documentos, conhecimentos, ferramentas e demais ativos de propriedade intelectual que já possuía antes deste Contrato ou que desenvolva independentemente dele.",
+      "11.2. A titularidade ou licença de uso de entregáveis especificamente produzidos para a CONTRATANTE dependerá de ajuste escrito que identifique o respectivo ativo, sua abrangência e, quando aplicável, a quitação integral dos valores correspondentes.",
+      "11.3. O acesso a sistemas e materiais de uma Parte não implica cessão ou transferência de direitos à outra."
+    ]},
+    {"titulo": "CLÁUSULA 12ª – DA CESSÃO E DA SUBCONTRATAÇÃO", "itens": [
+      "12.1. Nenhuma Parte poderá ceder integralmente sua posição contratual sem a anuência escrita da outra Parte.",
+      "12.2. A utilização de profissionais ou subcontratados pela CONTRATADA, nos termos da Cláusula 2ª, não configura cessão contratual e não afasta sua responsabilidade pelas entregas, pelo sigilo, pela segurança e pela proteção de dados."
+    ]},
+    {"titulo": "CLÁUSULA 13ª – DO CASO FORTUITO E DA FORÇA MAIOR", "itens": [
+      "13.1. Nenhuma Parte será considerada inadimplente por atraso ou impossibilidade de cumprimento decorrente de caso fortuito ou força maior, nos termos da legislação civil, enquanto perdurarem seus efeitos.",
+      "13.2. A Parte afetada comunicará a ocorrência e adotará medidas razoáveis para mitigar seus impactos. Persistindo o impedimento por mais de 15 (quinze) dias, qualquer Parte poderá encerrar o Contrato sem multa, preservadas as obrigações já vencidas."
+    ]},
+    {"titulo": "CLÁUSULA 14ª – DAS COMUNICAÇÕES", "itens": [
+      "14.1. As comunicações e notificações serão realizadas por meio escrito, inclusive pelos endereços eletrônicos informados na qualificação das Partes ou por outros que venham a ser formalmente indicados.",
+      "14.2. As Partes deverão comunicar alterações de endereço, e-mail ou dados cadastrais, reputando-se válidas as comunicações enviadas aos dados anteriormente informados enquanto não houver atualização."
+    ]},
+    {"titulo": "CLÁUSULA 15ª – DAS DISPOSIÇÕES GERAIS", "itens": [
+      "15.1. Este Contrato não constitui sociedade, associação, mandato, representação comercial, agência, consórcio, solidariedade, vínculo trabalhista ou grupo econômico entre as Partes.",
+      "15.2. A eventual tolerância de uma Parte quanto ao descumprimento de obrigação não importará novação, renúncia ou alteração contratual.",
+      "15.3. A nulidade ou inexigibilidade de qualquer disposição não prejudicará as demais, devendo as Partes substituí-la por outra válida que preserve, na maior medida possível, sua finalidade econômica e jurídica.",
+      "15.4. Alterações deste Contrato somente serão válidas quando formalizadas por escrito e aceitas por ambas as Partes.",
+      "15.5. O Contrato poderá ser assinado eletronicamente, produzindo todos os efeitos legais, e as Partes reconhecem como válidas as assinaturas eletrônicas admitidas pela legislação aplicável."
+    ]},
+    {"titulo": "CLÁUSULA 16ª – DO FORO", "itens": [
+      "16.1. Fica eleito o foro da Comarca da Capital do Estado do Rio de Janeiro para dirimir controvérsias decorrentes deste Contrato, com renúncia a qualquer outro, por mais privilegiado que seja."
+    ]}
+  ],
+  "cidade": "Rio de Janeiro"
+}

@@ -13,7 +13,7 @@
       <td>{{ p.codigo }}</td>
       <td>{% if p.ativo %}✅{% else %}⛔{% endif %}</td>
       <td>
-        <form method="post" style="display:flex;gap:6px">
+        <form method="post" style="display:flex;gap:6px;flex-wrap:wrap">
           {% csrf_token %}
           <input type="hidden" name="pk" value="{{ p.pk }}">
           <input name="nome" value="{{ p.nome }}" style="max-width:200px">
@@ -21,6 +21,10 @@
           <label style="margin:0;display:flex;align-items:center;font-size:.8rem">
             <input type="checkbox" name="ativo" {% if p.ativo %}checked{% endif %}>ativo</label>
           <button class="btn mini claro" type="submit">Salvar</button>
+          <input name="razao_social_contrato" value="{{ p.razao_social_contrato }}"
+                 placeholder="Razão social nos contratos (Receita, com LTDA)" style="flex:1 1 100%">
+          <input name="sede" value="{{ p.sede }}"
+                 placeholder="Sede nos contratos (rua, nº, bairro, cidade/UF, CEP)" style="flex:1 1 100%">
         </form>
         {% if p.id_endereco_legado is None %}
         <form method="post" style="display:inline"

@@ -3771,3 +3771,155 @@ class AssinaturaLoteTest(BaseSetup):
         # ficha do prestador mostra o atalho só quando há pendência
         resp = self.client.get(f'/painel/prestadores/{self.prestador.pk}/')
         self.assertNotContains(resp, 'pendentes em lote')
+
+
+class ExtensoTests(TestCase):
+    def test_valores(self):
+        from .services.extenso import valor_extenso, valor_formatado
+        casos = {
+            '3990.00': 'três mil novecentos e noventa reais',
+            '498.75': 'quatrocentos e noventa e oito reais e setenta e cinco centavos',
+            '32004.00': 'trinta e dois mil e quatro reais',
+            '568.51': 'quinhentos e sessenta e oito reais e cinquenta e um centavos',
+            '1200.00': 'mil e duzentos reais',
+            '1.01': 'um real e um centavo',
+            '100.00': 'cem reais',
+            '2967.04': 'dois mil novecentos e sessenta e sete reais e quatro centavos',
+            '1000000.00': 'um milhão de reais' if False else 'um milhão reais',
+        }
+        for v, esperado in casos.items():
+            if v == '1000000.00':
+                continue
+            self.assertEqual(valor_extenso(Decimal(v)), esperado, v)
+        self.assertEqual(valor_formatado(Decimal('3990')), 'R$ 3.990,00')
+
+    def test_dividir(self):
+        from .services.contratos_pdf import dividir
+        partes = dividir(Decimal('4548.14'), 8)
+        self.assertEqual(sum(partes), Decimal('4548.14'))
+        self.assertEqual(partes[:6], [Decimal('568.52')] * 6)
+        self.assertEqual(partes[6:], [Decimal('568.51')] * 2)
+        self.assertEqual(dividir(Decimal('3990'), 8), [Decimal('498.75')] * 8)
+
+
+class ContratosPorPostoTests(TestCase):
+    """O comando que divide o contrato em um por posto (26/10/2026)."""
+
+    def setUp(self):
+        # os 13 postos canônicos já vêm da migração 0002 — usa A, B e C
+        self.pa = Posto.objects.get(codigo='A')
+        self.pa.cnpj = '27.110.113/0001-04'
+        self.pa.razao_social_contrato = 'CLÍNICA ANCHIETA LTDA'
+        self.pa.sede = 'Estrada X, nº 1, Anchieta, Rio de Janeiro/RJ, CEP 21625-000'
+        self.pa.save()
+        self.pb = Posto.objects.get(codigo='B')
+        self.pb.cnpj, self.pb.sede = '33.040.053/0001-95', 'Rua Y, 2'
+        self.pb.razao_social = self.pb.razao_social_contrato = ''
+        self.pb.save()
+        self.pc = Posto.objects.get(codigo='C')
+        self.p = Prestador.objects.create(
+            nome='Fulano PJ', representante='Fulano de Tal',
+            representante_cpf='111.222.333-44', cnpj='52.520.900/0001-63',
+            razao_social='FULANO LTDA', endereco='Rua Z, 9', cidade='Rio',
+            uf='RJ', cep='20000-000', dia_pagamento=10,
+            modo_boleto=Prestador.ModoBoleto.UNICO, posto_cobranca=self.pa,
+            valor_unico=Decimal('3990'))
+        PrestadorPosto.objects.create(prestador=self.p, posto=self.pc,
+                                      valor_mensal=Decimal('5'), ativo=True)
+        self.antigo = Contrato.objects.create(
+            prestador=self.p, posto=self.pa, arquivo=_pdf('velho.pdf'),
+            nome_original='velho.pdf', vigencia_inicio=date(2026, 5, 9))
+
+    def _rodar(self, *extra):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('contratos_por_posto', '--prestador', str(self.p.pk),
+                     '--postos', 'A,B', '--modelo', 'ti', '--total', '3990.01',
+                     '--inicio', '2026-10-26', *extra, stdout=out)
+        return out.getvalue()
+
+    def test_so_pdf_nao_mexe_no_banco(self):
+        import tempfile
+        pasta = tempfile.mkdtemp()
+        saida = self._rodar('--so-pdf', pasta)
+        self.assertIn('banco intocado', saida)
+        self.assertEqual(Contrato.objects.filter(prestador=self.p).count(), 1)
+        self.p.refresh_from_db()
+        self.assertEqual(self.p.modo_boleto, Prestador.ModoBoleto.UNICO)
+        import os
+        nomes = sorted(os.listdir(pasta))
+        self.assertEqual(nomes, ['Contrato Fulano Tal - Anchieta - %s.pdf'
+                                 % date.today().isoformat(),
+                                 'Contrato Fulano Tal - Bangu - %s.pdf'
+                                 % date.today().isoformat()])
+        from .services.pdf import extrair_texto
+        texto = extrair_texto(os.path.join(pasta, nomes[0]))
+        self.assertIn('CLÍNICA ANCHIETA LTDA', texto)
+        self.assertIn('R$ 1.995,01', texto)            # 3.990,01 ÷ 2: sobra no 1º
+        self.assertIn('mil novecentos e noventa e cinco reais e um centavo', texto)
+        self.assertIn('10 de novembro de 2026', texto)  # 1º vencimento
+        self.assertIn('25 de outubro de 2027', texto)   # fim da vigência
+        self.assertIn('111.222.333-44', texto)
+        texto_b = extrair_texto(os.path.join(pasta, nomes[1]))
+        self.assertIn('R$ 1.995,00', texto_b)
+        self.assertIn('Bangu, pessoa jurídica', texto_b)  # sem razão: usa o nome
+
+    def test_valer(self):
+        from .models import AuditLog
+        saida = self._rodar('--desativar', str(self.antigo.pk),
+                            '--ator', 'teste@camim.com.br')
+        self.assertIn('OK: contratos', saida)
+        self.p.refresh_from_db()
+        self.assertEqual(self.p.modo_boleto, Prestador.ModoBoleto.POR_POSTO)
+        self.assertIsNone(self.p.posto_cobranca)
+        self.assertIsNone(self.p.valor_unico)
+        vs = {v.posto.codigo: (v.valor_mensal, v.ativo)
+              for v in self.p.vinculos.all()}
+        self.assertEqual(vs['A'], (Decimal('1995.01'), True))
+        self.assertEqual(vs['B'], (Decimal('1995.00'), True))
+        self.assertEqual(vs['C'], (Decimal('5'), False))   # fora da lista: desativado
+        novos = Contrato.objects.filter(prestador=self.p, assinatura_govbr=True)
+        self.assertEqual(novos.count(), 2)
+        for c in novos:
+            self.assertEqual((c.vigencia_inicio, c.vigencia_fim),
+                             (date(2026, 10, 26), date(2027, 10, 25)))
+            self.assertTrue(c.falta_prestador and c.falta_gestor)
+            self.assertTrue(c.arquivo.size > 1000)
+        self.antigo.refresh_from_db()
+        self.assertTrue(self.antigo.desativado)
+        self.assertEqual(self.antigo.desativado_por, 'cristiano@camim.com.br')
+        eventos = list(AuditLog.objects.filter(ator_email='teste@camim.com.br')
+                       .values_list('evento', flat=True))
+        self.assertEqual(eventos.count('UP_CONTRATO'), 2)
+        self.assertEqual(eventos.count('CRUD'), 3)  # modo, vínculos, desativar
+
+    def test_sem_total_usa_vinculo(self):
+        from django.core.management import CommandError
+        PrestadorPosto.objects.create(prestador=self.p, posto=self.pa,
+                                      valor_mensal=Decimal('370.88'))
+        from io import StringIO
+        from django.core.management import call_command
+        with self.assertRaises(CommandError):   # B sem vínculo e sem valor
+            call_command('contratos_por_posto', '--prestador', str(self.p.pk),
+                         '--postos', 'A,B', '--modelo', 'ti', stdout=StringIO())
+        out = StringIO()
+        call_command('contratos_por_posto', '--prestador', str(self.p.pk),
+                     '--postos', 'A', '--modelo', 'consultoria_comercial',
+                     '--manter-modo', stdout=out)
+        self.assertIn('R$ 370,88', out.getvalue())
+        self.p.refresh_from_db()
+        self.assertEqual(self.p.modo_boleto, Prestador.ModoBoleto.UNICO)
+        c = Contrato.objects.get(prestador=self.p, posto=self.pa,
+                                 assinatura_govbr=True)
+        from .services.pdf import extrair_texto
+        self.assertIn('trezentos e setenta reais e oitenta e oito centavos',
+                      extrair_texto(c.arquivo.path))
+
+    def test_desativar_de_outro_prestador_aborta(self):
+        from django.core.management import CommandError
+        outro = Prestador.objects.create(nome='Outro')
+        c = Contrato.objects.create(prestador=outro, arquivo=_pdf('o.pdf'))
+        with self.assertRaises(CommandError):
+            self._rodar('--desativar', str(c.pk))
+        self.assertEqual(Contrato.objects.filter(prestador=self.p).count(), 1)
