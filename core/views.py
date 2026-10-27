@@ -213,7 +213,14 @@ def contratos_lista(request, up, posto_id):
             aplicar_dados_async(contrato.pk)
             AuditLog.registrar(AuditLog.Evento.UPLOAD_CONTRATO, request,
                                detalhe=f'{up.prestador} @ {posto}')
-            messages.success(request, 'Contrato anexado com sucesso!')
+            # Se o PDF já vier assinado no gov.br, reconhece a assinatura
+            # do prestador em vez de ficar cobrando.
+            from .services import assinaturas
+            n_sig = assinaturas.reconhecer_assinaturas(
+                contrato, quem=up.email, papel_de_quem='prestador',
+                request=request)
+            messages.success(request, 'Contrato anexado com sucesso!'
+                             + assinaturas.frase_reconhecida(contrato, n_sig))
             return redirect('contratos_lista', posto_id=posto.pk)
     else:
         form = ContratoForm()

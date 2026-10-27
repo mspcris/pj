@@ -1077,14 +1077,19 @@ def prestador_detalhe(request, up, pk):
                                               else ''))
                 from .services.contratos import aplicar_dados_async
                 aplicar_dados_async(contrato.pk)
-                aviso = ''
-                if contrato.assinatura_govbr:
-                    from .services import assinaturas
+                # O PDF pode já vir assinado (gov.br) — reconhece antes de
+                # pedir assinatura a alguém.
+                from .services import assinaturas
+                n_sig = assinaturas.reconhecer_assinaturas(
+                    contrato, quem=up.email, papel_de_quem='gestor',
+                    request=request)
+                aviso = assinaturas.frase_reconhecida(contrato, n_sig)
+                if contrato.falta_prestador:
                     ok = assinaturas.avisar_prestador_para_assinar([contrato])
-                    aviso = (' O prestador foi avisado por e-mail para '
-                             'assinar pelo gov.br.' if ok else
-                             ' NÃO consegui avisar o prestador (sem e-mail '
-                             'cadastrado?) — use o botão "Avisar" na lista.')
+                    aviso += (' O prestador foi avisado por e-mail para '
+                              'assinar pelo gov.br.' if ok else
+                              ' NÃO consegui avisar o prestador (sem e-mail '
+                              'cadastrado?) — use o botão "Avisar" na lista.')
                 messages.success(
                     request,
                     'Contrato anexado. Estou lendo o PDF em segundo plano '
@@ -1288,10 +1293,20 @@ def contrato_acao(request, up, pk, acao):
             AuditLog.Evento.CRUD, request,
             detalhe=f'Contrato #{contrato.pk}: assinatura gov.br '
                     f'{"ligada" if contrato.assinatura_govbr else "desligada"}')
-        messages.success(request, 'Assinatura pelo gov.br '
-                         + ('ligada — o contrato aparece como pendente até '
-                            'as duas partes assinarem.'
-                            if contrato.assinatura_govbr else 'desligada.'))
+        if contrato.assinatura_govbr:
+            # Ao ligar, lê o PDF atual: se já vier assinado, não fica
+            # cobrando assinatura de quem já assinou.
+            from .services import assinaturas
+            n_sig = assinaturas.reconhecer_assinaturas(
+                contrato, quem=up.email, papel_de_quem='gestor',
+                request=request)
+            extra = assinaturas.frase_reconhecida(contrato, n_sig)
+            messages.success(
+                request, 'Assinatura pelo gov.br ligada'
+                + (' — o contrato aparece como pendente até as duas '
+                   'partes assinarem.' if not extra else '.') + extra)
+        else:
+            messages.success(request, 'Assinatura pelo gov.br desligada.')
     elif acao in ('desativar', 'reativar'):
         ligar = acao == 'reativar'
         contrato.desativado_em = None if ligar else timezone.now()

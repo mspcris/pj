@@ -98,6 +98,75 @@ def conferir_pdf_assinado(contrato, dados_novo):
     return atuais, novas
 
 
+def reconhecer_assinaturas(contrato, quem='', papel_de_quem='gestor',
+                           request=None):
+    """Lê o PDF ATUAL do contrato e marca as assinaturas digitais que JÁ
+    estão nele (27/10/2026: contrato da Salliseg/Anchieta anexado já
+    assinado pelas duas partes ficou "falta o prestador" depois de ligar
+    o gov.br). Regra:
+      - 0 assinaturas → não mexe em nada (contrato de papel ou PDF limpo);
+      - 2 ou mais   → prestador E gestor assinados;
+      - 1           → assinatura de quem anexou (`papel_de_quem`).
+    Com assinatura, liga `assinatura_govbr` (um PDF com /Sig é contrato
+    digital) e nunca sobrescreve uma assinatura já registrada. Devolve
+    quantas assinaturas o PDF tem."""
+    assert papel_de_quem in PAPEIS, papel_de_quem
+    n = contar_assinaturas(_bytes_do_campo(contrato.arquivo))
+    if n == 0:
+        return 0
+    papeis = PAPEIS if n >= 2 else (papel_de_quem,)
+    agora = timezone.now()
+    campos = []
+    if not contrato.assinatura_govbr:
+        contrato.assinatura_govbr = True
+        campos.append('assinatura_govbr')
+    marcados = []
+    for papel in papeis:
+        if getattr(contrato, f'assinado_{papel}_em') is not None:
+            continue
+        setattr(contrato, f'assinado_{papel}_em', agora)
+        setattr(contrato, f'assinado_{papel}_por',
+                (_quem_assinou(contrato, papel, quem, papel_de_quem)
+                 or '')[:254])
+        campos += [f'assinado_{papel}_em', f'assinado_{papel}_por']
+        marcados.append(papel)
+    if campos:
+        contrato.save(update_fields=campos)
+    AuditLog.registrar(
+        AuditLog.Evento.ASSINATURA_CONTRATO, request, ator=quem,
+        detalhe=f'Contrato #{contrato.pk} {contrato}: PDF anexado já traz '
+                f'{n} assinatura{"s" if n > 1 else ""} digital'
+                f'{"is" if n > 1 else ""} — reconhecida'
+                f'{"s" if len(marcados) > 1 else ""}: '
+                f'{" e ".join(marcados) or "nenhuma nova"} '
+                f'({contrato.situacao_assinatura})')
+    return n
+
+
+def _quem_assinou(contrato, papel, quem, papel_de_quem):
+    """E-mail a registrar como signatário: quem anexou, se foi ele quem
+    assinou; senão o usuário do prestador / o gerente do posto."""
+    if papel == papel_de_quem and quem:
+        return quem
+    if papel == 'prestador':
+        u = contrato.prestador.usuarios.filter(ativo=True).first()
+        return u.email if u else quem
+    return (contrato.posto.gerente_email if contrato.posto else '') or quem
+
+
+def frase_reconhecida(contrato, n):
+    """Frase para a mensagem de tela depois do anexo / do "ligar gov.br"."""
+    if n == 0:
+        return ''
+    if contrato.assinaturas_completas:
+        return ' O PDF já vem assinado por prestador e gestor.'
+    if contrato.assinado_prestador_em:
+        return (' O PDF já vem assinado pelo prestador — falta a '
+                'assinatura do gestor.')
+    return (' O PDF já vem assinado pelo gestor — falta a assinatura '
+            'do prestador.')
+
+
 def registrar(contrato, arquivo, nome, papel, quem='', request=None):
     """Guarda a versão atual no histórico, põe `arquivo` como o PDF do
     contrato e marca a assinatura de `papel` ('prestador' | 'gestor').

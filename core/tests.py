@@ -3563,6 +3563,120 @@ class AssinaturaContratoTest(BaseSetup):
             f'/arquivo/contrato_versao/{v.pk}/').status_code, 404)
 
 
+class AssinaturasJaNoPdfTest(BaseSetup):
+    """27/10/2026 (Salliseg/Anchieta): contrato anexado JÁ assinado pelas
+    duas partes caiu como "falta o prestador" depois de ligar o gov.br.
+    Regra: toda vez que anexar (painel ou portal) e ao ligar o gov.br, o
+    PDF é lido e as assinaturas que já estão nele são reconhecidas."""
+
+    @mock.patch('core.services.contratos.aplicar_dados_async')
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_painel_anexa_pdf_com_duas_assinaturas(self, m_mail, _m_ia):
+        from core.models import AuditLog, Contrato
+        self.login_admin()
+        resp = self.client.post(
+            f'/painel/prestadores/{self.prestador.pk}/',
+            {'qual': 'contrato', 'posto': self.posto1.pk,
+             'arquivo': _pdf_assinado(2, 'anchieta-assinado.pdf')},
+            follow=True)
+        c = Contrato.objects.get(prestador=self.prestador, posto=self.posto1)
+        self.assertTrue(c.assinatura_govbr)   # ligou sozinho
+        self.assertTrue(c.assinaturas_completas)
+        self.assertFalse(c.falta_assinatura)
+        self.assertEqual(c.assinado_prestador_por, 'pj@empresa.com.br')
+        self.assertEqual(c.assinado_gestor_por, 'cristiano@camim.com.br')
+        self.assertContains(resp, 'já vem assinado por prestador e gestor')
+        self.assertEqual(m_mail.call_count, 0)  # ninguém a avisar
+        self.assertTrue(AuditLog.objects.filter(
+            evento=AuditLog.Evento.ASSINATURA_CONTRATO,
+            detalhe__contains='2 assinatura').exists())
+
+    @mock.patch('core.services.contratos.aplicar_dados_async')
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_painel_anexa_pdf_com_uma_assinatura_e_a_do_gestor(
+            self, m_mail, _m_ia):
+        from core.models import Contrato
+        self.login_admin()
+        resp = self.client.post(
+            f'/painel/prestadores/{self.prestador.pk}/',
+            {'qual': 'contrato', 'posto': self.posto1.pk,
+             'arquivo': _pdf_assinado(1)}, follow=True)
+        c = Contrato.objects.get(prestador=self.prestador, posto=self.posto1)
+        self.assertTrue(c.assinatura_govbr)
+        self.assertIsNotNone(c.assinado_gestor_em)
+        self.assertTrue(c.falta_prestador)
+        self.assertContains(resp, 'já vem assinado pelo gestor')
+        # O prestador ainda precisa assinar — foi avisado
+        self.assertEqual(m_mail.call_count, 1)
+        self.assertIn('pj@empresa.com.br', _destinos(m_mail))
+
+    @mock.patch('core.services.contratos.aplicar_dados_async')
+    def test_painel_pdf_sem_assinatura_nao_muda_nada(self, _m_ia):
+        from core.models import Contrato
+        self.login_admin()
+        self.client.post(
+            f'/painel/prestadores/{self.prestador.pk}/',
+            {'qual': 'contrato', 'posto': self.posto1.pk, 'arquivo': _pdf()})
+        c = Contrato.objects.get(prestador=self.prestador, posto=self.posto1)
+        self.assertFalse(c.assinatura_govbr)
+        self.assertIsNone(c.assinado_prestador_em)
+        self.assertIsNone(c.assinado_gestor_em)
+
+    @mock.patch('core.services.contratos.aplicar_dados_async')
+    def test_portal_prestador_anexa_pdf_assinado_por_ele(self, _m_ia):
+        from core.models import Contrato
+        self.login_pj()
+        resp = self.client.post(
+            f'/contratos/{self.posto1.pk}/',
+            {'arquivo': _pdf_assinado(1), 'vigencia_inicio': '2026-06-26'},
+            follow=True)
+        c = Contrato.objects.get(prestador=self.prestador, posto=self.posto1)
+        self.assertTrue(c.assinatura_govbr)
+        self.assertEqual(c.assinado_prestador_por, 'pj@empresa.com.br')
+        self.assertIsNone(c.assinado_gestor_em)
+        self.assertTrue(c.falta_gestor)
+        self.assertContains(resp, 'já vem assinado pelo prestador')
+
+    def test_ligar_govbr_reconhece_assinaturas_do_pdf_atual(self):
+        from core.models import Contrato
+        c = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            arquivo=_pdf_assinado(2), nome_original='x.pdf')
+        self.assertFalse(c.assinatura_govbr)
+        self.login_admin()
+        resp = self.client.post(f'/painel/contratos/{c.pk}/govbr/',
+                                follow=True)
+        c.refresh_from_db()
+        self.assertTrue(c.assinatura_govbr)
+        self.assertTrue(c.assinaturas_completas)
+        self.assertContains(resp, 'já vem assinado por prestador e gestor')
+
+    def test_ligar_govbr_sem_assinatura_fica_pendente(self):
+        from core.models import Contrato
+        c = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto1, arquivo=_pdf())
+        self.login_admin()
+        self.client.post(f'/painel/contratos/{c.pk}/govbr/')
+        c.refresh_from_db()
+        self.assertTrue(c.assinatura_govbr)
+        self.assertTrue(c.falta_prestador and c.falta_gestor)
+
+    def test_reconhecer_nao_sobrescreve_assinatura_ja_registrada(self):
+        from core.models import Contrato
+        from core.services import assinaturas
+        c = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            arquivo=_pdf_assinado(2), assinatura_govbr=True,
+            assinado_prestador_em=timezone.now(),
+            assinado_prestador_por='antigo@pj.com')
+        n = assinaturas.reconhecer_assinaturas(
+            c, quem='cristiano@camim.com.br', papel_de_quem='gestor')
+        self.assertEqual(n, 2)
+        c.refresh_from_db()
+        self.assertEqual(c.assinado_prestador_por, 'antigo@pj.com')
+        self.assertEqual(c.assinado_gestor_por, 'cristiano@camim.com.br')
+
+
 class DesativarContratoTest(BaseSetup):
     def setUp(self):
         super().setUp()
