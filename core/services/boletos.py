@@ -92,6 +92,49 @@ def identificar_posto(texto):
     return None
 
 
+RE_LINHA = re.compile(r'\d[\d .\-]{38,70}\d')
+
+
+def linha_no_texto(texto):
+    """Primeira linha digitável (47/48 dígitos) no texto, ou ''."""
+    for cand in RE_LINHA.findall(texto or ''):
+        d = re.sub(r'\D', '', cand)
+        if len(d) in (47, 48):
+            return d
+    return ''
+
+
+def absorver_sem_posto(boleto):
+    """O mesmo boleto chegou duas vezes: primeiro só a linha digitável
+    (ficou sem posto, MANUAL) e depois o PDF, que o destinou. O antigo vira
+    SUBSTITUÍDO — chave: mesma linha digitável, mesmo prestador e mês
+    (03/11/2026, Elias: 6 linhas de manhã, 6 PDFs por link do Adobe à
+    tarde; os 6 antigos ficaram em "para destinar"). Devolve os pks."""
+    if not boleto.linha_digitavel or boleto.posto_id is None:
+        return []
+    antigos = list(
+        Boleto.objects
+        .filter(prestador=boleto.prestador, competencia=boleto.competencia,
+                posto__isnull=True, linha_digitavel=boleto.linha_digitavel,
+                status__in=[Boleto.Status.RECEBIDO, Boleto.Status.MANUAL,
+                            Boleto.Status.DIVERGENTE])
+        .exclude(pk=boleto.pk))
+    from ..models import AuditLog
+    for a in antigos:
+        a.status = Boleto.Status.SUBSTITUIDO
+        a.posto = boleto.posto
+        a.ia_resposta = (a.ia_resposta + f'\n[substituido] o mesmo boleto '
+                         f'chegou em PDF e virou o #{boleto.pk} — '
+                         f'{boleto.posto}').strip()
+        a.save(update_fields=['status', 'posto', 'ia_resposta'])
+        AuditLog.registrar(
+            AuditLog.Evento.STATUS, ator='sistema',
+            detalhe=f'Boleto #{a.pk} (só linha digitável, sem posto) '
+                    f'SUBSTITUÍDO pelo #{boleto.pk} ({boleto.posto}): '
+                    'mesma linha digitável')
+    return [a.pk for a in antigos]
+
+
 def sem_posto_identificavel(boleto):
     """Boleto POR_POSTO que chegou sem posto e cujo prestador atende mais
     de um — ninguém sabe qual empresa paga. É o caso de responder ao PJ

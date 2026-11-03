@@ -4537,3 +4537,37 @@ class MudarPagadorTest(BaseSetup):
         self.assertEqual(b.posto, self.posto1)
         self.assertEqual(b.status, Boleto.Status.APROVADO)
         self.assertIn('CORREÇÃO — empresa pagadora', m_mail.call_args.args[1])
+
+
+class AbsorverSemPostoTest(BaseSetup):
+    """Elias, 03/11/2026: a linha digitável veio de manhã (sem posto), o PDF
+    do mesmo boleto à tarde. O antigo vira SUBSTITUÍDO quando o PDF é
+    destinado; a linha do PDF sai do texto quando a IA não a devolve."""
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    @mock.patch('core.services.ia.extrair_valor',
+                return_value=(Decimal('1500.00'),
+                              '{"valor":"1500.00","confianca":100}'))
+    def test_pdf_destinado_substitui_a_linha_antiga(self, m_ia, m_mail):
+        linha = _linha_47(150000)
+        antigo = Boleto.objects.create(
+            prestador=self.prestador, competencia=date(2026, 11, 1),
+            status=Boleto.Status.MANUAL, linha_digitavel=linha,
+            valor_extraido=Decimal('1500.00'))
+        novo = Boleto.objects.create(
+            prestador=self.prestador, competencia=date(2026, 11, 1),
+            arquivo=_pdf(), enviado_por='pj@empresa.com.br')
+        texto = (f'Pagador CAMIM ANCHIETA CNPJ 27.110.113/0001-04\\n'
+                 f'Linha {linha[:5]}.{linha[5:10]} {linha[10:20]} '
+                 f'{linha[20:]}\\nBeneficiário Limpeza Total LTDA')
+        with mock.patch('core.services.pdf.extrair_texto',
+                        return_value=texto):
+            verificacao.processar(novo.pk)
+        novo.refresh_from_db()
+        antigo.refresh_from_db()
+        self.assertEqual(novo.posto, self.posto1)
+        self.assertEqual(novo.linha_digitavel, linha)
+        self.assertEqual(novo.status, Boleto.Status.APROVADO)
+        self.assertEqual(antigo.status, Boleto.Status.SUBSTITUIDO)
+        self.assertEqual(antigo.posto, self.posto1)
+        self.assertIn(f'#{novo.pk}', antigo.ia_resposta)

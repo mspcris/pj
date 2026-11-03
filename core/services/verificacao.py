@@ -1149,12 +1149,20 @@ def processar(boleto_pk):
             ld = re.sub(r'\D', '', str(dados.get('linha_digitavel') or ''))
             if 40 <= len(ld) <= 48:
                 boleto.linha_digitavel = ld
+        if not boleto.linha_digitavel and not por_visao:
+            # a IA nem sempre devolve a linha; o texto do PDF a traz
+            boleto.linha_digitavel = svc_boletos.linha_no_texto(texto)
         if boleto.vencimento is None:
             try:
                 boleto.vencimento = datetime.strptime(
                     str(dados.get('vencimento') or ''), '%d/%m/%Y').date()
             except ValueError:
                 pass
+        # O mesmo boleto já tinha chegado só como linha digitável (sem
+        # posto)? Agora que o PDF o destinou, o antigo vira SUBSTITUÍDO.
+        boleto.save(update_fields=['linha_digitavel', 'posto',
+                                   'valor_esperado'])
+        svc_boletos.absorver_sem_posto(boleto)
     elif eh_pdf:
         # PDF sem texto e o opus também não leu → como antes, vai a manual.
         _para_manual(boleto, 'PDF sem texto legível e o opus (visão) também '
