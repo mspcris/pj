@@ -222,16 +222,11 @@ def _criar_boleto(request, up, competencia):
     # Competência que JÁ tem boleto deste posto aprovado/pago: o script
     # mandou o mês errado (Guido, 01/10 e 03/11/2026). Melhor recusar com a
     # explicação do que cadastrar um "duplicado" que ninguém vê.
-    posto_chave = (None if prestador.modo_boleto_em(competencia)
-                   == Prestador.ModoBoleto.UNICO else posto)
-    if posto is not None or posto_chave is None:
-        ja = (Boleto.objects
-              .filter(prestador=prestador, posto=posto_chave,
-                      competencia=competencia, extra=False, parcial=False,
-                      status__in=[Boleto.Status.APROVADO,
-                                  Boleto.Status.FIN_RECEBIDO,
-                                  Boleto.Status.PAGO])
-              .first())
+    from .services import boletos as svc_boletos
+    unico = (prestador.modo_boleto_em(competencia)
+             == Prestador.ModoBoleto.UNICO)
+    if posto is not None or unico:
+        ja = svc_boletos.mes_fechado(prestador, posto, competencia)
         if ja is not None:
             hoje = timezone.localdate().replace(day=1)
             dica = (f' Se este boleto é de {hoje:%Y-%m}, envie '

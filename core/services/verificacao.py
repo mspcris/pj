@@ -892,6 +892,38 @@ def pagar_automatico(agora=None):
     return pagos
 
 
+def avisar_correcao_competencia(boleto, de, quem, motivo=''):
+    """E-mail oficial ao PJ, ligado ao boleto, avisando que a competência
+    foi corrigida (de `de` para a atual) e que o boleto segue normalmente.
+    Texto fixo. Guido, 03/11/2026: a integração mandou outubro em vez de
+    novembro."""
+    fatos = _fatos(boleto)
+    antes = competencia_extenso(de)
+    corpo = (
+        f'Prezado(a) {fatos["contato"]},\n\n'
+        f'Informamos que o boleto de {fatos["alvo"]} enviado com a '
+        f'competência {antes} foi corrigido no nosso controle para '
+        f'{fatos["competencia"]}, que é o mês correto do pagamento. '
+        'Nada precisa ser feito da sua parte: o boleto foi conferido e '
+        'segue o fluxo normal de pagamento. Os dados corrigidos estão '
+        'abaixo.\n\n'
+        'Para os próximos meses, atenção à competência informada no envio: '
+        'um mês que já foi fechado e pago não aceita mais boleto.\n\n'
+        'Atenciosamente,\nCristiano — CAMIM')
+    ok = emails.enviar(
+        destinatarios_pj(boleto),
+        f'Competência corrigida — {fatos["alvo"]} — {antes} → '
+        f'{fatos["competencia"]}',
+        corpo + dados_pj(boleto, fatos), boleto=boleto,
+        cc=cc_gerente(boleto))
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator=quem,
+        detalhe=f'Boleto #{boleto.pk}: prestador avisado da correção de '
+                f'competência ({antes} → {fatos["competencia"]})'
+                + (f' — {motivo}' if motivo else ''))
+    return ok
+
+
 def mudar_pagador(boleto, novo_posto, motivo, quem):
     """Boleto passa a ser pago por OUTRO posto (03/11/2026: o boleto do
     Lucas na Ótica LUTI, a pedido do Pereira, passou para a Anchieta).

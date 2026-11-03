@@ -235,6 +235,37 @@ def trocar_nota(boleto, arquivo, nome, quem='', via=''):
     return anterior
 
 
+def mes_fechado(prestador, posto, competencia, extra=False, parcial=False):
+    """Boleto APROVADO/FIN_RECEBIDO/PAGO que já fecha (prestador, posto,
+    mês)? Uma vez fechado e pago, ninguém anexa outro boleto para aquela
+    chave (03/11/2026, Guido: a integração mandou o mês errado e os
+    boletos caíam em "duplicado" sem ninguém ver). Cobranças extra e
+    parciais ficam fora. Devolve o boleto que fecha o mês, ou None."""
+    if extra or parcial:
+        return None
+    if prestador.modo_boleto_em(competencia) == Prestador.ModoBoleto.UNICO:
+        posto = None
+    return (Boleto.objects
+            .filter(prestador=prestador, posto=posto,
+                    competencia=competencia, extra=False, parcial=False,
+                    status__in=[Boleto.Status.APROVADO,
+                                Boleto.Status.FIN_RECEBIDO,
+                                Boleto.Status.PAGO])
+            .order_by('-pk').first())
+
+
+def frase_mes_fechado(ja, competencia, posto=None):
+    """Texto único das recusas (portal, API)."""
+    estado = 'pago' if ja.status == Boleto.Status.PAGO else \
+        'enviado para pagamento'
+    return (f'O mês {competencia:%m/%Y}'
+            + (f' de {posto.nome}' if posto else '')
+            + f' já está fechado: o boleto #{ja.pk} foi {estado}. Não dá '
+            'para anexar outro boleto para este mês. Se o boleto novo é de '
+            'outro mês, escolha o mês certo; se precisa corrigir o que já '
+            'foi pago, fale com o Cristiano.')
+
+
 def duplicado_de(boleto):
     """Outro boleto da mesma chave já enviado p/ pagamento (ou pago)?
     Cobranças extras ficam fora da trava, nos dois sentidos."""

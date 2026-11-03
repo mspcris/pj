@@ -4741,3 +4741,59 @@ class ApiCompetenciaJaPagaTest(BaseSetup):
             '/api/boletos/', {'posto': 'A', 'competencia': '2026-11',
                               'arquivo': _pdf()}, **self.auth)
         self.assertEqual(resp.status_code, 201)
+
+
+class MesFechadoTest(BaseSetup):
+    """03/11/2026: "uma vez fechado o mês e já pago, não pode mais
+    anexar" — portal e API recusam; o aviso de correção vai ligado ao
+    boleto."""
+    def setUp(self):
+        super().setUp()
+        self.pago = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 10, 1), status=Boleto.Status.PAGO,
+            valor_extraido=Decimal('1500.00'))
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_portal_recusa_mes_fechado(self, m_async):
+        self.login_pj()
+        resp = self.client.post('/boleto/', {
+            'competencia': '2026-10-01', 'posto': self.posto1.pk,
+            'arquivo': _pdf()})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'já está fechado')
+        self.assertContains(resp, f'#{self.pago.pk}')
+        self.assertEqual(Boleto.objects.count(), 1)
+        # outro posto no mesmo mês entra
+        resp = self.client.post('/boleto/', {
+            'competencia': '2026-10-01', 'posto': self.posto2.pk,
+            'arquivo': _pdf()})
+        self.assertEqual(resp.status_code, 302)
+        # no painel do admin a trava também vale (cobrança extra passa)
+        self.login_admin()
+        resp = self.client.post('/painel/boleto/novo/', {
+            'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+            'competencia': '2026-10-01', 'arquivo': _pdf()})
+        self.assertContains(resp, 'já está fechado')
+        resp = self.client.post('/painel/boleto/novo/', {
+            'prestador': self.prestador.pk, 'posto': self.posto1.pk,
+            'competencia': '2026-10-01', 'arquivo': _pdf(), 'extra': 'on'})
+        self.assertEqual(resp.status_code, 302)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_aviso_de_correcao_ligado_ao_boleto(self, m_mail):
+        from core.services.verificacao import avisar_correcao_competencia
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 11, 1), status=Boleto.Status.APROVADO,
+            valor_extraido=Decimal('1500.00'),
+            valor_esperado=Decimal('1500.00'))
+        self.assertTrue(avisar_correcao_competencia(
+            b, date(2026, 10, 1), quem='cristiano@camim.com.br'))
+        dest, assunto, corpo = m_mail.call_args.args[:3]
+        self.assertIn('pj@empresa.com.br', dest)
+        self.assertIn('Competência corrigida', assunto)
+        self.assertIn('outubro/2026', corpo)
+        self.assertIn('novembro/2026', corpo)
+        self.assertIn('não aceita mais boleto', corpo)
+        self.assertEqual(m_mail.call_args.kwargs['boleto'], b)

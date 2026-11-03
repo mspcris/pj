@@ -85,6 +85,18 @@ class BoletoForm(forms.Form):
             raise forms.ValidationError('Mês inválido.')
         return d.replace(day=1)
 
+    def clean(self):
+        dados = super().clean()
+        comp = dados.get('competencia')
+        if comp:
+            # Mês já fechado e pago: o PJ não anexa mais (03/11/2026).
+            from .services.boletos import frase_mes_fechado, mes_fechado
+            ja = mes_fechado(self.prestador, dados.get('posto'), comp)
+            if ja is not None:
+                raise forms.ValidationError(
+                    frase_mes_fechado(ja, comp, dados.get('posto')))
+        return dados
+
 
 class BoletoAdminForm(forms.Form):
     """Cadastro de boleto pelo admin (ex.: boleto que chegou pelo zap)."""
@@ -185,6 +197,16 @@ class BoletoAdminForm(forms.Form):
                         f'{posto.nome} (cadastre o valor primeiro).')
             else:
                 dados['posto'] = None
+            # Mês já fechado e pago: não anexa mais (03/11/2026).
+            comp = dados.get('competencia')
+            if comp:
+                from .services.boletos import frase_mes_fechado, mes_fechado
+                ja = mes_fechado(prestador, dados.get('posto'), comp,
+                                 extra=dados.get('extra'),
+                                 parcial=dados.get('parcial'))
+                if ja is not None:
+                    raise forms.ValidationError(
+                        frase_mes_fechado(ja, comp, dados.get('posto')))
         return dados
 
 
