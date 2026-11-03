@@ -15,6 +15,10 @@ POST /api/boletos/  (multipart/form-data)
     → 201 {"id", "competencia", "posto", "posto_letra", "status",
            "valor_esperado", "origem", "tem_nota_fiscal",
            "aguardando_nota_fiscal"}
+    → 409 {"erro"} quando a competência informada JÁ tem boleto desse
+      posto aprovado/pago (03/11/2026: a integração do Guido mandou
+      competencia=2026-10 em novembro e 8 boletos caíram em "duplicado").
+      Corrija a competência (provavelmente o mês atual) e reenvie.
 
 POST /api/boletos/<id>/nota/  (multipart/form-data, campo "nota_fiscal")
     → 200 {boleto, "nota_substituida"} — anexa a NF a um boleto que já está
@@ -214,6 +218,32 @@ def _criar_boleto(request, up, competencia):
     linha = re.sub(r'\D', '', request.POST.get('linha_digitavel', ''))
     if linha and not 40 <= len(linha) <= 48:
         return _erro('linha_digitavel deve ter 47 ou 48 dígitos')
+
+    # Competência que JÁ tem boleto deste posto aprovado/pago: o script
+    # mandou o mês errado (Guido, 01/10 e 03/11/2026). Melhor recusar com a
+    # explicação do que cadastrar um "duplicado" que ninguém vê.
+    posto_chave = (None if prestador.modo_boleto_em(competencia)
+                   == Prestador.ModoBoleto.UNICO else posto)
+    if posto is not None or posto_chave is None:
+        ja = (Boleto.objects
+              .filter(prestador=prestador, posto=posto_chave,
+                      competencia=competencia, extra=False, parcial=False,
+                      status__in=[Boleto.Status.APROVADO,
+                                  Boleto.Status.FIN_RECEBIDO,
+                                  Boleto.Status.PAGO])
+              .first())
+        if ja is not None:
+            hoje = timezone.localdate().replace(day=1)
+            dica = (f' Se este boleto é de {hoje:%Y-%m}, envie '
+                    f'competencia={hoje:%Y-%m} (ou omita o campo).'
+                    if competencia != hoje else '')
+            return _erro(
+                f'competencia {competencia:%Y-%m}'
+                + (f' ({posto.nome})' if posto else '')
+                + f' já tem boleto #{ja.pk} '
+                + ('pago' if ja.status == Boleto.Status.PAGO
+                   else 'enviado para pagamento')
+                + ' — nada foi cadastrado.' + dica, status=409)
 
     from .services import boletos as svc_boletos
     boleto = svc_boletos.registrar(

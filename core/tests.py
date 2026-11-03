@@ -3334,16 +3334,18 @@ class NotaSubstituidaTest(BaseSetup):
     @mock.patch('core.services.verificacao.fluxo_completo_async')
     def test_boleto_ja_enviado_nao_e_substituido_pela_api(self, m_async):
         """A regra que NÃO muda: boleto que já foi ao financeiro só troca
-        com o admin retirando — o reenvio vira DUPLICADO na verificação e o
-        que está no financeiro segue intacto."""
+        com o admin retirando. Desde 03/11/2026 o reenvio pela API é
+        RECUSADO (409) com a explicação — antes entrava e virava
+        DUPLICADO sem ninguém ver (Guido). O que está no financeiro segue
+        intacto."""
         b = self._boleto()
         resp = self.client.post('/api/boletos/2026-10/boleto/', {
             'posto': 'A', 'arquivo': _pdf('boleto-novo.pdf')}, **self.auth)
-        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn('já tem boleto', resp.json()['erro'])
         b.refresh_from_db()
         self.assertEqual(b.status, Boleto.Status.FIN_RECEBIDO)
-        from .services.boletos import duplicado_de
-        self.assertEqual(duplicado_de(Boleto.objects.latest('pk')), b)
+        self.assertEqual(Boleto.objects.count(), 1)
 
 
 # ===========================================================================
@@ -4704,3 +4706,38 @@ class PainelFinanceiroTest(BaseSetup):
         f = UsuarioForm({'email': 'y@camim.com.br', 'nome': 'Y',
                          'ativo': 'on'})
         self.assertFalse(f.is_valid())
+
+
+class ApiCompetenciaJaPagaTest(BaseSetup):
+    """Guido (01/10 e 03/11/2026): o script manda o mês errado e os boletos
+    caem em "duplicado" sem ninguém ver. A API recusa com 409 e explica."""
+    def setUp(self):
+        super().setUp()
+        self.up.api_token = 'a' * 48
+        self.up.save()
+        self.auth = {'HTTP_AUTHORIZATION': 'Bearer ' + 'a' * 48}
+        Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                              competencia=date(2026, 10, 1),
+                              status=Boleto.Status.PAGO,
+                              valor_extraido=Decimal('1500.00'))
+
+    @mock.patch('core.services.verificacao.fluxo_completo_async')
+    def test_409_quando_o_mes_ja_foi_pago(self, m_async):
+        with mock.patch('django.utils.timezone.localdate',
+                        return_value=date(2026, 11, 3)):
+            resp = self.client.post(
+                '/api/boletos/', {'posto': 'A', 'competencia': '2026-10',
+                                  'arquivo': _pdf()}, **self.auth)
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn('já tem boleto', resp.json()['erro'])
+        self.assertIn('competencia=2026-11', resp.json()['erro'])
+        self.assertEqual(Boleto.objects.count(), 1)
+        # outro posto no mesmo mês: passa; mês certo: passa
+        resp = self.client.post(
+            '/api/boletos/', {'posto': 'B', 'competencia': '2026-10',
+                              'arquivo': _pdf()}, **self.auth)
+        self.assertEqual(resp.status_code, 201)
+        resp = self.client.post(
+            '/api/boletos/', {'posto': 'A', 'competencia': '2026-11',
+                              'arquivo': _pdf()}, **self.auth)
+        self.assertEqual(resp.status_code, 201)
