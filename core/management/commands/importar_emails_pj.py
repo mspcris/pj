@@ -20,6 +20,10 @@ O que faz com cada e-mail novo:
   * Anexos PDF → um boleto por PDF, competência do mês atual.
   * Sem PDF → procura linha digitável no corpo (47/48 dígitos) → boleto sem
     arquivo. Sem nada → avisa o admin (SEM_CONTEUDO).
+  * Boleto sem posto identificável (PJ atende vários postos e nem o PDF
+    nem a linha digitável dizem qual) → responde ao PJ pedindo a empresa
+    pagadora (pedir_identificacao_posto) em vez do "recebemos"; a resposta
+    fica ligada ao e-mail recebido e aparece em "abrir o e-mail".
   * Cada boleto entra no MESMO fluxo do upload: "recebemos" + verificação
     (valor × código de barras × combinado, duplicidade, mês).
 
@@ -44,7 +48,8 @@ from core.services import boletos as svc_boletos
 from core.services import email_recebido as svc_recebido
 from core.services import emails as svc_emails
 from core.services import pdf as svc_pdf
-from core.services.verificacao import enviar_recebido, processar
+from core.services.verificacao import (enviar_recebido,
+                                       pedir_identificacao_posto, processar)
 
 RE_LINHA = re.compile(r'\d[\d .\-]{38,70}\d')
 
@@ -410,6 +415,39 @@ class Command(BaseCommand):
 
         if not criados:
             linha = _linha_do_texto(_corpo_texto(msg))
+            # Linha digitável de boleto JÁ cadastrado deste prestador: é o
+            # PJ respondendo (citando o nosso e-mail, que traz a linha no
+            # bloco de dados) — p.ex. dizendo de qual posto o boleto é.
+            # Não cria outro boleto (senão: outro pedido, outra resposta,
+            # loop); avisa o admin com o texto, para ele destinar.
+            existente = (Boleto.objects
+                         .filter(prestador=prestador, linha_digitavel=linha)
+                         .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
+                                              Boleto.Status.DESCARTADO])
+                         .order_by('-pk').first()) if linha else None
+            if existente is not None:
+                texto = svc_recebido.corpo_em_texto(msg)
+                EmailRecebido.objects.update_or_create(
+                    message_id=message_id,
+                    defaults={'remetente': remetente, 'assunto': assunto,
+                              'resultado': EmailRecebido.Resultado.RESPOSTA,
+                              'detalhe': f'#{existente.pk}',
+                              **svc_recebido.conteudo(msg)})
+                svc_emails.enviar(
+                    settings.EMAIL_ADMIN,
+                    f'💬 {prestador.nome} respondeu sobre o boleto '
+                    f'#{existente.pk}',
+                    f'{remetente} respondeu ao e-mail do boleto '
+                    f'#{existente.pk} ({existente}). Nada novo foi '
+                    'cadastrado — leia o que ele escreveu e, se for o '
+                    'posto, destine o boleto em "Editar" e reverifique:\n'
+                    f'https://pj.camim.com.br/painel/boleto/{existente.pk}/'
+                    'editar/\n\n--- texto do e-mail ---\n'
+                    + texto[:1500],
+                    boleto=existente)
+                self.stdout.write(f'  RESPOSTA sobre #{existente.pk}: '
+                                  f'{remetente}')
+                return
             if linha:
                 b = svc_boletos.registrar(
                     prestador, competencia, enviado_por=remetente,
@@ -444,27 +482,39 @@ class Command(BaseCommand):
         for b in criados:
             b.email_origem = registro
             b.save(update_fields=['email_origem'])
-        if len(criados) == 1:
-            enviar_recebido(criados[0])
-        else:
+        # Boleto que chegou sem dizer de qual posto é (linha digitável no
+        # corpo, ou PDF sem CNPJ/razão social de posto nenhum) e o PJ
+        # atende vários: em vez de "recebemos", pede a empresa pagadora —
+        # o pagamento fica em espera até ele informar (03/11/2026, Elias
+        # mandou 6 linhas digitáveis de R$ 1.000 sem dizer de quem).
+        sem_posto = [b for b in criados
+                     if svc_boletos.sem_posto_identificavel(b)]
+        for b in sem_posto:
+            pedir_identificacao_posto(b, em_resposta_a=registro)
+            self.stdout.write(f'  boleto #{b.pk} sem posto — pedida a '
+                              'empresa pagadora ao prestador')
+        com_posto = [b for b in criados if b not in sem_posto]
+        if len(com_posto) == 1:
+            enviar_recebido(com_posto[0])
+        elif len(com_posto) > 1:
             # Vários PDFs no mesmo e-mail → UM aviso só, não um por boleto.
             from core.services import frases
             from core.services.verificacao import (competencia_extenso,
                                                    destinatarios_pj)
             fatos = {'prestador': prestador.nome, 'alvo': 'vários postos',
                      'competencia': competencia_extenso(competencia),
-                     'valor': '—', 'quantidade': len(criados)}
+                     'valor': '—', 'quantidade': len(com_posto)}
             svc_emails.enviar(
-                destinatarios_pj(criados[0]),
-                f'Boletos recebidos ({len(criados)}) — '
+                destinatarios_pj(com_posto[0]),
+                f'Boletos recebidos ({len(com_posto)}) — '
                 f'{fatos["competencia"]}',
                 frases.corpo(
                     'recebido', fatos,
                     instrucao_ia=(f'Escreva confirmando que recebemos os '
-                                  f'{len(criados)} boletos enviados no '
+                                  f'{len(com_posto)} boletos enviados no '
                                   'e-mail e que serão verificados um a um '
                                   'em breve.')),
-                boleto=criados[0])
+                boleto=com_posto[0], em_resposta_a=registro)
         for b in criados:
             processar(b.pk)
         self.stdout.write(self.style.SUCCESS(

@@ -66,7 +66,12 @@ def posto_do_boleto(prestador, texto):
 
 def identificar_posto(texto):
     """Descobre o posto pelo CNPJ do sacado impresso no texto do boleto
-    (match exato de dígitos — determinístico); fallback: razão social."""
+    (match exato de dígitos — determinístico); fallback: razão social.
+    Posto SEM CNPJ e SEM razão social cadastrados (Ronald Fernandes é
+    pessoa física) só pode ser reconhecido pelo próprio nome — como
+    palavra inteira, para "Bangu" num endereço não virar destino
+    (03/11/2026: o PDF do Elias dizia "Pagador: Ronald Fernandes" e o
+    boleto ficava sem posto)."""
     if not texto:
         return None
     digitos = re.sub(r'\D', '', texto)
@@ -79,7 +84,25 @@ def identificar_posto(texto):
     for p in ativos.exclude(razao_social=''):
         if _norm(p.razao_social) in texto_norm:
             return p
+    for p in ativos.filter(cnpj='', razao_social=''):
+        nome = _norm(p.nome)
+        if nome and re.search(r'(?<![A-Z0-9])' + re.escape(nome)
+                              + r'(?![A-Z0-9])', texto_norm):
+            return p
     return None
+
+
+def sem_posto_identificavel(boleto):
+    """Boleto POR_POSTO que chegou sem posto e cujo prestador atende mais
+    de um — ninguém sabe qual empresa paga. É o caso de responder ao PJ
+    pedindo a empresa pagadora (o posto único é deduzido sozinho)."""
+    prest = boleto.prestador
+    if boleto.posto_id is not None or boleto.extra:
+        return False
+    if prest.modo_boleto_em(boleto.competencia) != \
+            Prestador.ModoBoleto.POR_POSTO:
+        return False
+    return prest.vinculos_ativos().count() > 1
 
 
 def vales_aplicaveis(prestador, posto, competencia):

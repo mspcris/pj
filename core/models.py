@@ -154,6 +154,20 @@ class Prestador(models.Model):
         null=True, blank=True,
         verbose_name='Vencimento do boleto (dia do mês)')
 
+    def dia_para_cobrar_boleto(self, mes):
+        """Dia do `mes` a partir do qual o lembrete diário cobra "sem
+        boleto": a VÉSPERA do vencimento (ou do dia de pagamento, se não
+        há vencimento cadastrado), limitada ao último dia do mês. None =
+        nenhum dia cadastrado (cobra o mês inteiro, como sempre foi).
+        03/11/2026: "não faz sentido me avisar o mês inteiro que a
+        Desenlike não anexou boleto — o vencimento é só dia 30"."""
+        import calendar
+        dia = self.dia_vencimento or self.dia_pagamento
+        if not dia:
+            return None
+        ultimo = calendar.monthrange(mes.year, mes.month)[1]
+        return mes.replace(day=max(1, min(dia, ultimo) - 1))
+
     def mes_servico(self, competencia):
         """Mês em que o serviço foi prestado, dado o mês do pagamento."""
         if self.regime_pagamento == self.Regime.POSTERIOR:
@@ -581,6 +595,9 @@ class Boleto(models.Model):
     # motivo que ele escreveu (vai no e-mail ao prestador e no histórico).
     nao_reconhecido_em = models.DateTimeField(null=True, blank=True)
     nao_reconhecido_motivo = models.CharField(max_length=500, blank=True)
+    # Quando o PJ foi avisado de que o boleto chegou sem dizer de qual
+    # unidade (empresa pagadora) é — pagamento em espera até ele informar.
+    pedido_posto_em = models.DateTimeField(null=True, blank=True)
     vencimento = models.DateField(null=True, blank=True)
     # Só o admin liga isto (cadastro direto): aceita o valor do boleto mesmo
     # diferente do combinado — único caminho para pagar valor MAIOR.
@@ -671,6 +688,12 @@ class Boleto(models.Model):
                 'quando': self.criado_em,
                 'detalhe': (f'origem: {self.get_origem_display()} · {quem}'
                             if self.origem else quem)})
+        if self.pedido_posto_em:
+            ev.append({
+                'icone': '❓', 'titulo': 'Pedida a empresa pagadora ao PJ',
+                'quando': self.pedido_posto_em,
+                'detalhe': 'boleto chegou sem dizer de qual unidade é — '
+                           'pagamento em espera'})
         if self.verificado_em:
             if self.valor_corrigido_mao:
                 det = self.valor_corrigido_mao
@@ -816,6 +839,10 @@ class EmailRecebido(models.Model):
         SEM_PRESTADOR = 'SEM_PREST', 'Remetente sem cadastro'
         SEM_CONTEUDO = 'SEM_CONT', 'Sem PDF e sem linha digitável'
         FIN = 'FIN', 'Confirmação do financeiro'
+        # O PJ respondeu sobre um boleto que JÁ está cadastrado (a linha
+        # digitável citada no corpo é a dele) — nada novo é criado; o
+        # admin lê o que ele escreveu.
+        RESPOSTA = 'RESPOSTA', 'Resposta do prestador (boleto já cadastrado)'
 
     message_id = models.CharField(max_length=255, unique=True)
     remetente = models.CharField(max_length=255)
@@ -849,6 +876,13 @@ class EmailLog(models.Model):
     corpo = models.TextField()
     boleto = models.ForeignKey(Boleto, null=True, blank=True,
                                on_delete=models.SET_NULL, related_name='emails')
+    # RESPOSTA a um e-mail que chegou na caixa de boletos (03/11/2026: o
+    # Elias mandou só a linha digitável, sem dizer de qual posto era, e o
+    # robô respondeu pedindo a empresa pagadora). A tela "abrir o e-mail"
+    # mostra as respostas — controle e auditoria do que foi dito ao PJ.
+    em_resposta_a = models.ForeignKey(
+        'EmailRecebido', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='respostas')
     ok = models.BooleanField(default=False)
     erro = models.TextField(blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)

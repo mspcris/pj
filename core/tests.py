@@ -4114,3 +4114,203 @@ class ContratosPorPostoTests(TestCase):
         with self.assertRaises(CommandError):
             self._rodar('--desativar', str(c.pk))
         self.assertEqual(Contrato.objects.filter(prestador=self.p).count(), 1)
+
+
+class SemPostoIdentificavelTest(BaseSetup):
+    """03/11/2026: o Elias (9 postos) mandou 6 e-mails só com a linha
+    digitável — ninguém sabe de qual posto cada boleto é. O robô responde
+    pedindo a empresa pagadora, a resposta fica em "abrir o e-mail" e o
+    motivo do MANUAL diz o que fazer. E o PDF que dizia "Pagador: Ronald
+    Fernandes" (posto sem CNPJ nem razão social) passa a ser reconhecido."""
+
+    def _email_linha(self, mid='<linha1@gmail.com>'):
+        from email.message import EmailMessage
+        msg = EmailMessage()
+        msg['From'] = 'pj@empresa.com.br'
+        msg['To'] = 'prestadores@camim.com.br'
+        msg['Subject'] = ''
+        msg['Message-ID'] = mid
+        msg['Date'] = 'Tue, 03 Nov 2026 07:27:00 -0300'
+        msg.set_content('33690.00041 01994.070348 88588.391032 6 '
+                        '16250000100000')
+        return msg
+
+    def test_identificar_posto_pelo_nome_sem_cnpj(self):
+        from core.services.boletos import identificar_posto
+        ronald = Posto.objects.create(nome='Ronald Fernandes')
+        texto = ('Beneficiário Mercado Pago a serviço de Jose Elias\n'
+                 'Pagador\nRonald Fernandes CPF: 051.896.487-61')
+        self.assertEqual(identificar_posto(texto), ronald)
+        # nome dentro de outra palavra não casa; posto com CNPJ segue
+        # casando só pelo CNPJ/razão social
+        self.assertIsNone(identificar_posto('xRonald Fernandesx'))
+        self.assertIsNone(identificar_posto('Rua de Bangu, 10'))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_robo_pede_a_empresa_pagadora_e_registra_no_email(self, m_mail):
+        import io
+        from core.management.commands.importar_emails_pj import Command
+        from core.models import EmailRecebido
+        with mock.patch('core.management.commands.importar_emails_pj.'
+                        'processar'):
+            Command(stdout=io.StringIO())._processar_mensagem(
+                self._email_linha(), False)
+        b = Boleto.objects.get()
+        self.assertIsNone(b.posto)
+        self.assertIsNotNone(b.pedido_posto_em)
+        e = EmailRecebido.objects.get()
+        # UM e-mail só, para o PJ: o pedido (sem "recebemos"), sem cc
+        self.assertEqual(m_mail.call_count, 1)
+        kw = m_mail.call_args.kwargs
+        assunto, corpo = m_mail.call_args.args[1], m_mail.call_args.args[2]
+        self.assertIn('pj@empresa.com.br', m_mail.call_args.args[0])
+        self.assertIn('identificar a empresa pagadora', assunto)
+        self.assertIn('pj.camim.com.br', corpo)
+        self.assertIn('Unidades do seu cadastro: Anchieta, Bangu', corpo)
+        self.assertIn('Linha digitável: 3369000041', corpo)
+        self.assertIn('R$ 1.000,00', corpo)
+        self.assertNotIn('cc', {k for k, v in kw.items() if v})
+        self.assertEqual(kw['em_resposta_a'], e)
+
+    def test_tela_abrir_o_email_mostra_a_resposta(self):
+        from core.models import EmailRecebido
+        e = EmailRecebido.objects.create(
+            message_id='<x@y>', remetente='pj@empresa.com.br',
+            resultado=EmailRecebido.Resultado.BOLETO_CRIADO, corpo='336900')
+        b = Boleto.objects.create(prestador=self.prestador,
+                                  competencia=date(2026, 11, 1),
+                                  email_origem=e,
+                                  linha_digitavel=_linha_47(100000))
+        EmailLog.objects.create(
+            destinatario='pj@empresa.com.br',
+            assunto='Falta identificar a empresa pagadora do boleto',
+            corpo='Prezado(a) Fulano,\n\nNão conseguimos identificar...',
+            ok=True, boleto=b, em_resposta_a=e)
+        EmailLog.objects.create(
+            destinatario='cristiano@camim.com.br',
+            assunto='⚠️ Verificar boleto manualmente — X', corpo='m',
+            ok=True, boleto=b)
+        self.login_admin()
+        resp = self.client.get(f'/painel/emails/recebidos/{e.pk}/')
+        self.assertContains(resp, 'Resposta enviada ao prestador')
+        self.assertContains(resp, 'Não conseguimos identificar...')
+        self.assertContains(resp, 'Outros e-mails do sistema')
+        self.assertContains(resp, 'Verificar boleto manualmente — X')
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_manual_diz_que_falta_o_posto(self, m_mail):
+        b = Boleto.objects.create(prestador=self.prestador,
+                                  competencia=date(2026, 11, 1),
+                                  enviado_por='pj@empresa.com.br',
+                                  linha_digitavel=_linha_47(100000))
+        verificacao.processar(b.pk)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.MANUAL)
+        self.assertIn('não identifiquei o posto', b.motivo_manual)
+        self.assertIn('atende 2 postos', b.motivo_manual)
+        self.assertIn('linha digitável', b.motivo_manual)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_comando_cobre_o_que_ficou_para_tras(self, m_mail):
+        from io import StringIO
+        from django.core.management import call_command
+        b = Boleto.objects.create(prestador=self.prestador,
+                                  competencia=date(2026, 11, 1),
+                                  status=Boleto.Status.MANUAL,
+                                  linha_digitavel=_linha_47(100000))
+        # com posto: não é caso de pedir
+        Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                              competencia=date(2026, 11, 1),
+                              status=Boleto.Status.MANUAL)
+        out = StringIO()
+        call_command('pedir_identificacao_posto', stdout=out)
+        self.assertEqual(m_mail.call_count, 1)
+        self.assertIn('1 pedido(s) enviado(s)', out.getvalue())
+        b.refresh_from_db()
+        self.assertIsNotNone(b.pedido_posto_em)
+        # segunda rodada: já avisado, não repete
+        call_command('pedir_identificacao_posto', stdout=StringIO())
+        self.assertEqual(m_mail.call_count, 1)
+        call_command('pedir_identificacao_posto', '--de-novo',
+                     stdout=StringIO())
+        self.assertEqual(m_mail.call_count, 2)
+
+
+class LembreteVesperaTest(BaseSetup):
+    """03/11/2026: "sem boleto" só a partir da véspera do vencimento
+    (Caio vence dia 10 → aviso começa dia 9). Sem dia cadastrado, cobra
+    o mês inteiro como antes."""
+
+    def _corpo(self, hoje):
+        from io import StringIO
+        from django.core.management import call_command
+        with mock.patch('core.services.emails.enviar',
+                        return_value=True) as m_mail, \
+                mock.patch('django.utils.timezone.localdate',
+                           return_value=hoje):
+            call_command('lembrete_diario', stdout=StringIO())
+        return m_mail.call_args.args[2]
+
+    def test_dia_para_cobrar(self):
+        p = self.prestador
+        self.assertIsNone(p.dia_para_cobrar_boleto(date(2026, 11, 1)))
+        p.dia_vencimento = 10
+        self.assertEqual(p.dia_para_cobrar_boleto(date(2026, 11, 1)),
+                         date(2026, 11, 9))
+        p.dia_vencimento, p.dia_pagamento = None, 31
+        self.assertEqual(p.dia_para_cobrar_boleto(date(2026, 11, 1)),
+                         date(2026, 11, 29))  # novembro tem 30 dias
+        p.dia_pagamento = 1
+        self.assertEqual(p.dia_para_cobrar_boleto(date(2026, 11, 1)),
+                         date(2026, 11, 1))
+
+    def test_lembrete_so_cobra_da_vespera_em_diante(self):
+        self.prestador.dia_vencimento = 10
+        self.prestador.save()
+        corpo = self._corpo(date(2026, 11, 3))
+        self.assertNotIn('Limpeza Total', corpo)
+        self.assertIn('2 boleto(s) ainda no prazo', corpo)
+        corpo = self._corpo(date(2026, 11, 9))
+        self.assertIn('Limpeza Total LTDA — Anchieta', corpo)
+        self.assertIn('vence dia 10', corpo)
+        corpo = self._corpo(date(2026, 11, 20))  # atrasado: continua
+        self.assertIn('Limpeza Total LTDA — Bangu', corpo)
+
+    def test_sem_dia_cadastrado_cobra_o_mes_inteiro(self):
+        corpo = self._corpo(date(2026, 11, 3))
+        self.assertIn('Limpeza Total LTDA — Anchieta', corpo)
+        self.assertIn('sem dia cadastrado', corpo)
+
+
+class RespostaDoPrestadorTest(BaseSetup):
+    """O PJ responde ao pedido citando o nosso e-mail (que traz a linha
+    digitável no bloco de dados): não nasce outro boleto — vira RESPOSTA e
+    o admin recebe o texto."""
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_resposta_citando_a_linha_nao_cria_outro_boleto(self, m_mail):
+        import io
+        from email.message import EmailMessage
+        from core.management.commands.importar_emails_pj import Command
+        from core.models import EmailRecebido
+        linha = _linha_47(100000)
+        b = Boleto.objects.create(prestador=self.prestador,
+                                  competencia=date(2026, 11, 1),
+                                  status=Boleto.Status.MANUAL,
+                                  linha_digitavel=linha)
+        msg = EmailMessage()
+        msg['From'] = 'pj@empresa.com.br'
+        msg['To'] = 'pj@camim.com.br'
+        msg['Subject'] = 'Re: Falta identificar a empresa pagadora'
+        msg['Message-ID'] = '<resp1@empresa.com.br>'
+        msg['Date'] = 'Tue, 03 Nov 2026 12:00:00 -0300'
+        msg.set_content('É da unidade Bangu.\n\n> Linha digitável: '
+                        + linha + '\n> Situação: em espera')
+        Command(stdout=io.StringIO())._processar_mensagem(msg, False)
+        self.assertEqual(Boleto.objects.count(), 1)
+        e = EmailRecebido.objects.get()
+        self.assertEqual(e.resultado, EmailRecebido.Resultado.RESPOSTA)
+        self.assertEqual(e.detalhe, f'#{b.pk}')
+        self.assertEqual(m_mail.call_count, 1)
+        self.assertEqual(m_mail.call_args.args[0], 'cristiano@camim.com.br')
+        self.assertIn('É da unidade Bangu', m_mail.call_args.args[2])
+        self.assertIn(f'#{b.pk}', m_mail.call_args.args[1])

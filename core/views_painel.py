@@ -1702,11 +1702,22 @@ def email_recebido_detalhe(request, up, pk):
             erro = str(exc)[:200] or exc.__class__.__name__
         if request.method == 'POST' and not erro:
             return redirect('painel_email_recebido', pk=pk)
-    boletos = (e.boletos.select_related('prestador', 'posto',
-                                        'prestador__posto_cobranca')
-               .order_by('pk'))
+    boletos = list(e.boletos.select_related('prestador', 'posto',
+                                            'prestador__posto_cobranca')
+                   .order_by('pk'))
+    # O que o sistema RESPONDEU a este e-mail (texto inteiro: controle e
+    # auditoria do que foi dito ao PJ) e os demais e-mails que saíram sobre
+    # os boletos dele (recebemos, verificar manualmente, pagamento...).
+    respostas = list(e.respostas.order_by('criado_em', 'pk'))
+    ids = {r.pk for r in respostas}
+    sobre_boletos = [
+        m for m in (EmailLog.objects
+                    .filter(boleto__in=boletos)
+                    .select_related('boleto').order_by('criado_em', 'pk'))
+        if m.pk not in ids]
     return render(request, 'painel/email_recebido.html', {
         'e': e, 'boletos': boletos, 'anexos': e.lista_anexos(),
+        'respostas': respostas, 'sobre_boletos': sobre_boletos,
         'tem_conteudo': tem_conteudo, 'erro': erro, 'up': up})
 
 

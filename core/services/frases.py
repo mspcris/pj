@@ -108,6 +108,44 @@ _NAO_RECONHECIDO = [
 ]
 
 
+# Boleto que chegou SEM dizer de qual unidade (empresa pagadora) é — o
+# prestador atende várias e o código de barras só traz banco e valor.
+# Texto FIXO (sem IA): as instruções têm de sair exatas e sem tom de
+# cobrança — o PJ não fez nada errado, só faltou um dado. {como_veio}
+# explica o que chegou (linha digitável no corpo ou PDF sem identificação).
+_OPCOES_POSTO = (
+    'Para liberar a conferência, basta uma destas opções:\n'
+    '1. Responder a este e-mail informando o nome da unidade (ou o CNPJ '
+    'dela);\n'
+    '2. Enviar o PDF do boleto em anexo, já que nele consta o pagador;\n'
+    '3. Entrar em pj.camim.com.br, escolher a unidade e anexar o boleto '
+    'diretamente nela — é o caminho mais rápido e evita esta troca de '
+    'e-mails.\n\n'
+    'Assim que a unidade for informada, a conferência segue normalmente e '
+    'você recebe o retorno por e-mail. Os dados do boleto e as unidades do '
+    'seu cadastro estão logo abaixo.')
+_PEDIR_POSTO = [
+    ('Prezado(a) {contato},\n\nRecebemos o seu e-mail com o boleto de '
+     '{competencia}, mas não conseguimos identificar a qual unidade da '
+     'CAMIM (empresa pagadora) ele se refere: {como_veio}, e o seu cadastro '
+     'atende mais de uma unidade. Por isso o boleto ficou em espera e, por '
+     'enquanto, não pode seguir para pagamento.\n\n' + _OPCOES_POSTO
+     + '\n\nAtenciosamente,\nCristiano — CAMIM'),
+    ('Prezado(a) {contato},\n\nObrigado pelo envio do boleto de '
+     '{competencia}. Só faltou um dado para darmos andamento: a unidade da '
+     'CAMIM que vai pagá-lo. Acontece que {como_veio} — e, como o seu '
+     'cadastro tem mais de uma unidade, não temos como saber qual delas é. '
+     'Até lá o pagamento fica em espera.\n\n' + _OPCOES_POSTO
+     + '\n\nAtenciosamente,\nCristiano — CAMIM'),
+    ('Prezado(a) {contato},\n\nO boleto de {competencia} chegou aqui, mas '
+     'ficou sem destino: {como_veio}. Como você atende mais de uma unidade '
+     'da CAMIM, precisamos que nos diga qual é a empresa pagadora deste '
+     'boleto antes de encaminhá-lo ao financeiro — por isso ele está em '
+     'espera.\n\n' + _OPCOES_POSTO
+     + '\n\nAtenciosamente,\nCristiano — CAMIM'),
+]
+
+
 # Contrato gerado na plataforma esperando a assinatura digital do PJ. Sem
 # valores nem dados sensíveis — só o chamado para assinar e onde.
 _CONTRATO_ASSINAR = [
@@ -155,6 +193,7 @@ def corpo(tipo, fatos, instrucao_ia=None):
         'manual_admin': _MANUAL_ADMIN,
         'nao_reconhecido': _NAO_RECONHECIDO,
         'contrato_assinar': _CONTRATO_ASSINAR,
+        'pedir_posto': _PEDIR_POSTO,
     }
     if fatos.get('parcial_frase'):
         pools['aprovado_pj'] = _APROVADO_PJ_PARCIAL

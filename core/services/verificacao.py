@@ -816,6 +816,77 @@ def _para_manual(boleto, motivo):
                   boleto=boleto)
 
 
+def motivo_sem_posto(boleto, n_postos):
+    """Por que o boleto não casou com posto nenhum — em português que
+    diga o que fazer (03/11/2026: "sem valor acordado" escondia que o
+    problema era não saber de qual posto o boleto era)."""
+    if boleto.arquivo:
+        veio = ('o PDF não traz o CNPJ, a razão social nem o nome de '
+                'nenhum deles')
+    else:
+        veio = ('veio só a linha digitável, que não diz quem é o pagador')
+    return (f'não identifiquei o posto: o prestador atende {n_postos} '
+            f'postos e {veio}. Escolha o posto em "Editar" e reverifique'
+            + (' — o prestador já foi avisado por e-mail'
+               if boleto.pedido_posto_em else ''))
+
+
+def pedir_identificacao_posto(boleto, em_resposta_a=None):
+    """Resposta ao PJ cujo boleto chegou sem dizer qual unidade (empresa
+    pagadora) é a dele — o robô não cadastra o pagamento sem isso. Sai no
+    lugar do "recebemos": texto FIXO (sem IA), para as instruções saírem
+    exatas, com os dados do boleto e as unidades do cadastro dele abaixo
+    da assinatura. Fica ligada ao e-mail que chegou (em_resposta_a) para
+    aparecer em "abrir o e-mail". Nunca leva gerente em cópia (não há
+    posto). Retorna True se enviou."""
+    prest = boleto.prestador
+    fatos = _fatos(boleto)
+    if boleto.arquivo:
+        fatos['como_veio'] = ('o boleto em PDF anexado não traz o CNPJ, a '
+                              'razão social nem o nome de nenhuma unidade '
+                              'do seu cadastro')
+    else:
+        fatos['como_veio'] = ('o e-mail trouxe apenas a linha digitável, e '
+                              'o código de barras informa somente o banco '
+                              'e o valor — não diz quem é o pagador')
+    corpo = frases.corpo('pedir_posto', fatos)
+    unidades = [v.posto.nome for v in
+                prest.vinculos_ativos().select_related('posto')
+                .order_by('posto__nome')]
+    valor = boleto.valor_extraido or valor_da_linha(boleto.linha_digitavel)
+    bloco = ['', '-' * 40,
+             f'Prestador: {prest.nome}'
+             + (f' — CNPJ {prest.cnpj}' if prest.cnpj else '')]
+    bloco.extend(linha_representante(boleto))
+    bloco.append('Empresa pagadora: NÃO IDENTIFICADA — é o que precisamos '
+                 'que você informe')
+    bloco.append('Unidades do seu cadastro: ' + ', '.join(unidades))
+    bloco.extend(linhas_competencia(boleto))
+    if valor is not None:
+        bloco.append(f'Valor (lido no código de barras): R$ {_moeda(valor)}')
+    if boleto.linha_digitavel:
+        bloco.append(f'Linha digitável: {boleto.linha_digitavel}')
+    if boleto.nome_original:
+        bloco.append(f'Arquivo recebido: {boleto.nome_original}')
+    bloco.append('Situação: pagamento em espera até a unidade ser informada')
+    ok = emails.enviar(
+        destinatarios_pj(boleto),
+        f'Falta identificar a empresa pagadora do boleto — '
+        f'{fatos["competencia"]}',
+        corpo + '\n'.join(bloco), boleto=boleto,
+        em_resposta_a=em_resposta_a or boleto.email_origem)
+    if ok:
+        boleto.pedido_posto_em = timezone.now()
+        boleto.save(update_fields=['pedido_posto_em'])
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator='sistema',
+        detalhe=f'Boleto #{boleto.pk} sem posto identificável — '
+                + ('prestador avisado por e-mail (pedida a empresa pagadora)'
+                   if ok else 'FALHOU o e-mail ao prestador pedindo a '
+                              'empresa pagadora'))
+    return ok
+
+
 def eh_mes_vigente(competencia):
     """A competência (mês do PAGAMENTO) é o mês atual? Só boleto do mês
     vigente vai sozinho ao financeiro — regra de 01/10/2026."""
@@ -1078,6 +1149,9 @@ def processar(boleto_pk):
                                  'confira e libere com "Aprovar assim '
                                  'mesmo" (ou edite marcando "aceitar este '
                                  'valor")')
+        elif svc_boletos.sem_posto_identificavel(boleto):
+            n = boleto.prestador.vinculos_ativos().count()
+            _para_manual(boleto, motivo_sem_posto(boleto, n))
         else:
             _para_manual(boleto, 'sem valor acordado cadastrado no painel')
         return

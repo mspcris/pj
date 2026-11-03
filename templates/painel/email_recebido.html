@@ -35,4 +35,35 @@
 </div>
 {% endif %}
 <p class="sub" style="font-size:.78rem;margin-top:10px">Só o texto é exibido (sem imagens nem links ativos). Os PDFs do e-mail são o boleto e a nota listados acima.</p>
+
+<h2 style="font-size:1rem;margin-top:22px">↩️ Resposta enviada ao prestador</h2>
+{% for r in respostas %}
+<div class="card" style="margin-bottom:10px">
+  <table>
+    <tr><th style="white-space:nowrap">Para</th><td>{{ r.destinatario }}</td></tr>
+    <tr><th style="white-space:nowrap">Enviado em</th><td>{{ r.criado_em|date:"d/m/Y H:i" }}
+      · {% if r.ok %}<span class="chip APROVADO">enviado</span>{% else %}<span class="chip MANUAL">FALHOU</span> {{ r.erro|truncatechars:120 }}{% endif %}
+      · <a href="{% url 'painel_email_detalhe' r.pk %}">ver como foi enviado</a></td></tr>
+    <tr><th>Assunto</th><td>{{ r.assunto }}</td></tr>
+  </table>
+  <pre style="white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:.9rem;background:#f4f8f6;border:1px solid #dfe9e5;padding:14px;border-radius:12px;margin-top:10px">{{ r.corpo }}</pre>
+</div>
+{% empty %}
+<div class="card sub">Nenhuma resposta direta a este e-mail foi enviada pelo sistema.</div>
+{% endfor %}
+
+{% if sobre_boletos %}
+<h2 style="font-size:1rem;margin-top:22px">📨 Outros e-mails do sistema sobre os boletos deste e-mail</h2>
+<div class="card"><table class="tabela-compacta">
+  {% for m in sobre_boletos %}
+  <tr>
+    <td style="white-space:nowrap">{{ m.criado_em|date:"d/m/Y H:i" }}</td>
+    <td>#{{ m.boleto_id }}</td>
+    <td>{{ m.destinatario|truncatechars:60 }}</td>
+    <td><a href="{% url 'painel_email_detalhe' m.pk %}">{{ m.assunto|truncatechars:70 }}</a></td>
+    <td>{% if m.ok %}✅{% else %}❌{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table></div>
+{% endif %}
 {% endblock %}

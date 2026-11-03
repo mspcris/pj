@@ -4,6 +4,11 @@ Manda um resumo do mês por e-mail: quem ainda não mandou boleto, o que está
 divergente/manual (esperando ação) e o que já foi para pagamento mas ainda
 não foi marcado como pago.
 
+"Sem boleto" só é cobrado a partir da VÉSPERA do vencimento do PJ (ou do
+dia de pagamento, se não há vencimento cadastrado) — Prestador.
+dia_para_cobrar_boleto. Antes disso o PJ está no prazo e não entra na
+lista (03/11/2026). Quem não tem dia cadastrado é cobrado o mês inteiro.
+
 Cron sugerido (todo dia 8h):
     0 8 * * * cd /opt/pj && .venv/bin/python manage.py lembrete_diario
 """
@@ -21,7 +26,8 @@ class Command(BaseCommand):
     help = 'Envia o resumo diário de pendências dos PJs para o admin.'
 
     def handle(self, *args, **opts):
-        mes = timezone.localdate().replace(day=1)
+        hoje = timezone.localdate()
+        mes = hoje.replace(day=1)
         boletos = list(
             Boleto.objects.filter(competencia=mes)
             .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
@@ -34,8 +40,18 @@ class Command(BaseCommand):
         ajustes = {(a.prestador_id, a.posto_id): a
                    for a in AjusteDiferenca.objects.filter(competencia=mes)}
         faltando, atencao, aguardando = [], [], []
+        no_prazo = 0
         for prestador in (Prestador.objects.filter(ativo=True)
                           .prefetch_related('vinculos__posto')):
+            cobrar_em = prestador.dia_para_cobrar_boleto(mes)
+            prazo = ''
+            if cobrar_em is not None:
+                dia = prestador.dia_vencimento or prestador.dia_pagamento
+                prazo = (f' — vence dia {dia}'
+                         if prestador.dia_vencimento
+                         else f' — pagamento dia {dia}')
+            else:
+                prazo = ' — sem dia cadastrado: cobrado o mês inteiro'
             for posto, _valor in prestador.boletos_esperados(mes):
                 # valor do MÊS já com as parcelas de vale abatidas — igual ao
                 # painel; sem isso o e-mail cobra o cheio de quem tem vale.
@@ -53,9 +69,13 @@ class Command(BaseCommand):
                 ajuste = ajustes.get(
                     (prestador.pk, posto.pk if posto else None))
                 if achado is None:
-                    if ajuste is None:
+                    if ajuste is not None:
+                        pass
+                    elif cobrar_em is not None and hoje < cobrar_em:
+                        no_prazo += 1  # ainda no prazo: cobra na véspera
+                    else:
                         faltando.append(f'  • {prestador.nome} — {alvo} '
-                                        f'(R$ {_moeda(valor)})')
+                                        f'(R$ {_moeda(valor)}){prazo}')
                 elif achado.status in (Boleto.Status.DIVERGENTE,
                                        Boleto.Status.MANUAL):
                     atencao.append(f'  • {prestador.nome} — {alvo}: '
@@ -73,6 +93,9 @@ class Command(BaseCommand):
         partes = [f'Resumo dos PJs — {competencia_extenso(mes)}\n']
         partes.append(f'⛔ Sem boleto ainda ({len(faltando)}):')
         partes.extend(faltando or ['  (ninguém — tudo em dia!)'])
+        if no_prazo:
+            partes.append(f'  ({no_prazo} boleto(s) ainda no prazo — aviso '
+                          'a partir da véspera do vencimento)')
         partes.append(f'\n⚠️ Precisa da sua ação ({len(atencao)}):')
         partes.extend(atencao or ['  (nada)'])
         partes.append(f'\n💸 Enviados p/ pagamento, confirmar se pagou '

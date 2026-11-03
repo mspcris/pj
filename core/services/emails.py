@@ -81,12 +81,13 @@ def _render_html(corpo):
 
 
 def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
-           de=None, anexos=None, cc=None):
+           de=None, anexos=None, cc=None, em_resposta_a=None):
     """Envia e registra. Retorna True/False — nunca levanta exceção.
 
     `de` troca o remetente (ex.: e-mail p/ o pagador sai do cristiano@;
     o padrão pj@ fica para os e-mails aos PJs). `destinatario` pode ser
-    um endereço ou uma lista."""
+    um endereço ou uma lista. `em_resposta_a` (EmailRecebido) liga o
+    envio ao e-mail que chegou — aparece em "abrir o e-mail"."""
     if isinstance(destinatario, str):
         dests = [destinatario]
     else:
@@ -105,6 +106,7 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
             destinatario=(', '.join(dests) + ' +cc: ' + ', '.join(copias))[:255],
             assunto=f'[RECUSADO — {len(copias)} em cópia] {assunto}'[:255],
             corpo=corpo, boleto=boleto, ok=False,
+            em_resposta_a=em_resposta_a,
             erro='Recusado pela trava: mais de um endereço em cópia. '
                  'Cada gerente só pode ver o boleto do próprio posto.')
         return False
@@ -129,7 +131,8 @@ def enviar(destinatario, assunto, corpo, boleto=None, anexo_field=None,
               + (f' +cc: {", ".join(copias)}' if copias else '')
               + (f' +cco: {", ".join(ocultas)}' if ocultas else ''))
     registro = EmailLog(destinatario=rotulo[:255], assunto=assunto,
-                        corpo=corpo, boleto=boleto)
+                        corpo=corpo, boleto=boleto,
+                        em_resposta_a=em_resposta_a)
     try:
         msg = EmailMultiAlternatives(
             subject=assunto, body=corpo,

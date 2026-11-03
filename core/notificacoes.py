@@ -19,6 +19,8 @@ TIPOS_EMAIL = [
     ('nota', 'Nota fiscal (equipe@)', 'nota fiscal — '),
     ('divergente', 'Valor a confirmar', 'valor a confirmar'),
     ('manual', 'Verificar manualmente', 'Verificar boleto manualmente'),
+    ('posto', 'Empresa pagadora a identificar',
+     'identificar a empresa pagadora'),
     ('lembrete', 'Lembrete diário', 'Lembrete'),
 ]
 
