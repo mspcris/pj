@@ -74,6 +74,29 @@ def _contratos_a_assinar():
                 .order_by('prestador__nome', 'posto__nome'))
 
 
+def _assinaturas_por_prestador(contratos):
+    """O banner, legível: UMA linha por prestador com contadores
+    "falta você 3/8", "falta o prestador 7/8", "faltam os dois 8/8" e os
+    postos de cada caso (03/11/2026: a lista contrato a contrato era
+    "uma zona — não dá para ler nada")."""
+    grupos = {}
+    for c in contratos:
+        g = grupos.setdefault(c.prestador_id, {
+            'prestador': c.prestador, 'total': 0,
+            'voce': [], 'prestador_falta': [], 'ambos': []})
+        g['total'] += 1
+        nome = c.posto.nome if c.posto else 'geral'
+        if c.falta_gestor and c.falta_prestador:
+            g['ambos'].append(nome)
+        elif c.falta_gestor:
+            g['voce'].append(nome)
+        else:
+            g['prestador_falta'].append(nome)
+    return sorted(grupos.values(),
+                  key=lambda g: (not (g['voce'] or g['ambos']),
+                                 g['prestador'].nome))
+
+
 @admin_required
 def dashboard(request, up):
     from .services.verificacao import competencia_extenso
@@ -390,6 +413,8 @@ def dashboard(request, up):
         f'&{k}={v.pk}' for k, v in filtro.items() if v is not None)
     return render(request, 'painel/dashboard.html', {
         'contratos_a_assinar': _contratos_a_assinar(),
+        'assinaturas_grupos': _assinaturas_por_prestador(
+            _contratos_a_assinar()),
         'grupos_parciais': grupos_parciais, 'parciais_soltas': soltas,
         'filtro': filtro, 'qs_filtro': qs_filtro,
         'resumo_filtro': resumo_filtro,

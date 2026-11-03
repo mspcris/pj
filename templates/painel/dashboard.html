@@ -164,10 +164,24 @@
 
 {% if contratos_a_assinar %}
 <div style="background:#fff8e8;border:1.5px solid var(--dourado);color:#7a4b00;
-     border-radius:12px;padding:11px 16px;margin-bottom:14px;font-weight:700">
-  ✍️ Contrato{{ contratos_a_assinar|length|pluralize }} com assinatura gov.br pendente
-  <a class="btn mini dourado" href="{% url 'painel_assinaturas_lote' %}" style="margin:0 6px">⬇️⬆️ Assinar em lote</a>:
-  {% for c in contratos_a_assinar %}<a href="{% url 'painel_prestador' c.prestador.pk %}#contratos" style="color:#7a4b00;text-decoration:underline dotted">{{ c.prestador.nome|truncatechars:28 }}{% if c.posto %} ({{ c.posto.nome }}){% endif %}</a> — {% if c.falta_gestor and c.falta_prestador %}faltam os dois{% elif c.falta_gestor %}<strong>falta VOCÊ</strong>{% else %}falta o prestador{% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}
+     border-radius:12px;padding:11px 16px;margin-bottom:14px">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-weight:800;margin-bottom:6px">
+    ✍️ {{ contratos_a_assinar|length }} contrato{{ contratos_a_assinar|length|pluralize }} com assinatura gov.br pendente
+    <a class="btn mini dourado" href="{% url 'painel_assinaturas_lote' %}">⬇️⬆️ Assinar em lote</a>
+  </div>
+  <table style="font-size:.9rem;width:auto">
+    {% for g in assinaturas_grupos %}
+    <tr>
+      <td style="padding:3px 14px 3px 0;border:0"><a href="{% url 'painel_prestador' g.prestador.pk %}#contratos" style="color:#7a4b00;font-weight:800">{{ g.prestador.nome|truncatechars:34 }}</a></td>
+      <td style="padding:3px 0;border:0">
+        {% if g.voce %}<span class="chip MANUAL" title="{{ g.voce|join:', ' }}" style="margin-right:6px">✍️ falta VOCÊ {{ g.voce|length }}/{{ g.total }}</span>{% endif %}
+        {% if g.ambos %}<span class="chip DIVERGENTE" title="{{ g.ambos|join:', ' }}" style="margin-right:6px">faltam os dois {{ g.ambos|length }}/{{ g.total }}</span>{% endif %}
+        {% if g.prestador_falta %}<span class="chip RECEBIDO" title="{{ g.prestador_falta|join:', ' }}">falta o prestador {{ g.prestador_falta|length }}/{{ g.total }}</span>{% endif %}
+        <span class="sub" style="font-size:.76rem;margin-left:6px">{% if g.voce %}{{ g.voce|join:", " }}{% elif g.ambos %}{{ g.ambos|join:", " }}{% else %}{{ g.prestador_falta|join:", " }}{% endif %}</span>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
 </div>
 {% endif %}
 

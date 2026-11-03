@@ -4797,3 +4797,26 @@ class MesFechadoTest(BaseSetup):
         self.assertIn('novembro/2026', corpo)
         self.assertIn('não aceita mais boleto', corpo)
         self.assertEqual(m_mail.call_args.kwargs['boleto'], b)
+
+
+class BannerAssinaturasTest(BaseSetup):
+    """03/11/2026: o banner de assinaturas pendentes agrupa por prestador
+    com contadores ("falta VOCÊ 3/8") em vez de listar contrato a
+    contrato."""
+    def test_agrupa_por_prestador(self):
+        for posto, p, g in ((self.posto1, True, False),
+                            (self.posto2, False, False)):
+            Contrato.objects.create(
+                prestador=self.prestador, posto=posto, arquivo=_pdf(),
+                nome_original='c.pdf', assinatura_govbr=True,
+                assinado_prestador_em=timezone.now() if p else None,
+                assinado_gestor_em=timezone.now() if g else None)
+        self.login_admin()
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, '2 contratos com assinatura gov.br')
+        self.assertContains(resp, 'falta VOCÊ 1/2')
+        self.assertContains(resp, 'faltam os dois 1/2')
+        self.assertEqual(len(resp.context['assinaturas_grupos']), 1)
+        g = resp.context['assinaturas_grupos'][0]
+        self.assertEqual(g['voce'], ['Anchieta'])
+        self.assertEqual(g['ambos'], ['Bangu'])
