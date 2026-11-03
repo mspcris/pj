@@ -125,6 +125,16 @@ a.kpi:hover{border-color:var(--verde)}
       <a href="{% url 'painel_emails_nao_reconhecidos' %}">Não reconhecidos</a>
       <a href="{% url 'painel_auditoria' %}">Auditoria</a>
       <a href="{% url 'painel_config' %}">⚙️</a>
+      <details class="vercomo" style="display:inline-block;position:relative">
+        <summary style="cursor:pointer;list-style:none;display:inline-block;padding:6px 10px">👁 Ver como ▾</summary>
+        <div style="position:absolute;right:0;background:var(--branco);color:var(--tinta);border:1.5px solid var(--linha);border-radius:10px;padding:8px;min-width:190px;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,.15)">
+          <a href="{% url 'painel_prestadores' %}" style="display:block;padding:6px 8px;color:var(--tinta)">Prestador… (na lista)</a>
+          <form method="post" action="{% url 'painel_ver_como_financeiro' %}" style="margin:0">
+            {% csrf_token %}<button class="btn mini claro" type="submit" style="width:100%;text-align:left">💰 Financeiro</button></form>
+        </div>
+      </details>
+    {% elif usuario_pj.is_financeiro and not usuario_pj.prestador %}
+      <a href="{% url 'financeiro_painel' %}">Financeiro</a>
     {% else %}
       <a href="{% url 'home' %}">Início</a>
     {% endif %}
@@ -138,8 +148,8 @@ a.kpi:hover{border-color:var(--verde)}
 {% if ver_como_ativo %}
 <div style="background:var(--dourado);color:#3a2b05;padding:10px 18px;
      font-weight:800;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-  👁 Modo visualização — você está vendo o portal como
-  {{ usuario_pj.prestador.nome }}
+  👁 Modo visualização — você está vendo
+  {% if ver_como_ativo == 'financeiro' %}o painel como o FINANCEIRO{% else %}o portal como {{ usuario_pj.prestador.nome }}{% endif %}
   <a href="{% url 'sair_ver_como' %}" class="btn mini"
      style="background:#3a2b05;color:#fff">Voltar ao painel</a>
 </div>

@@ -180,6 +180,12 @@ class Prestador(models.Model):
         default=False, verbose_name='Exigir nota fiscal anexa')
     ativo = models.BooleanField(default=True)
     observacao = models.TextField(blank=True)
+    # Financeiro controla este prestador pelo painel: o pedido de pagamento
+    # NÃO vai mais por e-mail à equipe@ (cancelamentos e correções vão).
+    fin_sem_email = models.BooleanField(
+        default=False,
+        verbose_name='Financeiro acompanha pelo painel (sem e-mail de '
+                     'pagamento)')
     # E-mails do prestador SEM login (sem idCamim): recebem os avisos E o
     # robô aceita boleto vindo deles (Rosana, Guido). Vírgula separa.
     # Somam-se aos usuários ativos.
@@ -453,6 +459,11 @@ class UsuarioPermitido(models.Model):
                                   on_delete=models.CASCADE,
                                   related_name='usuarios')
     is_admin = models.BooleanField(default=False)
+    # Equipe do FINANCEIRO (03/11/2026): vê só o painel /financeiro/ — os
+    # boletos já aprovados — e dá ciência de recebimento e de envio para
+    # pagamento por lá, sem transitar e-mail.
+    is_financeiro = models.BooleanField(default=False,
+                                        verbose_name='Financeiro')
     ativo = models.BooleanField(default=True)
     # Token da API (Authorization: Bearer ...) — gerado no painel Usuários,
     # exibido uma única vez. Para revogar, gere outro ou bloqueie o usuário.
@@ -683,6 +694,11 @@ class Boleto(models.Model):
     # motivo que ele escreveu (vai no e-mail ao prestador e no histórico).
     nao_reconhecido_em = models.DateTimeField(null=True, blank=True)
     nao_reconhecido_motivo = models.CharField(max_length=500, blank=True)
+    # Painel do financeiro (03/11/2026): quem deu ciência do recebimento e
+    # quando o financeiro enviou para pagamento — 24h depois vira PAGO.
+    fin_recebido_por = models.CharField(max_length=255, blank=True)
+    fin_pagamento_em = models.DateTimeField(null=True, blank=True)
+    fin_pagamento_por = models.CharField(max_length=255, blank=True)
     # "Valor errado — devolver": quando e por quê o boleto foi devolvido.
     devolvido_em = models.DateTimeField(null=True, blank=True)
     devolvido_motivo = models.CharField(max_length=500, blank=True)
@@ -807,7 +823,14 @@ class Boleto(models.Model):
         if self.fin_recebido_em:
             ev.append({
                 'icone': '🏦', 'titulo': 'Financeiro confirmou o recebimento',
-                'quando': self.fin_recebido_em, 'detalhe': ''})
+                'quando': self.fin_recebido_em,
+                'detalhe': self.fin_recebido_por})
+        if self.fin_pagamento_em:
+            ev.append({
+                'icone': '💸', 'titulo': 'Financeiro enviou para pagamento '
+                                         '(PAGO automático em 24h)',
+                'quando': self.fin_pagamento_em,
+                'detalhe': self.fin_pagamento_por})
         if self.pago_em:
             ev.append({'icone': '✅', 'titulo': 'Pago',
                        'quando': self.pago_em, 'detalhe': ''})

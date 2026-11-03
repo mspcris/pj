@@ -4571,3 +4571,136 @@ class AbsorverSemPostoTest(BaseSetup):
         self.assertEqual(antigo.status, Boleto.Status.SUBSTITUIDO)
         self.assertEqual(antigo.posto, self.posto1)
         self.assertIn(f'#{novo.pk}', antigo.ia_resposta)
+
+
+class PainelFinanceiroTest(BaseSetup):
+    """03/11/2026: a equipe do financeiro vê só os boletos aprovados, num
+    painel próprio; dá ciência e registra o envio p/ pagamento; 24h depois
+    vira PAGO; pode desligar o e-mail de pagamento por prestador."""
+
+    def setUp(self):
+        super().setUp()
+        self.fin_up = UsuarioPermitido.objects.create(
+            email='fin@camim.com.br', nome='Equipe', is_financeiro=True)
+        self.fin = User.objects.create_user(username='fin@camim.com.br',
+                                            email='fin@camim.com.br')
+        self.b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 11, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('1500.00'),
+            valor_esperado=Decimal('1500.00'),
+            pagamento_enviado_em=timezone.now(),
+            pagamento_enviado_valor=Decimal('1500.00'))
+
+    def test_financeiro_entra_no_painel_proprio_e_pj_nao(self):
+        self.client.force_login(self.fin)
+        resp = self.client.get('/')
+        self.assertRedirects(resp, '/financeiro/', fetch_redirect_response=False)
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'Limpeza Total LTDA')
+        self.assertContains(resp, 'Recebi o boleto')
+        self.assertContains(resp, 'Não me envie mais e-mail')
+        self.assertNotContains(resp, 'Não reconheço')
+        self.assertNotContains(resp, 'devolver ao prestador')
+        resp = self.client.get('/painel/')
+        self.assertEqual(resp.status_code, 302)  # painel do admin: não
+        # financeiro baixa o boleto, mas não contrato
+        resp = self.client.get(f'/arquivo/boleto/{self.b.pk}/')
+        self.assertEqual(resp.status_code, 200)
+        self.client.logout()
+        self.login_pj()
+        resp = self.client.get('/financeiro/')
+        self.assertEqual(resp.status_code, 302)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_recebi_enviei_e_pago_automatico(self, m_mail):
+        from core.services.verificacao import pagar_automatico
+        self.client.force_login(self.fin)
+        resp = self.client.post(f'/financeiro/boleto/{self.b.pk}/recebi/',
+                                {'m': '2026-11'})
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn(f'abrir={self.prestador.pk}', resp.url)
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.status, Boleto.Status.FIN_RECEBIDO)
+        self.assertEqual(self.b.fin_recebido_por, 'fin@camim.com.br')
+        # PJ avisado "com o financeiro", igual ao caminho do e-mail
+        self.assertIn('Boleto com o financeiro', m_mail.call_args.args[1])
+        self.assertIn('pj@empresa.com.br', m_mail.call_args.args[0])
+        self.client.post(f'/financeiro/boleto/{self.b.pk}/enviei/',
+                         {'m': '2026-11'})
+        self.b.refresh_from_db()
+        self.assertIsNotNone(self.b.fin_pagamento_em)
+        self.assertEqual(self.b.fin_pagamento_por, 'fin@camim.com.br')
+        self.assertEqual(self.b.status, Boleto.Status.FIN_RECEBIDO)
+        # 23h depois: nada; 24h: PAGO
+        agora = self.b.fin_pagamento_em
+        self.assertEqual(pagar_automatico(agora + timedelta(hours=23)), [])
+        self.assertEqual(pagar_automatico(agora + timedelta(hours=24)),
+                         [self.b.pk])
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.status, Boleto.Status.PAGO)
+        self.assertIsNotNone(self.b.pago_em)
+        self.assertIn('PAGO automático', self.b.linha_do_tempo[-2]['titulo'])
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_enviei_direto_tambem_da_ciencia(self, m_mail):
+        self.client.force_login(self.fin)
+        self.client.post(f'/financeiro/boleto/{self.b.pk}/enviei/',
+                         {'m': '2026-11'})
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.status, Boleto.Status.FIN_RECEBIDO)
+        self.assertIsNotNone(self.b.fin_recebido_em)
+        self.assertIsNotNone(self.b.fin_pagamento_em)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_chave_sem_email_pula_a_equipe(self, m_mail):
+        self.client.force_login(self.fin)
+        self.client.post(f'/financeiro/prestador/{self.prestador.pk}/email/',
+                         {'sem_email': 'on', 'm': '2026-11'})
+        self.prestador.refresh_from_db()
+        self.assertTrue(self.prestador.fin_sem_email)
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto2,
+            competencia=date(2026, 11, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('2000.00'),
+            valor_esperado=Decimal('2000.00'))
+        from core.services.verificacao import enviar_para_pagamento
+        enviar_para_pagamento(b)
+        b.refresh_from_db()
+        self.assertIsNotNone(b.pagamento_enviado_em)  # liberado p/ painel
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+        self.assertIn('pj@empresa.com.br', _destinos(m_mail))  # PJ avisado
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'Bangu')
+        self.assertContains(resp, '📵 sem e-mail')
+        # religa
+        self.client.post(f'/financeiro/prestador/{self.prestador.pk}/email/',
+                         {'m': '2026-11'})
+        self.prestador.refresh_from_db()
+        self.assertFalse(self.prestador.fin_sem_email)
+
+    def test_admin_ve_como_financeiro(self):
+        self.login_admin()
+        resp = self.client.get('/painel/')
+        self.assertContains(resp, 'Ver como')
+        self.assertContains(resp, '/painel/ver-como-financeiro/')
+        resp = self.client.post('/painel/ver-como-financeiro/')
+        self.assertRedirects(resp, '/financeiro/',
+                             fetch_redirect_response=False)
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'como o FINANCEIRO')
+        self.assertContains(resp, 'Limpeza Total LTDA')
+        self.assertNotContains(resp, 'painel/prestadores/')  # nav do admin some
+        resp = self.client.get('/sair-ver-como/')
+        self.assertEqual(resp.status_code, 302)
+        resp = self.client.get('/painel/')
+        self.assertEqual(resp.status_code, 200)
+
+    def test_usuario_financeiro_sem_prestador_e_valido(self):
+        from core.forms import UsuarioForm
+        f = UsuarioForm({'email': 'x@camim.com.br', 'nome': 'X',
+                         'is_financeiro': 'on', 'ativo': 'on'})
+        self.assertTrue(f.is_valid(), f.errors)
+        f = UsuarioForm({'email': 'y@camim.com.br', 'nome': 'Y',
+                         'ativo': 'on'})
+        self.assertFalse(f.is_valid())

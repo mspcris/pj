@@ -247,43 +247,10 @@ class Command(BaseCommand):
         boleto = svc_boletos.localizar_boleto_por_assunto(assunto)
         detalhe = ''
         if boleto is not None and boleto.status == Boleto.Status.APROVADO:
-            boleto.status = Boleto.Status.FIN_RECEBIDO
-            boleto.fin_recebido_em = timezone.now()
-            boleto.save(update_fields=['status', 'fin_recebido_em'])
-            AuditLog.registrar(
-                AuditLog.Evento.STATUS, ator='financeiro',
-                detalhe=f'Boleto #{boleto.pk} confirmado recebido pelo '
-                        f'financeiro ({remetente})')
+            from core.services.verificacao import confirmar_fin_recebido
+            confirmar_fin_recebido(boleto, ator=remetente,
+                                   origem='resposta por e-mail')
             detalhe = f'#{boleto.pk}'
-            # Avisa o PJ: está com o financeiro, é só aguardar.
-            from core.services import frases
-            from core.services.verificacao import (_fatos, _instrucao_parcial,
-                                                   _moeda, assunto_parcial,
-                                                   cc_gerente, dados_pj,
-                                                   destinatarios_pj)
-            fatos = _fatos(boleto)
-            if not boleto.parcial:
-                fatos['valor'] = _moeda(boleto.valor_extraido
-                                        or boleto.valor_esperado)
-            svc_emails.enviar(
-                destinatarios_pj(boleto),
-                assunto_parcial(
-                    fatos,
-                    f'Boleto com o financeiro — {fatos["competencia"]}'),
-                frases.corpo(
-                    'fin_recebido', fatos,
-                    instrucao_ia=('Escreva em tom FORMAL e positivo '
-                                  'informando ao PRESTADOR que o setor '
-                                  'financeiro da CAMIM confirmou o '
-                                  'recebimento do boleto dele e que o '
-                                  'pagamento (da CAMIM para o prestador) '
-                                  'está em processamento — nenhuma ação é '
-                                  'necessária, é só aguardar. NÃO cite '
-                                  'valores no texto. Diga que os dados '
-                                  'seguem abaixo da assinatura.'
-                                  + _instrucao_parcial(fatos)))
-                + dados_pj(boleto, fatos),
-                boleto=boleto, cc=cc_gerente(boleto))
             self.stdout.write(self.style.SUCCESS(
                 f'  financeiro confirmou: boleto #{boleto.pk} ({assunto[:60]})'))
         else:

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import api, views, views_auth, views_painel
+from . import api, views, views_auth, views_financeiro, views_painel
 
 urlpatterns = [
     path('', views.home, name='home'),
@@ -43,6 +43,13 @@ urlpatterns = [
          name='painel_boleto_editar'),
     path('painel/ver-como/<int:pk>/', views_painel.ver_como,
          name='painel_ver_como'),
+    path('painel/ver-como-financeiro/', views_painel.ver_como_financeiro,
+         name='painel_ver_como_financeiro'),
+    path('financeiro/', views_financeiro.painel, name='financeiro_painel'),
+    path('financeiro/boleto/<int:pk>/<slug:acao>/', views_financeiro.acao,
+         name='financeiro_acao'),
+    path('financeiro/prestador/<int:pk>/email/',
+         views_financeiro.email_toggle, name='financeiro_email'),
     path('painel/ajuste-diferenca/', views_painel.ajuste_diferenca,
          name='painel_ajuste_diferenca'),
     path('painel/boleto/<int:pk>/<str:acao>/', views_painel.boleto_acao,

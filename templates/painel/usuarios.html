@@ -14,7 +14,7 @@ entra</strong>, mesmo com senha certa no idCamim.</p>
       <td><strong>{{ u.email }}</strong></td>
       <td>{{ u.nome }}</td>
       <td>{{ u.prestador|default:"—" }}</td>
-      <td>{% if u.is_admin %}👑 admin{% else %}PJ{% endif %}</td>
+      <td>{% if u.is_admin %}👑 admin{% elif u.is_financeiro %}💰 financeiro{% else %}PJ{% endif %}</td>
       <td>
         <form method="post" style="display:inline">
           {% csrf_token %}
@@ -23,6 +23,7 @@ entra</strong>, mesmo com senha certa no idCamim.</p>
           <input type="hidden" name="nome" value="{{ u.nome }}">
           <input type="hidden" name="prestador" value="{{ u.prestador_id|default:'' }}">
           {% if u.is_admin %}<input type="hidden" name="is_admin" value="on">{% endif %}
+          {% if u.is_financeiro %}<input type="hidden" name="is_financeiro" value="on">{% endif %}
           {% if not u.ativo %}<input type="hidden" name="ativo" value="on">{% endif %}
           <button class="btn mini {% if u.ativo %}vermelho{% else %}claro{% endif %}" type="submit">
             {% if u.ativo %}Bloquear{% else %}Reativar{% endif %}</button>

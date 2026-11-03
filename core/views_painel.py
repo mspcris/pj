@@ -934,6 +934,14 @@ def boleto_editar(request, up, pk):
 
 @admin_real_required
 @require_POST
+def ver_como_financeiro(request, up):
+    request.session['ver_como'] = 'financeiro'
+    messages.success(request, 'Você está vendo o painel como o financeiro.')
+    return redirect('financeiro_painel')
+
+
+@admin_real_required
+@require_POST
 def ver_como(request, up, pk):
     prestador = get_object_or_404(Prestador, pk=pk, ativo=True)
     request.session['ver_como'] = prestador.pk
@@ -1495,7 +1503,8 @@ def usuarios(request, up):
             AuditLog.registrar(
                 AuditLog.Evento.CRUD, request,
                 detalhe=f'Usuário salvo: {u.email} '
-                        f'(admin={u.is_admin}, ativo={u.ativo})')
+                        f'(admin={u.is_admin}, financeiro={u.is_financeiro}, '
+                        f'ativo={u.ativo})')
             messages.success(request, f'{u.email} salvo.')
             return redirect('painel_usuarios')
     else:

@@ -10,7 +10,8 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from core.models import Boleto
-from core.services.verificacao import MAX_TENTATIVAS, processar
+from core.services.verificacao import (MAX_TENTATIVAS, pagar_automatico,
+                                       processar)
 
 
 class Command(BaseCommand):
@@ -28,3 +29,9 @@ class Command(BaseCommand):
             processar(pk)
         self.stdout.write(self.style.SUCCESS(
             f'{len(pendentes)} boleto(s) processado(s).'))
+        # Financeiro enviou para pagamento há 24h+ → PAGO sozinho.
+        pagos = pagar_automatico()
+        if pagos:
+            self.stdout.write(self.style.SUCCESS(
+                f'{len(pagos)} boleto(s) PAGO(s) automaticamente: '
+                + ', '.join(f'#{p}' for p in pagos)))

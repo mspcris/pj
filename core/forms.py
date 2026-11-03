@@ -515,7 +515,8 @@ class PostoForm(forms.ModelForm):
 class UsuarioForm(forms.ModelForm):
     class Meta:
         model = UsuarioPermitido
-        fields = ['email', 'nome', 'prestador', 'is_admin', 'ativo']
+        fields = ['email', 'nome', 'prestador', 'is_admin', 'is_financeiro',
+                  'ativo']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -524,7 +525,9 @@ class UsuarioForm(forms.ModelForm):
 
     def clean(self):
         dados = super().clean()
-        if not dados.get('is_admin') and not dados.get('prestador'):
+        if (not dados.get('is_admin') and not dados.get('is_financeiro')
+                and not dados.get('prestador')):
             raise forms.ValidationError(
-                'Usuário precisa ser admin OU estar ligado a um prestador.')
+                'Usuário precisa ser admin, financeiro OU estar ligado a '
+                'um prestador.')
         return dados

@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% block title %}Financeiro · {{ mes|date:"m/Y" }}{% endblock %}
+{% block conteudo %}
+<style>
+.fin-card{display:block;background:var(--branco);border:1.5px solid var(--linha);border-radius:14px;padding:16px 18px;margin-bottom:10px;cursor:pointer;text-align:left;width:100%;font:inherit;color:inherit}
+.fin-card:hover{border-color:var(--verde)}
+.fin-card .nome{font-weight:800;font-size:1.05rem}
+.fin-card .sub{margin-top:4px}
+.fin-card.ok{opacity:.7}
+dialog.fin{border:0;border-radius:16px;padding:0;width:min(960px,96vw);max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+dialog.fin::backdrop{background:rgba(10,30,20,.55)}
+dialog.fin .topo{background:var(--verde);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;top:0}
+dialog.fin .corpo{padding:16px 20px 22px}
+dialog.fin table{width:100%;border-collapse:collapse;font-size:.92rem}
+dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha);vertical-align:top;text-align:left}
+.carimbo{font-size:.78rem;color:var(--cinza)}
+.chave{background:#f4f8f6;border:1.5px solid var(--linha);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+</style>
+<div class="mesnav">
+  <a href="?m={{ ant|date:'Y-m' }}">‹</a>
+  <div class="mes">{{ mes|date:"F/Y"|capfirst }}</div>
+  <a href="?m={{ prox|date:'Y-m' }}">›</a>
+</div>
+<h1 style="font-size:1.2rem">💰 Financeiro — boletos aprovados para pagamento</h1>
+<p class="sub">{{ total_abertos }} boleto(s) em aberto neste mês{% if total_a_receber %} · <strong>{{ total_a_receber }} ainda sem ciência de recebimento</strong>{% endif %}. Clique no prestador para ver só os boletos dele.</p>
+
+{% for g in grupos %}
+<button class="fin-card{% if g.abertos == 0 %} ok{% endif %}" type="button" onclick="document.getElementById('fin{{ g.prestador.pk }}').showModal()">
+  <div class="nome">{{ g.prestador.nome }}{% if g.abertos %} — R$ {{ g.total_aberto }}{% endif %}</div>
+  <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% endif %}</div>
+</button>
+
+<dialog class="fin" id="fin{{ g.prestador.pk }}">
+  <div class="topo">
+    <div><strong>{{ g.prestador.nome }}</strong>{% if g.prestador.cnpj %} <span style="opacity:.85;font-size:.85rem">· CNPJ {{ g.prestador.cnpj }}</span>{% endif %}<br>
+      <span style="font-size:.82rem;opacity:.9">{{ mes|date:"F/Y"|capfirst }} · {{ g.abertos }} em aberto · {{ g.pagos }} pago(s)</span></div>
+    <form method="dialog"><button class="btn mini claro" type="submit">Fechar ✕</button></form>
+  </div>
+  <div class="corpo">
+    <form method="post" action="{% url 'financeiro_email' g.prestador.pk %}" class="chave">
+      {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
+      <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" name="sem_email" {% if g.prestador.fin_sem_email %}checked{% endif %} onchange="this.form.submit()">
+        <span><strong>Não me envie mais e-mail de pagamento deste prestador</strong> — acompanho por aqui.</span></label>
+      <span class="carimbo">Cancelamentos e correções continuam chegando por e-mail.</span>
+    </form>
+    <table>
+      <tr><th>Posto</th><th>Valor</th><th>Vencimento</th><th>Arquivos</th><th>Situação</th><th></th></tr>
+      {% for b in g.boletos %}
+      <tr>
+        <td><strong>{{ b.posto_efetivo|default:"boleto único" }}</strong>
+          {% if b.linha_digitavel %}<div class="carimbo" style="font-family:monospace;word-break:break-all">{{ b.linha_digitavel }}</div>{% endif %}
+          {% if b.chave_pix %}<div class="carimbo">PIX: {{ b.chave_pix }}</div>{% endif %}</td>
+        <td style="white-space:nowrap">R$ {{ b.valor_extraido|default:b.valor_esperado }}</td>
+        <td style="white-space:nowrap">{% if b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+        <td style="white-space:nowrap">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}
+          {% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" target="_blank">🧾 nota</a>{% endif %}</td>
+        <td>
+          {% if b.status == 'PAGO' %}<span class="chip PAGO">Pago</span><div class="carimbo">{{ b.pago_em|date:"d/m/Y H:i" }}</div>
+          {% elif b.fin_pagamento_em %}<span class="chip FIN_RECEBIDO">Enviado p/ pagamento</span>
+            <div class="carimbo">{{ b.fin_pagamento_em|date:"d/m/Y H:i" }} · {{ b.fin_pagamento_por }}</div>
+            <div class="carimbo">PAGO automático em {{ b.pago_previsto|date:"d/m/Y H:i" }}</div>
+          {% elif b.status == 'FIN_RECEBIDO' %}<span class="chip FIN_RECEBIDO">Recebido</span>
+            <div class="carimbo">{{ b.fin_recebido_em|date:"d/m/Y H:i" }}{% if b.fin_recebido_por %} · {{ b.fin_recebido_por }}{% endif %}</div>
+          {% else %}<span class="chip APROVADO">Aprovado — aguardando ciência</span>
+            <div class="carimbo">liberado em {{ b.pagamento_enviado_em|date:"d/m/Y H:i" }}</div>{% endif %}
+        </td>
+        <td style="white-space:nowrap">
+          {% if b.status == 'APROVADO' %}
+          <form method="post" action="{% url 'financeiro_acao' b.pk 'recebi' %}" style="display:inline">
+            {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
+            <button class="btn mini claro" type="submit">✅ Recebi o boleto</button></form>
+          {% endif %}
+          {% if b.status != 'PAGO' and not b.fin_pagamento_em %}
+          <form method="post" action="{% url 'financeiro_acao' b.pk 'enviei' %}" style="display:inline"
+                onsubmit="return confirm('Registrar que este boleto foi enviado para pagamento? Em 24h ele será marcado como PAGO.')">
+            {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
+            <button class="btn mini" type="submit">💸 Enviei p/ pagamento</button></form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</dialog>
+{% empty %}
+<div class="card sub">Nenhum boleto aprovado para pagamento em {{ mes|date:"m/Y" }}.</div>
+{% endfor %}
+<script>
+(function(){
+  var abrir = {{ abrir|default:"''"|safe }};
+  var d = abrir && document.getElementById('fin' + abrir);
+  if (d && d.showModal) d.showModal();
+})();
+</script>
+{% endblock %}

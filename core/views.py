@@ -31,6 +31,11 @@ def _usuario(request):
     # Modo "ver como": o admin enxerga o portal exatamente como o PJ vê.
     # Instância virtual (não salva), só para esta requisição.
     pk = request.session.get('ver_como')
+    if up is not None and up.is_admin and pk == 'financeiro':
+        # Admin vendo o painel do FINANCEIRO como a equipe vê.
+        return UsuarioPermitido(email=up.email, nome=up.nome,
+                                is_admin=False, is_financeiro=True,
+                                ativo=True)
     if up is not None and up.is_admin and pk:
         prestador = Prestador.objects.filter(pk=pk, ativo=True).first()
         if prestador is not None:
@@ -65,6 +70,8 @@ def prestador_required(view):
         if up.prestador is None or not up.prestador.ativo:
             if up.is_admin:
                 return redirect('painel_dashboard')
+            if up.is_financeiro:
+                return redirect('financeiro_painel')
             return redirect('sem_acesso')
         return view(request, up, *args, **kwargs)
     return wrapper
@@ -78,6 +85,8 @@ def sem_acesso(request):
 def home(request, up):
     if up.prestador is None and up.is_admin:
         return redirect('painel_dashboard')
+    if up.prestador is None and up.is_financeiro:
+        return redirect('financeiro_painel')
     # Últimos 60 dias por padrão (cabe o mês inteiro de quem manda um
     # boleto por posto); "?todos=1" lista tudo.
     todos = request.GET.get('todos') == '1'
@@ -372,7 +381,10 @@ def contratos_lote(request, up):
 # Download de arquivos — SEMPRE por aqui, nunca direto do nginx.
 # PJ só baixa o que é do próprio prestador; admin baixa tudo.
 # ---------------------------------------------------------------------------
-def _pode_ver(up, prestador_id):
+def _pode_ver(up, prestador_id, tipo=''):
+    # Financeiro baixa boleto e nota fiscal (é o que ele paga); contratos não.
+    if up.is_financeiro and tipo in ('boleto', 'nf'):
+        return True
     return up.is_admin or (up.prestador_id == prestador_id)
 
 
@@ -402,7 +414,7 @@ def baixar_arquivo(request, up, tipo, pk):
     desativado = (obj.desativado if tipo == 'contrato' else
                   obj.contrato.desativado if tipo == 'contrato_versao'
                   else False)
-    if not _pode_ver(up, dono) or (desativado and not up.is_admin):
+    if not _pode_ver(up, dono, tipo) or (desativado and not up.is_admin):
         AuditLog.registrar(AuditLog.Evento.DOWNLOAD_NEGADO, request,
                            detalhe=f'{tipo} #{pk}')
         raise Http404

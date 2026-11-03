@@ -448,25 +448,34 @@ def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
     # Quem lê este e-mail é o FINANCEIRO — a saudação é para a equipe,
     # nunca para o prestador (que é o assunto do e-mail, não o leitor).
     fatos_eq = dict(fatos, contato='equipe do setor financeiro')
-    emails.enviar(
-        settings.EMAIL_PAGADOR, assunto,
-        aviso + frases.corpo(
-            'aprovado_pagador', fatos_eq,
-            instrucao_ia=('Escreva para a EQUIPE DO SETOR FINANCEIRO da '
-                          'CAMIM (o leitor é a equipe, não o prestador): '
-                          'abra com "Prezada equipe do setor financeiro," '
-                          'e peça para pagar o boleto em anexo do '
-                          'prestador informado, dizendo que o valor já foi '
-                          'conferido e que os dados de pagamento seguem '
-                          'abaixo da assinatura.'
-                          + _instrucao_parcial(fatos)))
-        + dados_pagamento(boleto, fatos),
-        boleto=boleto,
-        anexo_field=boleto.arquivo if boleto.arquivo else None,
-        anexos=([(boleto.nota_fiscal,
-                  boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
-                if boleto.nota_fiscal else None),
-        de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
+    if boleto.prestador.fin_sem_email:
+        # Financeiro acompanha este prestador pelo painel /financeiro/:
+        # nada de e-mail à equipe@ (a chave fica no próprio painel deles).
+        AuditLog.registrar(
+            AuditLog.Evento.STATUS, ator='sistema',
+            detalhe=f'Boleto #{boleto.pk} liberado ao financeiro pelo PAINEL '
+                    '(prestador marcado "sem e-mail de pagamento")'
+                    + (' — correção' if correcao else ''))
+    else:
+        emails.enviar(
+            settings.EMAIL_PAGADOR, assunto,
+            aviso + frases.corpo(
+                'aprovado_pagador', fatos_eq,
+                instrucao_ia=('Escreva para a EQUIPE DO SETOR FINANCEIRO da '
+                              'CAMIM (o leitor é a equipe, não o prestador): '
+                              'abra com "Prezada equipe do setor financeiro," '
+                              'e peça para pagar o boleto em anexo do '
+                              'prestador informado, dizendo que o valor já '
+                              'foi conferido e que os dados de pagamento '
+                              'seguem abaixo da assinatura.'
+                              + _instrucao_parcial(fatos)))
+            + dados_pagamento(boleto, fatos),
+            boleto=boleto,
+            anexo_field=boleto.arquivo if boleto.arquivo else None,
+            anexos=([(boleto.nota_fiscal,
+                      boleto.nota_fiscal_nome or 'nota-fiscal.pdf')]
+                    if boleto.nota_fiscal else None),
+            de=settings.EMAIL_FROM_PAGADOR, cc=cc_gerente(boleto))
     boleto.pagamento_enviado_em = timezone.now()
     boleto.pagamento_enviado_valor = valor
     boleto.save(update_fields=['pagamento_enviado_em',
@@ -802,6 +811,85 @@ def nao_reconhecer(boleto, motivo, quem):
         AuditLog.Evento.STATUS, ator=quem,
         detalhe=f'Boleto #{boleto.pk}: dívida NÃO reconhecida — prestador '
                 'avisado' + (f' — motivo: {motivo}' if motivo else ''))
+
+
+def confirmar_fin_recebido(boleto, ator, origem=''):
+    """Financeiro deu ciência de que recebeu o boleto — pela resposta ao
+    e-mail (robô) ou pelo botão do painel do financeiro. Status
+    FIN_RECEBIDO, auditoria e aviso ao PJ ("está com o financeiro").
+    Retorna False se o boleto não estava aprovado."""
+    if boleto.status != Boleto.Status.APROVADO:
+        return False
+    boleto.status = Boleto.Status.FIN_RECEBIDO
+    boleto.fin_recebido_em = timezone.now()
+    boleto.fin_recebido_por = (ator or '')[:255]
+    boleto.save(update_fields=['status', 'fin_recebido_em',
+                               'fin_recebido_por'])
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator=ator,
+        detalhe=f'Boleto #{boleto.pk} confirmado recebido pelo financeiro'
+                + (f' ({origem})' if origem else ''))
+    fatos = _fatos(boleto)
+    if not boleto.parcial:
+        fatos['valor'] = _moeda(boleto.valor_extraido or boleto.valor_esperado)
+    emails.enviar(
+        destinatarios_pj(boleto),
+        assunto_parcial(fatos,
+                        f'Boleto com o financeiro — {fatos["competencia"]}'),
+        frases.corpo(
+            'fin_recebido', fatos,
+            instrucao_ia=('Escreva em tom FORMAL e positivo informando ao '
+                          'PRESTADOR que o setor financeiro da CAMIM '
+                          'confirmou o recebimento do boleto dele e que o '
+                          'pagamento (da CAMIM para o prestador) está em '
+                          'processamento — nenhuma ação é necessária, é só '
+                          'aguardar. NÃO cite valores no texto. Diga que os '
+                          'dados seguem abaixo da assinatura.'
+                          + _instrucao_parcial(fatos)))
+        + dados_pj(boleto, fatos),
+        boleto=boleto, cc=cc_gerente(boleto))
+    return True
+
+
+def fin_enviou_para_pagamento(boleto, ator):
+    """Financeiro registrou que enviou o boleto para pagamento. 24h depois
+    o cron (processar_boletos) marca PAGO sozinho."""
+    if boleto.status not in (Boleto.Status.APROVADO,
+                             Boleto.Status.FIN_RECEBIDO):
+        return False
+    if boleto.status == Boleto.Status.APROVADO:
+        confirmar_fin_recebido(boleto, ator, origem='painel do financeiro')
+    boleto.fin_pagamento_em = timezone.now()
+    boleto.fin_pagamento_por = (ator or '')[:255]
+    boleto.save(update_fields=['fin_pagamento_em', 'fin_pagamento_por'])
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator=ator,
+        detalhe=f'Boleto #{boleto.pk}: financeiro enviou para pagamento — '
+                'PAGO automático em 24h')
+    return True
+
+
+def pagar_automatico(agora=None):
+    """Boletos que o financeiro enviou para pagamento há 24h ou mais
+    viram PAGO. Chamado pelo cron processar_boletos. Devolve os pks."""
+    from datetime import timedelta
+    agora = agora or timezone.now()
+    corte = agora - timedelta(hours=24)
+    pagos = []
+    for b in Boleto.objects.filter(
+            fin_pagamento_em__lte=corte,
+            status__in=[Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO]):
+        b.status = Boleto.Status.PAGO
+        b.pago_em = agora
+        b.save(update_fields=['status', 'pago_em'])
+        AuditLog.registrar(
+            AuditLog.Evento.STATUS, ator='sistema',
+            detalhe=f'Boleto #{b.pk} marcado PAGO automaticamente — 24h após '
+                    f'o financeiro enviar para pagamento '
+                    f'({timezone.localtime(b.fin_pagamento_em):%d/%m %H:%M}, '
+                    f'{b.fin_pagamento_por})')
+        pagos.append(b.pk)
+    return pagos
 
 
 def mudar_pagador(boleto, novo_posto, motivo, quem):
