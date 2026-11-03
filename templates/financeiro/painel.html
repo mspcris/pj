@@ -9,7 +9,11 @@
 .fin-card.ok{opacity:.7}
 .fin-card{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
 .kanban{display:flex;align-items:center;gap:0;flex-shrink:0}
-.kanban .pt{width:16px;height:16px;border-radius:50%;display:inline-block;border:2px solid #fff;box-shadow:0 0 0 1.5px #b9c6c0;cursor:help}
+.kanban .pt{width:16px;height:16px;border-radius:50%;display:inline-block;border:2px solid #fff;box-shadow:0 0 0 1.5px #b9c6c0;cursor:help;position:relative}
+.kanban .pt[data-hint]:hover::after{content:attr(data-hint);position:absolute;bottom:calc(100% + 9px);left:50%;transform:translateX(-50%);background:#15221e;color:#fff;font-size:.78rem;font-weight:600;line-height:1.3;padding:6px 10px;border-radius:8px;white-space:nowrap;z-index:50;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+.kanban .pt[data-hint]:hover::before{content:"";position:absolute;bottom:calc(100% + 3px);left:50%;transform:translateX(-50%);border:6px solid transparent;border-top-color:#15221e;z-index:50;pointer-events:none}
+.kanban .pt:last-child[data-hint]:hover::after{left:auto;right:-8px;transform:none}
+.kanban .pt:first-child[data-hint]:hover::after{left:-8px;transform:none}
 .kanban .pt.ok{background:#0b7a5e;box-shadow:0 0 0 1.5px #0b7a5e}
 .kanban .pt.meio{background:linear-gradient(90deg,#0b7a5e 50%,#e9c46a 50%);box-shadow:0 0 0 1.5px #d9a94a}
 .kanban .pt.nao{background:#dfe6e3}
@@ -41,7 +45,7 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
     <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% endif %}</div>
   </div>
   <div class="kanban" aria-label="Etapas do processo">
-    {% for p in g.pontos %}{% if not forloop.first %}<span class="tr{% if p.feitos == p.total %} ok{% endif %}"></span>{% endif %}<span class="pt {{ p.classe }}" title="{{ p.rotulo }} — {{ p.feitos }}/{{ p.total }}"></span>{% endfor %}
+    {% for p in g.pontos %}{% if not forloop.first %}<span class="tr{% if p.feitos == p.total %} ok{% endif %}"></span>{% endif %}<span class="pt {{ p.classe }}" data-hint="{{ p.rotulo }} — {{ p.feitos }}/{{ p.total }}"></span>{% endfor %}
   </div>
 </button>
 
@@ -69,7 +73,7 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
         <td><strong>{{ b.posto_efetivo|default:"boleto único" }}</strong>
           {% if b.linha_digitavel %}<div class="carimbo" style="font-family:monospace;word-break:break-all">{{ b.linha_digitavel }}</div>{% endif %}
           {% if b.chave_pix %}<div class="carimbo">PIX: {{ b.chave_pix }}</div>{% endif %}</td>
-        <td style="white-space:nowrap"><span class="kanban mini">{% for e in b.etapas %}{% if not forloop.first %}<span class="tr{% if e.ok %} ok{% endif %}"></span>{% endif %}<span class="pt {% if e.ok %}ok{% else %}nao{% endif %}" title="{{ e.rotulo }}{% if e.ok %} ✓{% else %} — pendente{% endif %}"></span>{% endfor %}</span></td>
+        <td style="white-space:nowrap"><span class="kanban mini">{% for e in b.etapas %}{% if not forloop.first %}<span class="tr{% if e.ok %} ok{% endif %}"></span>{% endif %}<span class="pt {% if e.ok %}ok{% else %}nao{% endif %}" data-hint="{{ e.rotulo }}{% if e.ok %} ✓{% else %} — pendente{% endif %}"></span>{% endfor %}</span></td>
         <td style="white-space:nowrap">R$ {{ b.valor_extraido|default:b.valor_esperado }}</td>
         <td style="white-space:nowrap">{% if b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}</td>
         <td style="white-space:nowrap">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}

@@ -4882,5 +4882,5 @@ class KanbanFinanceiroTest(BaseSetup):
         self.assertEqual(p[2]['feitos'], 1)
         self.login_admin()
         resp = self.client.get('/financeiro/?m=2026-11')
-        self.assertContains(resp, '3. Financeiro deu ciência do recebimento — 1/2')
+        self.assertContains(resp, 'data-hint="3. Financeiro deu ciência do recebimento — 1/2"')
         self.assertContains(resp, 'class="pt meio"')
