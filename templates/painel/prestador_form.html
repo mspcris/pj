@@ -62,6 +62,9 @@
     "Valor do boleto único" acima). 📄 = já tem contrato anexado no posto.</p>
   <form method="post">
     {% csrf_token %}<input type="hidden" name="qual" value="valores">
+    <p style="margin:8px 0 10px"><label for="a_partir_de" style="display:inline">A mudança vale <strong>a partir de</strong></label>
+      <input type="month" id="a_partir_de" name="a_partir_de" value="{{ mes_atual|date:'Y-m' }}" style="width:auto;display:inline-block;margin-left:6px">
+      <span class="sub" style="font-size:.78rem"> — os meses anteriores continuam como estavam; fica na auditoria quem mudou.</span></p>
     <div class="rolagem"><table>
       <tr><th style="width:90px">Atende</th><th>Posto</th>
           <th style="width:180px">Valor mensal (R$)</th></tr>
@@ -80,8 +83,11 @@
               {% if l.posto.cnpj %} · {{ l.posto.cnpj }}{% endif %}</div>
             {% endif %}</label></td>
         <td><input name="valor_{{ l.posto.pk }}" inputmode="decimal"
-             placeholder="—" value="{% if l.vinculo %}{{ l.vinculo.valor_mensal }}{% endif %}"
-             oninput="if(this.value){document.getElementById('atende_{{ l.posto.pk }}').checked=true}"></td>
+             placeholder="—" value="{% if l.vinculo %}{{ l.valor }}{% endif %}"
+             oninput="if(this.value){document.getElementById('atende_{{ l.posto.pk }}').checked=true}">
+          {% for m, val in l.futuro %}<div class="sub" style="font-size:.72rem">a partir de {{ m|date:"m/Y" }}: R$ {{ val }}</div>{% endfor %}
+          {% if l.ate %}<div class="sub" style="font-size:.72rem">conta até {{ l.ate|date:"m/Y" }}</div>{% endif %}
+          {% if l.volta %}<div class="sub" style="font-size:.72rem">conta a partir de {{ l.volta|date:"m/Y" }}</div>{% endif %}</td>
       </tr>
       {% endfor %}
       <tr style="background:var(--verde-claro)">

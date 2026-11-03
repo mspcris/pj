@@ -804,6 +804,58 @@ def nao_reconhecer(boleto, motivo, quem):
                 'avisado' + (f' — motivo: {motivo}' if motivo else ''))
 
 
+def mudar_pagador(boleto, novo_posto, motivo, quem):
+    """Boleto passa a ser pago por OUTRO posto (03/11/2026: o boleto do
+    Lucas na Ótica LUTI, a pedido do Pereira, passou para a Anchieta).
+    Troca o posto e o esperado; se o boleto JÁ foi ao financeiro, a
+    equipe@ recebe uma CORREÇÃO dizendo qual empresa paga agora — mesmo
+    boleto, mesmo valor, pagar uma vez só. Auditoria com quem mudou."""
+    antigo = boleto.posto_efetivo
+    boleto.posto = novo_posto
+    boleto.valor_esperado = svc_boletos.valor_esperado_para(
+        boleto.prestador, novo_posto, boleto.competencia)
+    boleto.save(update_fields=['posto', 'valor_esperado'])
+    nome_antigo = antigo.nome if antigo else 'boleto único'
+    ja = boleto.pagamento_enviado_em is not None
+    if ja:
+        fatos = _fatos(boleto)
+        fatos['valor'] = _moeda(boleto.pagamento_enviado_valor
+                                or boleto.valor_extraido
+                                or boleto.valor_esperado)
+        quando = (timezone.localtime(boleto.pagamento_enviado_em)
+                  .strftime('%d/%m/%Y %H:%M'))
+        pagador = novo_posto.razao_social or novo_posto.nome
+        if novo_posto.razao_social and \
+                novo_posto.razao_social.upper() != novo_posto.nome.upper():
+            pagador += f' ({novo_posto.nome})'
+        if novo_posto.cnpj:
+            pagador += f' — CNPJ {novo_posto.cnpj}'
+        emails.enviar(
+            settings.EMAIL_PAGADOR,
+            f'CORREÇÃO — empresa pagadora — Pagamento — {fatos["prestador"]} '
+            f'— {fatos["alvo"]} — {fatos["competencia"]} — '
+            f'R$ {fatos["valor"]}',
+            'Prezada equipe do setor financeiro,\n\n'
+            f'⚠️ O boleto do prestador {fatos["prestador"]} '
+            f'({fatos["competencia"]}, R$ {fatos["valor"]}), enviado em '
+            f'{quando} para pagamento por {nome_antigo}, passa a ser pago '
+            f'por {pagador}. NÃO pagar por {nome_antigo}.\n\n'
+            f'Motivo: {motivo}\n\n'
+            'É o MESMO boleto (anexo de novo) e o MESMO valor — pagar UMA '
+            'vez só, pela empresa indicada acima. Os dados atualizados '
+            'seguem abaixo.\n'
+            + dados_pagamento(boleto, fatos),
+            boleto=boleto, anexo_field=boleto.arquivo if boleto.arquivo
+            else None, de=settings.EMAIL_FROM_PAGADOR,
+            cc=cc_gerente(boleto))
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator=quem,
+        detalhe=f'Boleto #{boleto.pk}: empresa pagadora mudou de '
+                f'{nome_antigo} para {novo_posto.nome} — {motivo}'
+                + (' — CORREÇÃO enviada ao financeiro' if ja else ''))
+    return ja
+
+
 def devolver_valor_errado(boleto, motivo, quem):
     """Botão "Valor errado — devolver ao prestador": a dívida existe, mas
     este boleto não serve (valor diferente do esperado). Sai da régua como

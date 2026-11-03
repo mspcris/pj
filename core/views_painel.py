@@ -833,6 +833,7 @@ def boleto_editar(request, up, pk):
             if (prestador.modo_boleto_em(d['competencia'])
                     == Prestador.ModoBoleto.UNICO):
                 posto = None
+            boleto_posto_antes = boleto.posto
             mudou = (posto != boleto.posto
                      or d['competencia'] != boleto.competencia
                      or d['linha_digitavel'] != boleto.linha_digitavel
@@ -863,7 +864,27 @@ def boleto_editar(request, up, pk):
             boleto.valor_esperado = (
                 None if d['extra'] else svc_boletos.valor_esperado_para(
                     prestador, posto, d['competencia']))
-            if nf and ja_enviado:
+            so_posto = (posto != boleto_posto_antes
+                        and d['competencia'] == boleto.competencia
+                        and d['linha_digitavel'] == boleto.linha_digitavel
+                        and d['valor_livre'] == boleto.valor_livre
+                        and d['extra'] == boleto.extra
+                        and d['parcial'] == boleto.parcial and not nf)
+            if so_posto and boleto.pagamento_enviado_em is not None \
+                    and posto is not None:
+                # Só a EMPRESA PAGADORA mudou num boleto que já está com o
+                # financeiro: não reverifica (a trava não reenviaria nada)
+                # — manda a CORREÇÃO dizendo quem paga agora.
+                boleto.posto = boleto_posto_antes
+                boleto.save()
+                from .services.verificacao import mudar_pagador
+                mudar_pagador(boleto, posto,
+                              motivo=boleto.observacao or 'alterado no painel',
+                              quem=up.email)
+                messages.success(
+                    request, f'{boleto} salvo — empresa pagadora alterada; '
+                             'o financeiro recebeu a CORREÇÃO.')
+            elif nf and ja_enviado:
                 boleto.save()
                 from .services.verificacao import enviar_nota_posterior
                 enviar_nota_posterior(
@@ -956,8 +977,8 @@ def prestadores(request, up):
             postos = ([(p.posto_cobranca, p.valor_esperado_unico())]
                       if p.posto_cobranca else [])
         else:
-            postos = [(v.posto, v.valor_mensal) for v in p.vinculos.all()
-                      if v.ativo and v.posto.ativo]
+            postos = [(v.posto, v.valor_em()) for v in p.vinculos_em()
+                      .select_related('posto')]
         p.postos_info = [{'posto': x, 'valor': valor,
                           'ok': geral or x.pk in cobertos}
                          for x, valor in postos]
@@ -1014,39 +1035,42 @@ def prestador_detalhe(request, up, pk):
             return redirect('painel_prestador', pk=pk)
         elif qual == 'valores':
             campo = ValorBRField(required=False)
-            with transaction.atomic():
-                for posto in postos:
-                    atende = bool(request.POST.get(f'atende_{posto.pk}'))
-                    bruto = (request.POST.get(f'valor_{posto.pk}') or '').strip()
-                    try:
-                        valor = campo.clean(bruto) if bruto else None
-                    except Exception:
-                        messages.error(request,
-                                       f'Valor inválido em {posto.nome}.')
-                        return redirect('painel_prestador', pk=pk)
-                    if atende and valor is None:
-                        messages.error(
-                            request, f'{posto.nome} está marcado como '
-                                     '"atende", mas sem valor mensal — '
-                                     'nada foi salvo.')
-                        return redirect('painel_prestador', pk=pk)
-                    vinculo = PrestadorPosto.objects.filter(
-                        prestador=prestador, posto=posto).first()
-                    if not atende:
-                        if vinculo and vinculo.ativo:
-                            vinculo.ativo = False
-                            vinculo.save(update_fields=['ativo'])
-                    elif vinculo:
-                        vinculo.valor_mensal = valor
-                        vinculo.ativo = True
-                        vinculo.save()
-                    else:
-                        PrestadorPosto.objects.create(
-                            prestador=prestador, posto=posto,
-                            valor_mensal=valor)
-            AuditLog.registrar(AuditLog.Evento.CRUD, request,
-                               detalhe=f'Valores de {prestador} atualizados')
-            messages.success(request, 'Postos e valores salvos.')
+            # Mudança vale "a partir de" um mês (padrão: o mês atual); os
+            # meses anteriores não mudam. Fica na auditoria quem mudou.
+            bruto_mes = (request.POST.get('a_partir_de') or '').strip()
+            try:
+                a_partir_de = (date.fromisoformat(bruto_mes[:7] + '-01')
+                               if bruto_mes
+                               else timezone.localdate().replace(day=1))
+            except ValueError:
+                messages.error(request, 'Mês "a partir de" inválido.')
+                return redirect('painel_prestador', pk=pk)
+            dados = {}
+            for posto in postos:
+                atende = bool(request.POST.get(f'atende_{posto.pk}'))
+                bruto = (request.POST.get(f'valor_{posto.pk}') or '').strip()
+                try:
+                    valor = campo.clean(bruto) if bruto else None
+                except Exception:
+                    messages.error(request, f'Valor inválido em {posto.nome}.')
+                    return redirect('painel_prestador', pk=pk)
+                if atende and valor is None:
+                    messages.error(
+                        request, f'{posto.nome} está marcado como '
+                                 '"atende", mas sem valor mensal — '
+                                 'nada foi salvo.')
+                    return redirect('painel_prestador', pk=pk)
+                dados[posto] = (atende, valor)
+            from .services.cadastro import salvar_valores
+            mudancas = salvar_valores(prestador, a_partir_de, dados,
+                                      quem=up.email, request=request)
+            if mudancas:
+                messages.success(
+                    request, f'Salvo a partir de {a_partir_de:%m/%Y}: '
+                             + '; '.join(mudancas) + '. Os meses anteriores '
+                             'continuam como estavam.')
+            else:
+                messages.info(request, 'Nada mudou.')
             return redirect('painel_prestador', pk=pk)
         elif qual == 'vale':
             vale_form = ValeForm(request.POST)
@@ -1124,15 +1148,27 @@ def prestador_detalhe(request, up, pk):
             messages.success(request, f'Vale {"reativado" if v.ativo else "encerrado"}.')
             return redirect('painel_prestador', pk=pk)
 
+    mes_atual = timezone.localdate().replace(day=1)
     vinculos = {v.posto_id: v for v in
-                PrestadorPosto.objects.filter(prestador=prestador, ativo=True)}
+                prestador.vinculos_em(mes_atual).select_related('posto')}
+    todos_vinc = {v.posto_id: v for v in
+                  PrestadorPosto.objects.filter(prestador=prestador)}
     postos_com_contrato = set(
         Contrato.objects.filter(prestador=prestador, posto__isnull=False,
                                 desativado_em__isnull=True)
         .values_list('posto_id', flat=True))
-    linhas_postos = [{'posto': p, 'vinculo': vinculos.get(p.pk),
-                      'tem_contrato': p.pk in postos_com_contrato}
-                     for p in postos]
+    linhas_postos = []
+    for p in postos:
+        v = vinculos.get(p.pk)
+        t = todos_vinc.get(p.pk)
+        linhas_postos.append({
+            'posto': p, 'vinculo': v,
+            'valor': v.valor_em(mes_atual) if v else None,
+            'futuro': t.mudancas_futuras(mes_atual) if t else [],
+            'ate': (t.ate if t and t.ate and t.ate >= mes_atual else None),
+            'volta': (t.desde if t and t.ativo and t.desde
+                      and t.desde > mes_atual else None),
+            'tem_contrato': p.pk in postos_com_contrato})
     contratos = (Contrato.objects.filter(prestador=prestador)
                  .select_related('posto').prefetch_related('versoes'))
     mes_atual = timezone.localdate().replace(day=1)
@@ -1149,6 +1185,7 @@ def prestador_detalhe(request, up, pk):
         initial={'posto': anexar.pk} if anexar else None)
     return render(request, 'painel/prestador_form.html', {
         'prestador': prestador, 'form': form, 'linhas_postos': linhas_postos,
+        'mes_atual': mes_atual,
         'contratos': contratos, 'usuarios': prestador.usuarios.all(),
         'pendentes_gestor': sum(1 for c in contratos if c.falta_gestor),
         'vales': vales, 'vale_form': ValeForm(),

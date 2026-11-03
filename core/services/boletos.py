@@ -122,8 +122,8 @@ def valor_esperado_para(prestador, posto, competencia=None):
     if prestador.modo_boleto_em(competencia) == Prestador.ModoBoleto.UNICO:
         base = prestador.valor_esperado_unico()
     else:
-        vinculo = prestador.vinculos_ativos().filter(posto=posto).first()
-        base = vinculo.valor_mensal if vinculo else None
+        vinculo = prestador.vinculos_em(competencia).filter(posto=posto).first()
+        base = vinculo.valor_em(competencia) if vinculo else None
     if base is None or competencia is None:
         return base
     for vale, _ in vales_aplicaveis(prestador, posto, competencia):

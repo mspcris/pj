@@ -209,13 +209,25 @@ class Prestador(models.Model):
     def __str__(self):
         return self.nome
 
-    def vinculos_ativos(self):
-        return self.vinculos.filter(ativo=True, posto__ativo=True)
+    def vinculos_em(self, mes=None):
+        """Vínculos que CONTAM no mês `mes` (None = hoje): ativos, posto
+        ativo e dentro da vigência (desde/até). 03/11/2026: mudança de
+        cadastro vale "a partir de um mês" — o passado não muda mais."""
+        from django.db.models import Q
+        from django.utils import timezone
+        mes = (mes or timezone.localdate()).replace(day=1)
+        return (self.vinculos.filter(ativo=True, posto__ativo=True)
+                .filter(Q(desde__isnull=True) | Q(desde__lte=mes))
+                .filter(Q(ate__isnull=True) | Q(ate__gte=mes)))
 
-    def valor_esperado_unico(self):
+    def vinculos_ativos(self):
+        """Vínculos vigentes HOJE (atalho de vinculos_em())."""
+        return self.vinculos_em()
+
+    def valor_esperado_unico(self, mes=None):
         if self.valor_unico is not None:
             return self.valor_unico
-        total = sum((v.valor_mensal for v in self.vinculos_ativos()),
+        total = sum((v.valor_em(mes) for v in self.vinculos_em(mes)),
                     Decimal('0'))
         return total or None
 
@@ -251,19 +263,28 @@ class Prestador(models.Model):
                 and mes.replace(day=1) < self.primeiro_mes.replace(day=1)):
             return []
         if self.modo_boleto_em(mes) == self.ModoBoleto.UNICO:
-            return [(self.posto_cobranca, self.valor_esperado_unico())]
-        return [(v.posto, v.valor_mensal) for v in
-                self.vinculos_ativos().select_related('posto')]
+            return [(self.posto_cobranca, self.valor_esperado_unico(mes))]
+        return [(v.posto, v.valor_em(mes)) for v in
+                self.vinculos_em(mes).select_related('posto')]
 
 
 class PrestadorPosto(models.Model):
-    """Vínculo prestador × posto com o valor mensal combinado."""
+    """Vínculo prestador × posto com o valor mensal combinado.
+
+    Vigência (03/11/2026): `desde`/`ate` dizem em quais meses o posto conta
+    na régua; o valor de cada mês sai do histórico (VinculoValor). Mudar o
+    cadastro "a partir de um mês" não reescreve os meses anteriores."""
     prestador = models.ForeignKey(Prestador, on_delete=models.CASCADE,
                                   related_name='vinculos')
     posto = models.ForeignKey(Posto, on_delete=models.CASCADE,
                               related_name='vinculos')
+    # Valor vigente mais recente (o de cada mês está em valor_em()).
     valor_mensal = models.DecimalField(max_digits=12, decimal_places=2)
     ativo = models.BooleanField(default=True)
+    desde = models.DateField(null=True, blank=True,
+                             verbose_name='Conta a partir de (mês)')
+    ate = models.DateField(null=True, blank=True,
+                           verbose_name='Último mês em que conta')
 
     class Meta:
         unique_together = [('prestador', 'posto')]
@@ -271,6 +292,67 @@ class PrestadorPosto(models.Model):
 
     def __str__(self):
         return f'{self.prestador} @ {self.posto}'
+
+    def vigente_em(self, mes):
+        mes = mes.replace(day=1)
+        return (self.ativo and self.posto.ativo
+                and (self.desde is None or self.desde <= mes)
+                and (self.ate is None or self.ate >= mes))
+
+    def valor_em(self, mes=None):
+        """Valor combinado no mês `mes` (None = hoje): a última mudança
+        registrada até aquele mês; sem histórico, o valor do cadastro."""
+        from django.db.models import F, Q
+        from django.utils import timezone
+        mes = (mes or timezone.localdate()).replace(day=1)
+        row = (self.historico
+               .filter(Q(desde__isnull=True) | Q(desde__lte=mes))
+               .order_by(F('desde').desc(nulls_last=True), '-pk').first())
+        return row.valor_mensal if row else self.valor_mensal
+
+    def registrar_valor(self, valor, desde, quem=''):
+        """Novo valor a partir do mês `desde`. Na primeira mudança, guarda
+        o valor antigo como "desde sempre", para os meses anteriores
+        continuarem iguais."""
+        desde = desde.replace(day=1)
+        if not self.historico.exists():
+            VinculoValor.objects.create(vinculo=self, desde=None,
+                                        valor_mensal=self.valor_mensal,
+                                        registrado_por=quem)
+        VinculoValor.objects.update_or_create(
+            vinculo=self, desde=desde,
+            defaults={'valor_mensal': valor, 'registrado_por': quem})
+        from django.utils import timezone
+        if desde <= timezone.localdate().replace(day=1):
+            self.valor_mensal = valor
+            self.save(update_fields=['valor_mensal'])
+
+    def mudancas_futuras(self, mes=None):
+        """[(mês, valor)] registrados para DEPOIS de `mes` (painel)."""
+        from django.utils import timezone
+        mes = (mes or timezone.localdate()).replace(day=1)
+        return [(r.desde, r.valor_mensal) for r in
+                self.historico.filter(desde__gt=mes).order_by('desde')]
+
+
+class VinculoValor(models.Model):
+    """Histórico do valor mensal de um vínculo: cada linha vale a partir
+    de `desde` (None = desde sempre) até a linha seguinte."""
+    vinculo = models.ForeignKey(PrestadorPosto, on_delete=models.CASCADE,
+                                related_name='historico')
+    desde = models.DateField(null=True, blank=True)
+    valor_mensal = models.DecimalField(max_digits=12, decimal_places=2)
+    registrado_por = models.CharField(max_length=255, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = [('vinculo', 'desde')]
+        ordering = ['desde']
+
+    def __str__(self):
+        return (f'{self.vinculo} — R$ {self.valor_mensal} desde '
+                f'{self.desde:%m/%Y}' if self.desde else
+                f'{self.vinculo} — R$ {self.valor_mensal} (desde sempre)')
 
 
 class AjusteDiferenca(models.Model):

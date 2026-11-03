@@ -331,7 +331,10 @@ class ValoresPostosTest(BaseSetup):
         self.assertTrue(vinculos[self.posto1.pk].ativo)
         self.assertEqual(vinculos[self.posto1.pk].valor_mensal,
                          Decimal('1800.00'))
-        self.assertFalse(vinculos[self.posto2.pk].ativo)  # desmarcado
+        # desmarcado: deixa de contar a partir deste mês (o passado fica)
+        self.assertFalse(vinculos[self.posto2.pk].vigente_em(date.today()))
+        self.assertNotIn(self.posto2, [x for x, _ in
+                                       self.prestador.boletos_esperados()])
 
     def test_atende_sem_valor_nao_salva(self):
         self.login_admin()
@@ -4412,3 +4415,125 @@ class DevolverValorErradoTest(BaseSetup):
             self.client.post(f'/painel/boleto/{b2.pk}/restaurar/')
         b2.refresh_from_db()
         self.assertEqual(b2.status, Boleto.Status.RECEBIDO)
+
+
+class VigenciaVinculoTest(BaseSetup):
+    """03/11/2026: "sempre que altero algo o legado fica errado". Mudança
+    de posto/valor vale a partir de um mês; os meses anteriores continuam
+    iguais; a auditoria diz quem mudou."""
+
+    def _salvar(self, a_partir, dados):
+        from core.services.cadastro import salvar_valores
+        return salvar_valores(self.prestador, a_partir, dados,
+                              quem='cristiano@camim.com.br')
+
+    def test_valor_muda_so_dali_em_diante(self):
+        p = self.prestador
+        out = self._salvar(date(2026, 12, 1),
+                           {self.posto1: (True, Decimal('571.43')),
+                            self.posto2: (True, Decimal('2000.00'))})
+        self.assertEqual(len(out), 1)
+        self.assertIn('1.500,00 → R$ 571,43 a partir de 12/2026', out[0])
+        esperados = dict(p.boletos_esperados(date(2026, 11, 1)))
+        self.assertEqual(esperados[self.posto1], Decimal('1500.00'))
+        esperados = dict(p.boletos_esperados(date(2026, 12, 1)))
+        self.assertEqual(esperados[self.posto1], Decimal('571.43'))
+        from core.services.boletos import valor_esperado_para
+        self.assertEqual(valor_esperado_para(p, self.posto1,
+                                             date(2026, 10, 1)),
+                         Decimal('1500.00'))
+        self.assertEqual(valor_esperado_para(p, self.posto1,
+                                             date(2027, 1, 1)),
+                         Decimal('571.43'))
+        from core.models import AuditLog
+        a = AuditLog.objects.filter(detalhe__contains='a partir de 12/2026'
+                                    ).latest('pk')
+        self.assertEqual(a.ator_email, 'cristiano@camim.com.br')
+
+    def test_posto_sai_e_entra_a_partir_do_mes(self):
+        p = self.prestador
+        with mock.patch('django.utils.timezone.localdate',
+                        return_value=date(2026, 11, 3)):
+            ronald = Posto.objects.create(nome='Ronald Fernandes')
+            out = self._salvar(date(2026, 11, 1),
+                               {self.posto1: (True, Decimal('1500.00')),
+                                self.posto2: (False, None),
+                                ronald: (True, Decimal('500.00'))})
+            self.assertEqual(len(out), 2)
+            # outubro: como era (Anchieta + Bangu); novembro: Anchieta + Ronald
+            self.assertEqual({x for x, _ in p.boletos_esperados(date(2026, 10, 1))},
+                             {self.posto1, self.posto2})
+            self.assertEqual({x for x, _ in p.boletos_esperados(date(2026, 11, 1))},
+                             {self.posto1, ronald})
+            self.assertEqual(p.vinculos_ativos().count(), 2)
+            # painel mostra "conta até 10/2026"? não — Bangu já não é vigente;
+            # a tela mostra o vigente do mês e os futuros
+            self.login_admin()
+            resp = self.client.get(f'/painel/prestadores/{p.pk}/')
+            self.assertContains(resp, 'a_partir_de')
+            self.assertContains(resp, 'value="2026-11"')
+            # salvar pelo painel com data futura
+            dados = {'qual': 'valores', 'a_partir_de': '2026-12',
+                     f'atende_{self.posto1.pk}': 'on',
+                     f'valor_{self.posto1.pk}': '1.600,00',
+                     f'atende_{ronald.pk}': 'on',
+                     f'valor_{ronald.pk}': '500,00'}
+            resp = self.client.post(f'/painel/prestadores/{p.pk}/', dados)
+            self.assertEqual(resp.status_code, 302)
+            resp = self.client.get(f'/painel/prestadores/{p.pk}/')
+            self.assertContains(resp, 'a partir de 12/2026: R$ 1.600,00')
+            self.assertEqual(dict(p.boletos_esperados(date(2026, 11, 1)))
+                             [self.posto1], Decimal('1500.00'))
+            self.assertEqual(dict(p.boletos_esperados(date(2026, 12, 1)))
+                             [self.posto1], Decimal('1600.00'))
+
+
+class MudarPagadorTest(BaseSetup):
+    """Boleto que já foi ao financeiro muda de empresa pagadora (Lucas,
+    LUTI → Anchieta, a pedido do Pereira): a equipe@ recebe a CORREÇÃO."""
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_correcao_ao_financeiro(self, m_mail):
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto2,
+            competencia=date(2026, 11, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('500.00'),
+            valor_esperado=Decimal('2000.00'),
+            pagamento_enviado_em=timezone.now(),
+            pagamento_enviado_valor=Decimal('500.00'))
+        from core.services.verificacao import mudar_pagador
+        self.assertTrue(mudar_pagador(b, self.posto1,
+                                      'a pedido do Pereira', quem='cristiano'))
+        b.refresh_from_db()
+        self.assertEqual(b.posto, self.posto1)
+        self.assertEqual(b.valor_esperado, Decimal('1500.00'))
+        self.assertEqual(m_mail.call_count, 1)
+        dest, assunto, corpo = m_mail.call_args.args[:3]
+        self.assertEqual(dest, 'equipe@camim.com.br')
+        self.assertIn('CORREÇÃO — empresa pagadora', assunto)
+        self.assertIn('Anchieta', assunto)
+        self.assertIn('NÃO pagar por Bangu', corpo)
+        self.assertIn('CAMIM ANCHIETA', corpo)
+        self.assertIn('a pedido do Pereira', corpo)
+        self.assertIn('500,00', corpo)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_editar_so_o_posto_de_boleto_enviado_manda_correcao(self, m_mail):
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto2,
+            competencia=date(2026, 11, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('2000.00'),
+            valor_esperado=Decimal('2000.00'),
+            pagamento_enviado_em=timezone.now(),
+            pagamento_enviado_valor=Decimal('2000.00'))
+        self.login_admin()
+        with mock.patch('core.services.verificacao.processar_async') as m_p:
+            resp = self.client.post(f'/painel/boleto/{b.pk}/editar/', {
+                'posto': self.posto1.pk, 'competencia': '2026-11-01',
+                'linha_digitavel': '', 'chave_pix': '', 'observacao': 'x'})
+            self.assertEqual(resp.status_code, 302)
+            m_p.assert_not_called()
+        b.refresh_from_db()
+        self.assertEqual(b.posto, self.posto1)
+        self.assertEqual(b.status, Boleto.Status.APROVADO)
+        self.assertIn('CORREÇÃO — empresa pagadora', m_mail.call_args.args[1])
