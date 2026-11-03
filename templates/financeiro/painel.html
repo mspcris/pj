@@ -7,7 +7,17 @@
 .fin-card .nome{font-weight:800;font-size:1.05rem}
 .fin-card .sub{margin-top:4px}
 .fin-card.ok{opacity:.7}
-dialog.fin{border:0;border-radius:16px;padding:0;width:min(960px,96vw);max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.fin-card{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.kanban{display:flex;align-items:center;gap:0;flex-shrink:0}
+.kanban .pt{width:16px;height:16px;border-radius:50%;display:inline-block;border:2px solid #fff;box-shadow:0 0 0 1.5px #b9c6c0;cursor:help}
+.kanban .pt.ok{background:#0b7a5e;box-shadow:0 0 0 1.5px #0b7a5e}
+.kanban .pt.meio{background:linear-gradient(90deg,#0b7a5e 50%,#e9c46a 50%);box-shadow:0 0 0 1.5px #d9a94a}
+.kanban .pt.nao{background:#dfe6e3}
+.kanban .tr{width:18px;height:3px;background:#cfd9d4;display:inline-block}
+.kanban .tr.ok{background:#0b7a5e}
+.kanban.mini .pt{width:11px;height:11px}
+.kanban.mini .tr{width:10px}
+dialog.fin{border:0;border-radius:16px;padding:0;width:min(960px,96vw);max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);position:fixed;inset:0;margin:auto}
 dialog.fin::backdrop{background:rgba(10,30,20,.55)}
 dialog.fin .topo{background:var(--verde);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;top:0}
 dialog.fin .corpo{padding:16px 20px 22px}
@@ -26,8 +36,13 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
 
 {% for g in grupos %}
 <button class="fin-card{% if g.abertos == 0 %} ok{% endif %}" type="button" onclick="document.getElementById('fin{{ g.prestador.pk }}').showModal()">
-  <div class="nome">{{ g.prestador.nome }}{% if g.abertos %} — R$ {{ g.total_aberto }}{% endif %}</div>
-  <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% endif %}</div>
+  <div>
+    <div class="nome">{{ g.prestador.nome }}{% if g.abertos %} — R$ {{ g.total_aberto }}{% endif %}</div>
+    <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% endif %}</div>
+  </div>
+  <div class="kanban" aria-label="Etapas do processo">
+    {% for p in g.pontos %}{% if not forloop.first %}<span class="tr{% if p.feitos == p.total %} ok{% endif %}"></span>{% endif %}<span class="pt {{ p.classe }}" title="{{ p.rotulo }} — {{ p.feitos }}/{{ p.total }}"></span>{% endfor %}
+  </div>
 </button>
 
 <dialog class="fin" id="fin{{ g.prestador.pk }}">
@@ -48,12 +63,13 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
       <span class="carimbo">Cancelamentos e correções continuam chegando por e-mail.</span>
     </form>
     <table>
-      <tr><th>Posto</th><th>Valor</th><th>Vencimento</th><th>Arquivos</th><th>Situação</th><th></th></tr>
+      <tr><th>Posto</th><th>Etapas</th><th>Valor</th><th>Vencimento</th><th>Arquivos</th><th>Situação</th><th></th></tr>
       {% for b in g.boletos %}
       <tr>
         <td><strong>{{ b.posto_efetivo|default:"boleto único" }}</strong>
           {% if b.linha_digitavel %}<div class="carimbo" style="font-family:monospace;word-break:break-all">{{ b.linha_digitavel }}</div>{% endif %}
           {% if b.chave_pix %}<div class="carimbo">PIX: {{ b.chave_pix }}</div>{% endif %}</td>
+        <td style="white-space:nowrap"><span class="kanban mini">{% for e in b.etapas %}{% if not forloop.first %}<span class="tr{% if e.ok %} ok{% endif %}"></span>{% endif %}<span class="pt {% if e.ok %}ok{% else %}nao{% endif %}" title="{{ e.rotulo }}{% if e.ok %} ✓{% else %} — pendente{% endif %}"></span>{% endfor %}</span></td>
         <td style="white-space:nowrap">R$ {{ b.valor_extraido|default:b.valor_esperado }}</td>
         <td style="white-space:nowrap">{% if b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}</td>
         <td style="white-space:nowrap">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}

@@ -44,6 +44,39 @@ def _mes(request):
 
 ABERTOS = (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO)
 
+# Os 4 pontos do kanban (03/11/2026): "só de olhar para o quadrado de cada
+# empresa, saberei em que ponto está". Cada ponto tem a dica (hint).
+ETAPAS = [
+    ('anexado', '1. Boleto anexado pelo prestador'),
+    ('validado', '2. Contrato e boleto validados pelo sistema (aprovado)'),
+    ('recebido', '3. Financeiro deu ciência do recebimento'),
+    ('pagamento', '4. Financeiro enviou para pagamento (PAGO em 24h)'),
+]
+
+
+def etapas_do_boleto(b):
+    """[True/False] por etapa, para um boleto do painel do financeiro."""
+    pago = b.status == Boleto.Status.PAGO
+    recebido = pago or b.status == Boleto.Status.FIN_RECEBIDO \
+        or b.fin_recebido_em is not None
+    enviado = pago or b.fin_pagamento_em is not None
+    return [True,
+            b.status in (*ABERTOS, Boleto.Status.PAGO),
+            recebido, enviado]
+
+
+def pontos(feitos_por_boleto):
+    """Pontos do CARD (agregado): por etapa, {rotulo, feitos, total,
+    classe}: verde = todos, âmbar = alguns, cinza = nenhum."""
+    total = len(feitos_por_boleto)
+    saida = []
+    for i, (chave, rotulo) in enumerate(ETAPAS):
+        n = sum(1 for f in feitos_por_boleto if f[i])
+        classe = 'ok' if n == total and total else ('meio' if n else 'nao')
+        saida.append({'chave': chave, 'rotulo': rotulo, 'feitos': n,
+                      'total': total, 'classe': classe})
+    return saida
+
 
 @financeiro_required
 def painel(request, up):
@@ -60,6 +93,8 @@ def painel(request, up):
     for b in boletos:
         b.pago_previsto = (b.fin_pagamento_em + timedelta(hours=24)
                            if b.fin_pagamento_em else None)
+        b.etapas = [{'rotulo': r, 'ok': ok} for (_, r), ok
+                    in zip(ETAPAS, etapas_do_boleto(b))]
         g = grupos.setdefault(b.prestador_id, {
             'prestador': b.prestador, 'boletos': [], 'abertos': 0,
             'pagos': 0, 'total_aberto': Decimal('0'),
@@ -72,6 +107,8 @@ def painel(request, up):
             g['total_aberto'] += b.valor_extraido or b.valor_esperado or 0
             if b.status == Boleto.Status.APROVADO:
                 g['a_receber'] += 1
+    for g in grupos.values():
+        g['pontos'] = pontos([etapas_do_boleto(b) for b in g['boletos']])
     grupos = sorted(grupos.values(),
                     key=lambda g: (g['abertos'] == 0, g['prestador'].nome))
     return render(request, 'financeiro/painel.html', {

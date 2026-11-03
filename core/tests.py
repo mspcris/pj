@@ -4861,3 +4861,26 @@ class FinanceiroZipTest(BaseSetup):
         resp = self.client.get(
             f'/financeiro/prestador/{self.prestador.pk}/boletos.zip?m=2026-11')
         self.assertEqual(resp.status_code, 302)
+
+
+class KanbanFinanceiroTest(BaseSetup):
+    """03/11/2026: 4 pontos no card de cada prestador (anexado, validado,
+    recebido, enviado p/ pagamento) com hint."""
+    def test_pontos_do_card(self):
+        from core.views_financeiro import etapas_do_boleto, pontos
+        a = Boleto.objects.create(prestador=self.prestador, posto=self.posto1,
+                                  competencia=date(2026, 11, 1),
+                                  status=Boleto.Status.APROVADO)
+        r = Boleto.objects.create(prestador=self.prestador, posto=self.posto2,
+                                  competencia=date(2026, 11, 1),
+                                  status=Boleto.Status.FIN_RECEBIDO,
+                                  fin_pagamento_em=timezone.now())
+        self.assertEqual(etapas_do_boleto(a), [True, True, False, False])
+        self.assertEqual(etapas_do_boleto(r), [True, True, True, True])
+        p = pontos([etapas_do_boleto(a), etapas_do_boleto(r)])
+        self.assertEqual([x['classe'] for x in p], ['ok', 'ok', 'meio', 'meio'])
+        self.assertEqual(p[2]['feitos'], 1)
+        self.login_admin()
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, '3. Financeiro deu ciência do recebimento — 1/2')
+        self.assertContains(resp, 'class="pt meio"')
