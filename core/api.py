@@ -90,7 +90,8 @@ def _serializar(b):
 
 # Boleto que não conta mais: substituído por outro, excluído ou recusado.
 _FORA = [Boleto.Status.SUBSTITUIDO, Boleto.Status.DESCARTADO,
-         Boleto.Status.NAO_RECONHECIDO]
+         Boleto.Status.NAO_RECONHECIDO,
+                             Boleto.Status.DEVOLVIDO]
 
 _COMPETENCIA_INVALIDA = 'competencia inválida — use YYYY-MM'
 

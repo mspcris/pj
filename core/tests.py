@@ -4314,3 +4314,101 @@ class RespostaDoPrestadorTest(BaseSetup):
         self.assertEqual(m_mail.call_args.args[0], 'cristiano@camim.com.br')
         self.assertIn('É da unidade Bangu', m_mail.call_args.args[2])
         self.assertIn(f'#{b.pk}', m_mail.call_args.args[1])
+
+
+class DevolverValorErradoTest(BaseSetup):
+    """03/11/2026: Lucas mandou boleto de R$ 100 para Campo Grande quando
+    o esperado era R$ 110. "Valor errado — devolver": a dívida continua, o
+    boleto sai da régua (posto volta a "sem boleto"), fica no quadro
+    cancelados com o PDF, e o prestador recebe o valor certo."""
+
+    def _boleto(self, **kw):
+        base = dict(prestador=self.prestador, posto=self.posto1,
+                    competencia=date(2026, 10, 1), arquivo=_pdf(),
+                    status=Boleto.Status.MANUAL,
+                    valor_extraido=Decimal('100.00'),
+                    valor_esperado=Decimal('110.00'),
+                    enviado_por='pj@empresa.com.br')
+        base.update(kw)
+        return Boleto.objects.create(**base)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_devolve_avisa_e_posto_volta_a_sem_boleto(self, m_mail):
+        b = self._boleto()
+        self.login_admin()
+        resp = self.client.get('/painel/?m=2026-10&vista=todos')
+        self.assertContains(resp, f'/painel/boleto/{b.pk}/devolver/')
+        resp = self.client.post(f'/painel/boleto/{b.pk}/devolver/',
+                                {'motivo': 'faltou abater o vale'})
+        self.assertEqual(resp.status_code, 302)
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.DEVOLVIDO)
+        self.assertIsNotNone(b.devolvido_em)
+        self.assertIn('100,00 × esperado R$ 110,00', b.devolvido_motivo)
+        self.assertIn('faltou abater o vale', b.devolvido_motivo)
+        self.assertTrue(b.arquivo)  # PDF fica no histórico
+        self.assertIn('devolvido', b.linha_do_tempo[-1]['titulo'])
+        avisos = [c for c in m_mail.call_args_list
+                  if 'pj@empresa.com.br' in c.args[0]]
+        self.assertEqual(len(avisos), 1)
+        assunto, corpo = avisos[0].args[1], avisos[0].args[2]
+        self.assertIn('valor errado', assunto.lower())
+        self.assertIn('100,00', corpo)
+        self.assertIn('110,00', corpo)
+        self.assertIn('emita um novo boleto', corpo.lower())
+        self.assertIn('faltou abater o vale', corpo)
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+        # régua: Anchieta volta a "sem boleto"; o boleto vai p/ cancelados
+        resp = self.client.get('/painel/?m=2026-10&vista=sem_boleto')
+        linha = next(l for l in resp.context['linhas']
+                     if l['posto'] == self.posto1)
+        self.assertIsNone(linha['boleto'])
+        resp = self.client.get('/painel/?m=2026-10&vista=cancelados')
+        self.assertContains(resp, 'devolvido ao prestador')
+        self.assertEqual(resp.context['resumo']['cancelados'], 1)
+        # lembrete cobra o posto de novo
+        from io import StringIO
+        from django.core.management import call_command
+        with mock.patch('django.utils.timezone.localdate',
+                        return_value=date(2026, 10, 20)):
+            call_command('lembrete_diario', stdout=StringIO())
+        self.assertIn('Limpeza Total LTDA — Anchieta',
+                      m_mail.call_args.args[2])
+        # boleto novo do PJ não é barrado nem substitui o devolvido
+        from core.services import boletos as sb
+        novo = sb.registrar(self.prestador, date(2026, 10, 1),
+                            enviado_por='pj@empresa.com.br',
+                            posto=self.posto1, arquivo=_pdf())
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.DEVOLVIDO)
+        self.assertIsNone(sb.duplicado_de(novo))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_ja_no_financeiro_manda_cancelamento(self, m_mail):
+        b = self._boleto(status=Boleto.Status.APROVADO,
+                         pagamento_enviado_em=timezone.now(),
+                         pagamento_enviado_valor=Decimal('100.00'))
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/devolver/', {'motivo': ''})
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.DEVOLVIDO)
+        self.assertIsNone(b.pagamento_enviado_em)
+        cancel = [c for c in m_mail.call_args_list
+                  if c.args[0] == 'equipe@camim.com.br']
+        self.assertEqual(len(cancel), 1)
+        self.assertIn('CANCELAMENTO', cancel[0].args[1])
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_pago_nao_devolve_e_restaurar_volta(self, m_mail):
+        b = self._boleto(status=Boleto.Status.PAGO, pago_em=timezone.now())
+        self.login_admin()
+        self.client.post(f'/painel/boleto/{b.pk}/devolver/', {'motivo': 'x'})
+        b.refresh_from_db()
+        self.assertEqual(b.status, Boleto.Status.PAGO)
+        m_mail.assert_not_called()
+        b2 = self._boleto(status=Boleto.Status.DEVOLVIDO,
+                          devolvido_em=timezone.now())
+        with mock.patch('core.services.verificacao.processar_async'):
+            self.client.post(f'/painel/boleto/{b2.pk}/restaurar/')
+        b2.refresh_from_db()
+        self.assertEqual(b2.status, Boleto.Status.RECEBIDO)

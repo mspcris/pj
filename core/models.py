@@ -551,6 +551,12 @@ class Boleto(models.Model):
         # prestador foi avisado por e-mail. Fica no banco, com o PDF.
         NAO_RECONHECIDO = 'NAO_RECONHECIDO', ('Dívida não reconhecida — '
                                                'prestador avisado')
+        # "Valor errado — devolver": a dívida existe, mas o boleto veio com
+        # o valor errado. Sai da régua como se nada tivesse chegado (o
+        # posto volta a "sem boleto"), fica no histórico com o PDF, e o
+        # prestador é avisado do valor certo para emitir outro (03/11/2026,
+        # Lucas: boleto de R$ 100 quando o esperado era R$ 110).
+        DEVOLVIDO = 'DEVOLVIDO', 'Valor errado — devolvido ao prestador'
 
     class Origem(models.TextChoices):
         API = 'API', 'API'
@@ -595,6 +601,9 @@ class Boleto(models.Model):
     # motivo que ele escreveu (vai no e-mail ao prestador e no histórico).
     nao_reconhecido_em = models.DateTimeField(null=True, blank=True)
     nao_reconhecido_motivo = models.CharField(max_length=500, blank=True)
+    # "Valor errado — devolver": quando e por quê o boleto foi devolvido.
+    devolvido_em = models.DateTimeField(null=True, blank=True)
+    devolvido_motivo = models.CharField(max_length=500, blank=True)
     # Quando o PJ foi avisado de que o boleto chegou sem dizer de qual
     # unidade (empresa pagadora) é — pagamento em espera até ele informar.
     pedido_posto_em = models.DateTimeField(null=True, blank=True)
@@ -731,6 +740,13 @@ class Boleto(models.Model):
                 'titulo': 'Dívida não reconhecida — prestador avisado',
                 'quando': self.nao_reconhecido_em,
                 'detalhe': self.nao_reconhecido_motivo})
+        if self.devolvido_em:
+            ev.append({
+                'icone': '↩️',
+                'titulo': 'Valor errado — devolvido ao prestador para '
+                          'emitir outro',
+                'quando': self.devolvido_em,
+                'detalhe': self.devolvido_motivo})
         for n in self.notas_anteriores.all():
             ev.append({
                 'icone': '🧾', 'titulo': 'Nota fiscal substituída por uma nova',

@@ -226,6 +226,7 @@
       <div class="bcard-sit">
         <span class="chip {{ b.status }}">{{ b.get_status_display }}</span>
         {% if b.nao_reconhecido_motivo %}<div class="sub" style="font-size:.78rem;margin-top:4px">Motivo: {{ b.nao_reconhecido_motivo }}</div>{% endif %}
+        {% if b.devolvido_motivo %}<div class="sub" style="font-size:.78rem;margin-top:4px">Motivo: {{ b.devolvido_motivo }}</div>{% endif %}
       </div>
 
       {% if b.linha_do_tempo %}
@@ -438,6 +439,20 @@
         </div>
       </details>
       {% if b.status != 'PAGO' %}
+      <details class="corrigir">
+        <summary>↩️ Valor errado — devolver ao prestador (emitir outro)</summary>
+        <div class="corrigir-box">
+          <form method="post" action="{% url 'painel_boleto_acao' b.pk 'devolver' %}"
+                onsubmit="return confirm('Devolver este boleto? O prestador recebe o valor certo para emitir outro, e o posto volta a SEM BOLETO.{% if b.pagamento_enviado_em %} Como JÁ foi ao financeiro, a equipe@ recebe um CANCELAMENTO automático.{% endif %}')">
+            {% csrf_token %}<input type="hidden" name="voltar" value="{{ request.get_full_path }}">
+            <label>Motivo (opcional — vai no e-mail ao prestador)</label>
+            <input name="motivo" maxlength="500" autocomplete="off"
+                   placeholder="ex.: faltou abater a parcela do vale">
+            <button class="btn mini dourado" style="margin-top:8px">Devolver e pedir boleto novo</button>
+            <div class="sub" style="font-size:.72rem;margin-top:6px">A dívida continua existindo: o posto volta a "sem boleto" como se nada tivesse chegado. Este boleto fica no quadro "cancelados", com o PDF, para o histórico.</div>
+          </form>
+        </div>
+      </details>
       <details class="corrigir">
         <summary>🚫 Não reconheço esta dívida</summary>
         <div class="corrigir-box">

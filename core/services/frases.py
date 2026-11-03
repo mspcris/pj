@@ -108,6 +108,23 @@ _NAO_RECONHECIDO = [
 ]
 
 
+# "Valor errado — devolver": a dívida existe, o boleto não. Texto FIXO.
+_DEVOLVIDO = [
+    ('Prezado(a) {contato},\n\nRecebemos o boleto de {competencia} '
+     '({prestador} — {alvo}), mas o valor nele (R$ {valor}) não é o valor '
+     'esperado para este mês (R$ {valor_esperado}). Por isso este boleto '
+     'foi desconsiderado no nosso controle e não será pago. Pedimos a '
+     'gentileza de emitir um novo boleto com o valor correto — a '
+     'conferência está logo abaixo.\n\nAtenciosamente,\nCristiano — CAMIM'),
+    ('Prezado(a) {contato},\n\nO boleto de {competencia} ({alvo}) veio com '
+     'R$ {valor}, e o valor esperado para o mês é R$ {valor_esperado}. '
+     'Como a diferença não bate com o combinado, o documento foi '
+     'desconsiderado e o pagamento não vai seguir com ele. Por favor, '
+     'emita outro boleto com o valor esperado; a conta está detalhada '
+     'abaixo.\n\nAtenciosamente,\nCristiano — CAMIM'),
+]
+
+
 # Boleto que chegou SEM dizer de qual unidade (empresa pagadora) é — o
 # prestador atende várias e o código de barras só traz banco e valor.
 # Texto FIXO (sem IA): as instruções têm de sair exatas e sem tom de
@@ -194,6 +211,7 @@ def corpo(tipo, fatos, instrucao_ia=None):
         'nao_reconhecido': _NAO_RECONHECIDO,
         'contrato_assinar': _CONTRATO_ASSINAR,
         'pedir_posto': _PEDIR_POSTO,
+        'devolvido': _DEVOLVIDO,
     }
     if fatos.get('parcial_frase'):
         pools['aprovado_pj'] = _APROVADO_PJ_PARCIAL

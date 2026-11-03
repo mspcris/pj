@@ -85,7 +85,8 @@ def dashboard(request, up):
         Boleto.objects.filter(competencia=mes)
         .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
                              Boleto.Status.DESCARTADO,
-                             Boleto.Status.NAO_RECONHECIDO])
+                             Boleto.Status.NAO_RECONHECIDO,
+                             Boleto.Status.DEVOLVIDO])
         .select_related('prestador', 'posto', 'prestador__posto_cobranca')
         .prefetch_related('notas_anteriores'))
 
@@ -220,6 +221,7 @@ def dashboard(request, up):
         b for b in (Boleto.objects
                     .filter(competencia=mes,
                             status__in=[Boleto.Status.NAO_RECONHECIDO,
+                                        Boleto.Status.DEVOLVIDO,
                                         Boleto.Status.DESCARTADO])
                     .select_related('prestador', 'posto',
                                     'prestador__posto_cobranca')
@@ -228,7 +230,7 @@ def dashboard(request, up):
         if bate(b.prestador_id,
                 b.posto_efetivo.pk if b.posto_efetivo else None)]
     for b in cancelados:
-        b.cancelado_em = b.nao_reconhecido_em
+        b.cancelado_em = b.nao_reconhecido_em or b.devolvido_em
         if b.cancelado_em is None:  # excluído: a data está na auditoria
             a = (AuditLog.objects
                  .filter(detalhe__regex=r'^Ação "descartar" no boleto '
@@ -476,8 +478,19 @@ def boleto_acao(request, up, pk, acao):
         messages.success(request, f'{boleto}: dívida não reconhecida — o '
                                   'prestador foi avisado por e-mail e o '
                                   'boleto saiu da régua (fica na auditoria).')
+    elif acao == 'devolver' and boleto.status != Boleto.Status.PAGO:
+        # "Valor errado — devolver": a dívida existe, o boleto não serve.
+        # Sai da régua (o posto volta a "sem boleto"), fica no histórico
+        # com o PDF, e o prestador recebe o valor certo para emitir outro.
+        from .services.verificacao import devolver_valor_errado
+        motivo = (request.POST.get('motivo') or '').strip()[:500]
+        devolver_valor_errado(boleto, motivo, quem=up.email)
+        messages.success(request, f'{boleto}: devolvido — o prestador foi '
+                                  'avisado do valor certo e o posto voltou '
+                                  'a "sem boleto" (o PDF fica no histórico).')
     elif acao == 'restaurar' and boleto.status in (
-            Boleto.Status.DESCARTADO, Boleto.Status.NAO_RECONHECIDO):
+            Boleto.Status.DESCARTADO, Boleto.Status.NAO_RECONHECIDO,
+            Boleto.Status.DEVOLVIDO):
         # Desfaz o cancelamento (quadro "cancelados"): volta para a
         # verificação com o esperado RECALCULADO (vale/valor podem ter
         # mudado desde então) e sem repetir o e-mail de "recebemos".
@@ -537,7 +550,7 @@ def boleto_acao(request, up, pk, acao):
             novo = None
         bloqueado = (Boleto.Status.PAGO, Boleto.Status.SUBSTITUIDO,
                      Boleto.Status.DESCARTADO, Boleto.Status.DUPLICADO,
-                     Boleto.Status.NAO_RECONHECIDO)
+                     Boleto.Status.NAO_RECONHECIDO, Boleto.Status.DEVOLVIDO)
         if novo is None or novo <= 0:
             messages.error(request, 'Valor inválido. Escreva assim: 4.548,14')
         elif boleto.status in bloqueado:
@@ -745,6 +758,7 @@ def parciais_status(request, up):
               .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
                                    Boleto.Status.DESCARTADO,
                                    Boleto.Status.NAO_RECONHECIDO,
+                                   Boleto.Status.DEVOLVIDO,
                                    Boleto.Status.DUPLICADO])
               .order_by('criado_em'))
     ok = (Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO,

@@ -804,6 +804,54 @@ def nao_reconhecer(boleto, motivo, quem):
                 'avisado' + (f' — motivo: {motivo}' if motivo else ''))
 
 
+def devolver_valor_errado(boleto, motivo, quem):
+    """Botão "Valor errado — devolver ao prestador": a dívida existe, mas
+    este boleto não serve (valor diferente do esperado). Sai da régua como
+    se nada tivesse chegado — o posto volta a "sem boleto" — e fica no
+    histórico, com o PDF. O prestador recebe a conferência (combinado,
+    descontos, valor esperado) e o pedido de emitir um NOVO boleto com o
+    valor certo. Se já tinha ido ao financeiro, a equipe@ recebe o
+    CANCELAMENTO. ÚNICO caminho desse e-mail. Texto fixo, sem IA."""
+    motivo = (motivo or '').strip()[:500]
+    esperado = boleto.valor_esperado
+    if esperado is None:
+        esperado = svc_boletos.valor_esperado_para(
+            boleto.prestador, boleto.posto, boleto.competencia)
+    auto = (f'boleto de R$ {_moeda(boleto.valor_extraido)} × esperado '
+            f'R$ {_moeda(esperado)}'
+            if boleto.valor_extraido is not None and esperado is not None
+            else 'valor diferente do esperado')
+    _retirar_do_financeiro(
+        boleto, 'boleto com valor errado — devolvido ao prestador'
+        + (f' — {motivo}' if motivo else ''), apagar_pdf=False)
+    boleto.status = Boleto.Status.DEVOLVIDO
+    boleto.devolvido_em = timezone.now()
+    boleto.devolvido_motivo = (f'{auto}' + (f' — {motivo}' if motivo else ''))[:500]
+    boleto.save(update_fields=['status', 'devolvido_em', 'devolvido_motivo'])
+    fatos = _fatos(boleto)
+    fatos['valor'] = _moeda(boleto.valor_extraido)
+    fatos['valor_esperado'] = _moeda(esperado)
+    bloco = conferencia_nao_reconhecida(boleto, fatos, motivo).replace(
+        'Este boleto foi cancelado no nosso controle e NÃO será pago. Se '
+        'entender que a cobrança é devida, fale com o Cristiano antes de '
+        'emitir um novo boleto.',
+        'Este boleto foi DESCONSIDERADO e não será pago. Por favor, emita '
+        'um novo boleto com o valor esperado acima e envie pela '
+        'plataforma (pj.camim.com.br) ou por e-mail. Se discordar do '
+        'valor, fale com o Cristiano antes de emitir.')
+    emails.enviar(
+        destinatarios_pj(boleto),
+        f'Boleto com valor errado — emitir outro — {fatos["alvo"]} — '
+        f'{fatos["competencia"]}',
+        frases.corpo('devolvido', fatos) + dados_pj(boleto, fatos) + bloco,
+        boleto=boleto, cc=cc_gerente(boleto))
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator=quem,
+        detalhe=f'Boleto #{boleto.pk}: valor errado ({auto}) — devolvido '
+                'ao prestador, posto volta a "sem boleto"'
+                + (f' — motivo: {motivo}' if motivo else ''))
+
+
 def _para_manual(boleto, motivo):
     _retirar_do_financeiro(boleto, motivo)
     boleto.ia_resposta = (boleto.ia_resposta + f'\n[manual] {motivo}').strip()

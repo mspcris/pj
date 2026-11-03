@@ -126,7 +126,8 @@ def anexar_boleto(request, up):
                                              competencia=mes)
                        .exclude(status__in=[Boleto.Status.SUBSTITUIDO,
                                             Boleto.Status.DESCARTADO,
-                                            Boleto.Status.NAO_RECONHECIDO])
+                                            Boleto.Status.NAO_RECONHECIDO,
+                             Boleto.Status.DEVOLVIDO])
                        .order_by('criado_em'))
             por_posto = {}
             for b in boletos:
