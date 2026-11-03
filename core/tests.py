@@ -4820,3 +4820,44 @@ class BannerAssinaturasTest(BaseSetup):
         g = resp.context['assinaturas_grupos'][0]
         self.assertEqual(g['voce'], ['Anchieta'])
         self.assertEqual(g['ambos'], ['Bangu'])
+
+
+class FinanceiroZipTest(BaseSetup):
+    """03/11/2026: "baixar todos os boletos" do prestador no mês, cada PDF
+    renomeado primeiro-nome_posto (caio_realengo.pdf)."""
+    def test_zip_renomeado(self):
+        import io
+        import zipfile
+        fin_up = UsuarioPermitido.objects.create(
+            email='fin@camim.com.br', is_financeiro=True)
+        fin = User.objects.create_user(username='fin@camim.com.br',
+                                       email='fin@camim.com.br')
+        for posto in (self.posto1, self.posto2):
+            Boleto.objects.create(
+                prestador=self.prestador, posto=posto,
+                competencia=date(2026, 11, 1), arquivo=_pdf(),
+                status=Boleto.Status.APROVADO,
+                valor_extraido=Decimal('1.00'))
+        Boleto.objects.create(  # sem PDF: fica de fora
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 11, 1), status=Boleto.Status.APROVADO,
+            extra=True, linha_digitavel=_linha_47(100))
+        self.client.force_login(fin)
+        resp = self.client.get(
+            f'/financeiro/prestador/{self.prestador.pk}/boletos.zip?m=2026-11')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('boletos_limpeza_2026-11.zip',
+                      resp['Content-Disposition'])
+        z = zipfile.ZipFile(io.BytesIO(resp.content))
+        self.assertEqual(sorted(z.namelist()),
+                         ['limpeza_anchieta.pdf', 'limpeza_bangu.pdf'])
+        self.assertEqual(z.read('limpeza_anchieta.pdf')[:5], b'%PDF-')
+        from core.views_financeiro import nome_arquivo_boleto
+        b = Boleto.objects.filter(posto=self.posto1).first()
+        b.prestador.nome = 'Caio Augusto Teixeira 52.520.900/0001-63'
+        self.assertEqual(nome_arquivo_boleto(b), 'caio_anchieta.pdf')
+        self.client.logout()
+        self.login_pj()
+        resp = self.client.get(
+            f'/financeiro/prestador/{self.prestador.pk}/boletos.zip?m=2026-11')
+        self.assertEqual(resp.status_code, 302)

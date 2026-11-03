@@ -6,11 +6,16 @@ podem desligar o e-mail de pagamento daquele prestador, passando a
 controlar por aqui. Nada de editar, devolver, não reconhecer: isso é de
 antes da aprovação e fica com o admin.
 """
+import io
+import re
+import unicodedata
+import zipfile
 from datetime import timedelta
 from decimal import Decimal
 from functools import wraps
 
 from django.contrib import messages
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -105,6 +110,56 @@ def acao(request, up, pk, acao):
             messages.info(request, f'{boleto}: não está aberto para '
                                    'pagamento.')
     return _voltar(request, boleto)
+
+
+def _slug(texto):
+    s = unicodedata.normalize('NFKD', texto or '').encode('ascii', 'ignore')
+    s = re.sub(r'[^a-z0-9]+', '_', s.decode().lower()).strip('_')
+    return s or 'x'
+
+
+def nome_arquivo_boleto(boleto):
+    """'caio_realengo.pdf', 'desenlike_anchieta.pdf': PRIMEIRO nome do
+    prestador + nome do POSTO (não a razão social) — pedido de 03/11/2026
+    para o financeiro baixar tudo de uma vez."""
+    primeiro = (boleto.prestador.nome or '').split()[0] if \
+        (boleto.prestador.nome or '').split() else 'prestador'
+    posto = boleto.posto_efetivo
+    return f'{_slug(primeiro)}_{_slug(posto.nome if posto else "unico")}.pdf'
+
+
+@financeiro_required
+def baixar_todos(request, up, pk):
+    """ZIP com os PDFs dos boletos do prestador no mês, renomeados."""
+    prestador = get_object_or_404(Prestador, pk=pk)
+    mes = _mes(request)
+    boletos = (Boleto.objects
+               .filter(prestador=prestador, competencia=mes,
+                       status__in=[*ABERTOS, Boleto.Status.PAGO])
+               .exclude(arquivo='')
+               .select_related('prestador', 'posto',
+                               'prestador__posto_cobranca')
+               .order_by('posto__nome', 'pk'))
+    buf = io.BytesIO()
+    usados = {}
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        for b in boletos:
+            nome = nome_arquivo_boleto(b)
+            n = usados.get(nome, 0) + 1
+            usados[nome] = n
+            if n > 1:
+                nome = nome[:-4] + f'_{n}.pdf'
+            with b.arquivo.open('rb') as fh:
+                z.writestr(nome, fh.read())
+    AuditLog.registrar(
+        AuditLog.Evento.DOWNLOAD, request, ator=up.email,
+        detalhe=f'Financeiro baixou ZIP com {len(usados)} boleto(s) de '
+                f'{prestador} — {mes:%m/%Y}')
+    resp = HttpResponse(buf.getvalue(), content_type='application/zip')
+    primeiro = _slug((prestador.nome or 'prestador').split()[0])
+    resp['Content-Disposition'] = (
+        f'attachment; filename="boletos_{primeiro}_{mes:%Y-%m}.zip"')
+    return resp
 
 
 @financeiro_required

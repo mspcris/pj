@@ -50,6 +50,8 @@ urlpatterns = [
          name='financeiro_acao'),
     path('financeiro/prestador/<int:pk>/email/',
          views_financeiro.email_toggle, name='financeiro_email'),
+    path('financeiro/prestador/<int:pk>/boletos.zip',
+         views_financeiro.baixar_todos, name='financeiro_zip'),
     path('painel/ajuste-diferenca/', views_painel.ajuste_diferenca,
          name='painel_ajuste_diferenca'),
     path('painel/boleto/<int:pk>/<str:acao>/', views_painel.boleto_acao,
