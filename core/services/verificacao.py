@@ -1024,6 +1024,78 @@ def devolver_valor_errado(boleto, motivo, quem):
                 + (f' — motivo: {motivo}' if motivo else ''))
 
 
+def fatos_recusa_financeiro(boleto, observacao=''):
+    fatos = _fatos(boleto)
+    previsto = boleto.prestador.pagamento_previsto_em(boleto.competencia)
+    fatos['data_prevista_pagamento_contrato'] = (
+        previsto.strftime('%d/%m/%Y') if previsto else 'não cadastrada')
+    fatos['vencimento_do_boleto'] = (
+        boleto.vencimento.strftime('%d/%m/%Y') if boleto.vencimento
+        else 'não identificado')
+    if observacao:
+        fatos['observacao_do_financeiro'] = observacao
+    return fatos
+
+
+def texto_recusa_financeiro(boleto, observacao=''):
+    """Texto do aviso de recusa (botão "Gerar texto por IA" do painel do
+    financeiro, 10/11/2026). Devolve (texto, veio_da_ia): IA quando está
+    no ar, senão o modelo pronto de frases.py."""
+    fatos = fatos_recusa_financeiro(boleto, observacao)
+    try:
+        return ia.redigir_recusa_financeiro(fatos), True
+    except Exception as e:
+        log.warning('IA da recusa falhou (%s); usando modelo pronto', e)
+    return frases.recusa_financeiro(fatos), False
+
+
+def recusar_pelo_financeiro(boleto, texto, quem):
+    """Botão "Recusar boleto" do painel do financeiro (10/11/2026): o
+    boleto está fora da data prevista de pagamento do contrato. Sai da fila
+    (DEVOLVIDO — o posto volta a "sem boleto"), fica no histórico com o
+    PDF; o prestador recebe o texto que o financeiro escreveu/gerou + o
+    bloco de dados; o admin é avisado. Não manda CANCELAMENTO à equipe@:
+    foi ela mesma que recusou. True se recusou."""
+    texto = (texto or '').strip()
+    if len(texto) < 20 or boleto.fin_pagamento_em or boleto.status not in (
+            Boleto.Status.APROVADO, Boleto.Status.FIN_RECEBIDO):
+        return False
+    boleto.status = Boleto.Status.DEVOLVIDO
+    boleto.devolvido_em = timezone.now()
+    boleto.devolvido_motivo = (
+        'recusado pelo financeiro — fora da data prevista de pagamento — '
+        + texto)[:500]
+    boleto.pagamento_enviado_em = None
+    boleto.pagamento_enviado_valor = None
+    boleto.save(update_fields=['status', 'devolvido_em', 'devolvido_motivo',
+                               'pagamento_enviado_em',
+                               'pagamento_enviado_valor'])
+    fatos = _fatos(boleto)
+    emails.enviar(
+        destinatarios_pj(boleto),
+        f'Boleto recusado — fora da data prevista de pagamento — emitir '
+        f'outro — {fatos["alvo"]} — {fatos["competencia"]}',
+        texto + dados_pj(boleto, fatos),
+        boleto=boleto, cc=cc_gerente(boleto))
+    emails.enviar(
+        settings.EMAIL_ADMIN,
+        f'⛔ Financeiro recusou boleto — {fatos["prestador"]} — '
+        f'{fatos["competencia"]}',
+        f'Cristiano,\n\n{quem} recusou o boleto #{boleto.pk} '
+        f'({fatos["prestador"]} — {fatos["alvo"]} — {fatos["competencia"]}) '
+        'no painel do financeiro: fora da data prevista de pagamento. O '
+        'prestador foi avisado com o texto abaixo e o posto voltou a "sem '
+        f'boleto".\n\n---\n{texto}\n---\n\n'
+        'Painel: https://pj.camim.com.br/painel/\n\n— Controle dos PJs',
+        boleto=boleto)
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator=quem,
+        detalhe=f'Boleto #{boleto.pk}: recusado pelo financeiro (fora da '
+                'data prevista de pagamento) — prestador avisado, posto '
+                f'volta a "sem boleto" — texto: {texto[:300]}')
+    return True
+
+
 def _para_manual(boleto, motivo):
     _retirar_do_financeiro(boleto, motivo)
     boleto.ia_resposta = (boleto.ia_resposta + f'\n[manual] {motivo}').strip()

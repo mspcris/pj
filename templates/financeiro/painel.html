@@ -28,6 +28,12 @@ dialog.fin .corpo{padding:16px 20px 22px}
 dialog.fin table{width:100%;border-collapse:collapse;font-size:.92rem}
 dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha);vertical-align:top;text-align:left}
 .carimbo{font-size:.78rem;color:var(--cinza)}
+.recusa summary{list-style:none;display:inline-block}
+.recusa summary::-webkit-details-marker{display:none}
+.recusa-box{white-space:normal;width:min(440px,80vw);margin-top:8px;background:#fdf1ef;border:1.5px solid #f1c6bf;border-radius:12px;padding:12px}
+.recusa-box label{font-size:.78rem;font-weight:700;color:var(--erro);display:block;margin-bottom:4px}
+.recusa-box textarea{font-size:.85rem;line-height:1.4;padding:8px 10px;margin:0}
+.fora-data{color:var(--erro);font-weight:700;white-space:normal}
 .chave{background:#f4f8f6;border:1.5px solid var(--linha);border-radius:12px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 </style>
 <div class="mesnav">
@@ -76,7 +82,8 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
           {% if b.chave_pix %}<div class="carimbo">PIX: {{ b.chave_pix }}</div>{% endif %}</td>
         <td style="white-space:nowrap"><span class="kanban mini">{% for e in b.etapas %}{% if not forloop.first %}<span class="tr{% if e.ok %} ok{% endif %}"></span>{% endif %}<span class="pt {% if e.ok %}ok{% else %}nao{% endif %}" data-hint="{{ e.rotulo }}{% if e.ok %} ✓{% else %} — pendente{% endif %}"></span>{% endfor %}</span></td>
         <td style="white-space:nowrap">R$ {{ b.valor_extraido|default:b.valor_esperado }}</td>
-        <td style="white-space:nowrap">{% if b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+        <td style="white-space:nowrap">{% if b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}
+          {% if b.vence_antes_do_previsto %}<div class="carimbo fora-data">⚠️ vence antes do pagamento previsto ({{ g.pagamento_previsto|date:"d/m" }})</div>{% endif %}</td>
         <td style="white-space:nowrap">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}
           {% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" target="_blank">🧾 nota</a>{% endif %}</td>
         <td>
@@ -100,6 +107,20 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
                 onsubmit="return confirm('Registrar que este boleto foi enviado para pagamento? Em 24h ele será marcado como PAGO.')">
             {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
             <button class="btn mini" type="submit">💸 Enviei p/ pagamento</button></form>
+          <details class="recusa">
+            <summary class="btn mini vermelho" title="Boleto fora da data prevista de pagamento: devolve ao prestador para emitir outro">⛔ Recusar boleto</summary>
+            <form method="post" action="{% url 'financeiro_acao' b.pk 'recusar' %}" class="recusa-box"
+                  onsubmit="if(this.texto.value.trim().length<20){alert('Escreva ou gere o texto do aviso ao prestador.');return false}return confirm('Recusar este boleto? O prestador recebe o texto por e-mail e precisará emitir outro boleto; o posto volta a SEM BOLETO.')">
+              {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
+              <label>Motivo / texto do aviso que vai ao prestador</label>
+              <textarea name="texto" rows="7" maxlength="3000" placeholder="Escreva o motivo, ou clique em “Gerar texto por IA” — o texto fica aqui para você ler e ajustar antes de enviar."></textarea>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+                <button class="btn mini claro" type="button" data-url="{% url 'financeiro_texto_recusa' b.pk %}" onclick="gerarRecusa(this)">✨ Gerar texto por IA</button>
+                <button class="btn mini vermelho" type="submit">⛔ Recusar e avisar o prestador</button>
+              </div>
+              <div class="carimbo" style="margin-top:6px">O boleto sai da fila (fica no histórico, com o PDF) e o posto volta a "sem boleto" até chegar outro. Cristiano é avisado.</div>
+            </form>
+          </details>
           {% endif %}
         </td>
       </tr>
@@ -111,6 +132,23 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
 <div class="card sub">Nenhum boleto aprovado para pagamento em {{ mes|date:"m/Y" }}.</div>
 {% endfor %}
 <script>
+async function gerarRecusa(btn){
+  var form = btn.form, ta = form.texto, rotulo = btn.textContent;
+  var csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
+  btn.disabled = true; btn.textContent = '⏳ Redigindo…';
+  try {
+    var r = await fetch(btn.dataset.url, {method: 'POST', credentials: 'same-origin',
+      headers: {'X-CSRFToken': csrf, 'Content-Type': 'application/x-www-form-urlencoded'},
+      body: 'observacao=' + encodeURIComponent(ta.value.trim())});
+    if (!r.ok) throw new Error(r.status);
+    var d = await r.json();
+    ta.value = d.texto;
+    ta.focus();
+  } catch (e) {
+    ta.placeholder = 'Não consegui gerar o texto agora — escreva o motivo à mão.';
+  }
+  btn.disabled = false; btn.textContent = rotulo;
+}
 (function(){
   var abrir = {{ abrir|default:"''"|safe }};
   var d = abrir && document.getElementById('fin' + abrir);

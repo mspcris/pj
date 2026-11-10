@@ -661,7 +661,9 @@ class Boleto(models.Model):
         # posto volta a "sem boleto"), fica no histórico com o PDF, e o
         # prestador é avisado do valor certo para emitir outro (03/11/2026,
         # Lucas: boleto de R$ 100 quando o esperado era R$ 110).
-        DEVOLVIDO = 'DEVOLVIDO', 'Valor errado — devolvido ao prestador'
+        # 10/11/2026: o FINANCEIRO também devolve, quando o boleto está
+        # fora da data prevista de pagamento (devolvido_motivo diz qual).
+        DEVOLVIDO = 'DEVOLVIDO', 'Devolvido ao prestador — emitir outro'
 
     class Origem(models.TextChoices):
         API = 'API', 'API'
@@ -714,6 +716,14 @@ class Boleto(models.Model):
     # "Valor errado — devolver": quando e por quê o boleto foi devolvido.
     devolvido_em = models.DateTimeField(null=True, blank=True)
     devolvido_motivo = models.CharField(max_length=500, blank=True)
+
+    @property
+    def vence_antes_do_previsto(self):
+        """Boleto fora da data prevista: vence ANTES do dia em que a CAMIM
+        paga pelo contrato (10/11/2026 — o financeiro recusa e pede outro)."""
+        previsto = self.prestador.pagamento_previsto_em(self.competencia)
+        return bool(self.vencimento and previsto
+                    and self.vencimento < previsto)
     # Quando o PJ foi avisado de que o boleto chegou sem dizer de qual
     # unidade (empresa pagadora) é — pagamento em espera até ele informar.
     pedido_posto_em = models.DateTimeField(null=True, blank=True)
@@ -860,8 +870,7 @@ class Boleto(models.Model):
         if self.devolvido_em:
             ev.append({
                 'icone': '↩️',
-                'titulo': 'Valor errado — devolvido ao prestador para '
-                          'emitir outro',
+                'titulo': 'Boleto devolvido ao prestador para emitir outro',
                 'quando': self.devolvido_em,
                 'detalhe': self.devolvido_motivo})
         for n in self.notas_anteriores.all():

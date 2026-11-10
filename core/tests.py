@@ -4635,6 +4635,93 @@ class PainelFinanceiroTest(BaseSetup):
         self.assertContains(resp, 'sem data prevista no contrato')
 
     @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_financeiro_recusa_boleto_fora_da_data_e_avisa_o_prestador(
+            self, m_mail):
+        """10/11/2026: botão de recusar o boleto fora da data prevista,
+        com o texto do aviso que vai ao prestador. O boleto sai da fila
+        (DEVOLVIDO, PDF fica), o prestador recebe o texto + bloco de
+        dados, o admin é avisado."""
+        self.client.force_login(self.fin)
+        self.prestador.dia_pagamento = 10
+        self.prestador.save()
+        self.b.vencimento = date(2026, 11, 5)
+        self.b.save()
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'vence antes do pagamento previsto')
+        self.assertContains(resp, 'Gerar texto por IA')
+        # texto curto demais não recusa nada
+        resp = self.client.post(f'/financeiro/boleto/{self.b.pk}/recusar/',
+                                {'m': '2026-11', 'texto': 'não'})
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.status, Boleto.Status.APROVADO)
+        self.assertEqual(m_mail.call_count, 0)
+        texto = ('Prezados,\n\nO boleto vence antes da data prevista de '
+                 'pagamento do contrato (10/11/2026). Pedimos um novo '
+                 'boleto.\n\nAtenciosamente,\nSetor Financeiro — CAMIM')
+        resp = self.client.post(f'/financeiro/boleto/{self.b.pk}/recusar/',
+                                {'m': '2026-11', 'texto': texto})
+        self.assertEqual(resp.status_code, 302)
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.status, Boleto.Status.DEVOLVIDO)
+        self.assertIsNotNone(self.b.devolvido_em)
+        self.assertIn('fora da data prevista', self.b.devolvido_motivo)
+        self.assertIsNone(self.b.pagamento_enviado_em)
+        self.assertTrue(self.b.arquivo)  # o PDF fica no histórico
+        pj = [c for c in m_mail.call_args_list
+              if 'pj@empresa.com.br' in c.args[0]]
+        self.assertEqual(len(pj), 1)
+        self.assertIn('recusado', pj[0].args[1].lower())
+        self.assertIn('fora da data prevista', pj[0].args[1].lower())
+        self.assertIn(texto, pj[0].args[2])
+        self.assertIn('Pagamento previsto: dia 10', pj[0].args[2])
+        adm = [c for c in m_mail.call_args_list
+               if c.args[0] == 'cristiano@camim.com.br']
+        self.assertEqual(len(adm), 1)
+        self.assertIn('fin@camim.com.br', adm[0].args[2])
+        self.assertIn(texto, adm[0].args[2])
+        # saiu do painel do financeiro
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertNotContains(resp, 'Recebi o boleto')
+        # recusar de novo não manda nada
+        self.client.post(f'/financeiro/boleto/{self.b.pk}/recusar/',
+                         {'m': '2026-11', 'texto': texto})
+        self.assertEqual(m_mail.call_count, 2)
+
+    @mock.patch('core.services.ia._chamar')
+    def test_texto_de_recusa_por_ia_com_modelo_pronto_se_a_ia_falhar(
+            self, m_ia):
+        self.client.force_login(self.fin)
+        self.prestador.dia_pagamento = 10
+        self.prestador.save()
+        self.b.vencimento = date(2026, 11, 5)
+        self.b.save()
+        m_ia.return_value = (
+            'Prezado(a) Limpeza Total LTDA,\n\nO boleto da unidade Anchieta '
+            'vence em 05/11/2026, antes da data prevista de pagamento no '
+            'contrato (10/11/2026); por isso não seguirá. Pedimos um novo '
+            'boleto com vencimento a partir dessa data.\n\n'
+            'Atenciosamente,\nSetor Financeiro — CAMIM')
+        url = f'/financeiro/boleto/{self.b.pk}/texto-recusa/'
+        resp = self.client.post(url, {'observacao': 'chegou atrasado'})
+        self.assertEqual(resp.status_code, 200)
+        d = resp.json()
+        self.assertTrue(d['ia'])
+        self.assertIn('Setor Financeiro', d['texto'])
+        pedido = m_ia.call_args.args[0][1]['content']
+        self.assertIn('10/11/2026', pedido)
+        self.assertIn('05/11/2026', pedido)
+        self.assertIn('chegou atrasado', pedido)
+        m_ia.side_effect = RuntimeError('fora do ar')
+        d = self.client.post(url, {}).json()
+        self.assertFalse(d['ia'])
+        self.assertIn('10/11/2026', d['texto'])
+        self.assertIn('05/11/2026', d['texto'])
+        self.assertIn('Setor Financeiro', d['texto'])
+        self.client.logout()
+        self.login_pj()
+        self.assertEqual(self.client.post(url, {}).status_code, 302)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):
         from core.services.verificacao import pagar_automatico
         self.client.force_login(self.fin)

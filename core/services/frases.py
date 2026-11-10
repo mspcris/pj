@@ -125,6 +125,34 @@ _DEVOLVIDO = [
 ]
 
 
+# Financeiro recusou o boleto por estar fora da data prevista de pagamento
+# (10/11/2026). Modelo pronto de reserva — a IA redige quando está no ar.
+_RECUSA_FINANCEIRO = [
+    ('Prezado(a) {contato},\n\nRecebemos o boleto de {competencia} '
+     '({prestador} — {alvo}), mas o vencimento dele '
+     '({vencimento_do_boleto}) está fora da data prevista de pagamento no '
+     'contrato ({data_prevista_pagamento_contrato}). Por isso este boleto '
+     'não seguirá para pagamento. Pedimos a gentileza de emitir um novo '
+     'boleto com vencimento igual ou posterior à data prevista.\n\n'
+     'Atenciosamente,\nSetor Financeiro — CAMIM'),
+    ('Prezado(a) {contato},\n\nO boleto de {competencia} ({alvo}) vence '
+     'em {vencimento_do_boleto}, e a data prevista de pagamento pelo '
+     'contrato é {data_prevista_pagamento_contrato}. Como está fora da '
+     'data prevista, o documento foi desconsiderado e não será pago. Por '
+     'favor, emita outro boleto com vencimento a partir da data '
+     'prevista.\n\nAtenciosamente,\nSetor Financeiro — CAMIM'),
+]
+
+
+def recusa_financeiro(fatos):
+    texto = _fallback(_RECUSA_FINANCEIRO, fatos)
+    obs = fatos.get('observacao_do_financeiro')
+    if obs:
+        cabeca, sep, assinatura = texto.rpartition('\n\n')
+        texto = f'{cabeca}\n\nObservação do financeiro: {obs}{sep}{assinatura}'
+    return texto
+
+
 # Boleto que chegou SEM dizer de qual unidade (empresa pagadora) é — o
 # prestador atende várias e o código de barras só traz banco e valor.
 # Texto FIXO (sem IA): as instruções têm de sair exatas e sem tom de

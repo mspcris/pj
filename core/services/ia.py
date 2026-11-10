@@ -326,6 +326,42 @@ def redigir_email(instrucao, fatos):
     return corpo
 
 
+def redigir_recusa_financeiro(fatos):
+    """10/11/2026: o financeiro recusa um boleto fora da data prevista de
+    pagamento do contrato e manda o motivo ao prestador. Levanta exceção
+    se a IA falhar — quem chama usa o modelo pronto de frases.py."""
+    system = (
+        'Você redige e-mails formais e corteses em português do Brasil, em '
+        'nome do Setor Financeiro da CAMIM. Escreva SOMENTE o corpo do '
+        'e-mail (sem assunto), 3 a 6 frases. Abra com "Prezado(a) '
+        '<contato>," — o campo "contato" dos fatos é a PESSOA do prestador; '
+        'use exatamente esse nome, nunca a razão social, na saudação — e '
+        'encerre com "Atenciosamente,\\nSetor Financeiro — CAMIM". Situação: '
+        'o boleto recebido NÃO seguirá para pagamento porque o vencimento '
+        'dele está fora da data prevista de pagamento no contrato. Diga a '
+        'data prevista e o vencimento que veio, e peça um NOVO boleto com '
+        'vencimento igual ou posterior à data prevista. Se houver '
+        '"observacao_do_financeiro", incorpore-a como parte do motivo. Use '
+        'apenas os fatos fornecidos — não invente valores, datas nem '
+        'promessas. O campo "alvo" é o nome de uma UNIDADE (posto) da '
+        'CAMIM, batizada pelo bairro do Rio de Janeiro onde fica — diga '
+        '"unidade X", NUNCA cidade ou município. A CAMIM é quem PAGA; o '
+        'prestador é quem RECEBE. NUNCA reproduza os fatos em JSON, chaves, '
+        'aspas ou qualquer formato de dados — só prosa, sem markdown. Varie '
+        'a redação a cada vez, mantendo o tom profissional e cordial.')
+    user = ('Redija o aviso de recusa do boleto.\n\nFatos:\n'
+            + json.dumps(fatos, ensure_ascii=False))
+    corpo = limpar_corpo(_chamar(
+        [{'role': 'system', 'content': system},
+         {'role': 'user', 'content': user}],
+        temperature=0.7, max_tokens=500))
+    if not corpo or len(corpo) < 30:
+        raise RuntimeError('IA devolveu corpo vazio/curto demais')
+    if 'Setor Financeiro' not in corpo:
+        raise RuntimeError('IA devolveu corpo sem a assinatura')
+    return corpo
+
+
 def limpar_corpo(corpo):
     """Tira do texto da IA qualquer linha que seja JSON/dados (04/09/2026:
     o e-mail de pagamento da Meriti saiu com o dict de fatos colado no

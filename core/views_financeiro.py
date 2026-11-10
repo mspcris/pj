@@ -15,7 +15,7 @@ from decimal import Decimal
 from functools import wraps
 
 from django.contrib import messages
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
@@ -141,6 +141,20 @@ def acao(request, up, pk, acao):
             messages.success(request, f'{boleto}: recebimento registrado.')
         else:
             messages.info(request, f'{boleto}: já estava registrado.')
+    elif acao == 'recusar':
+        # 10/11/2026: boleto fora da data prevista de pagamento — o
+        # financeiro recusa e o prestador recebe o texto (IA ou à mão).
+        from .services.verificacao import recusar_pelo_financeiro
+        texto = (request.POST.get('texto') or '').strip()
+        if len(texto) < 20:
+            messages.error(request, f'{boleto}: escreva (ou gere) o texto '
+                                    'do aviso ao prestador antes de recusar.')
+        elif recusar_pelo_financeiro(boleto, texto, quem=up.email):
+            messages.success(
+                request, f'{boleto}: recusado — o prestador foi avisado por '
+                         'e-mail e o posto voltou a "sem boleto".')
+        else:
+            messages.info(request, f'{boleto}: não está aberto para recusa.')
     elif acao == 'enviei':
         if fin_enviou_para_pagamento(boleto, ator=up.email):
             messages.success(
@@ -150,6 +164,21 @@ def acao(request, up, pk, acao):
             messages.info(request, f'{boleto}: não está aberto para '
                                    'pagamento.')
     return _voltar(request, boleto)
+
+
+@financeiro_required
+@require_POST
+def texto_recusa(request, up, pk):
+    """Botão "Gerar texto por IA" da recusa: devolve o texto do aviso ao
+    prestador (IA; modelo pronto se a IA falhar) para o financeiro ler,
+    ajustar e enviar."""
+    from .services.verificacao import texto_recusa_financeiro
+    boleto = get_object_or_404(
+        Boleto.objects.select_related('prestador', 'posto',
+                                      'prestador__posto_cobranca'), pk=pk)
+    observacao = (request.POST.get('observacao') or '').strip()[:500]
+    texto, da_ia = texto_recusa_financeiro(boleto, observacao)
+    return JsonResponse({'texto': texto, 'ia': da_ia})
 
 
 def _slug(texto):
