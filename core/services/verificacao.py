@@ -1158,14 +1158,20 @@ def devolver_valor_errado(boleto, motivo, quem):
 
 def fatos_recusa_financeiro(boleto, observacao=''):
     fatos = _fatos(boleto)
-    previsto = boleto.prestador.pagamento_previsto_em(boleto.competencia)
+    previsto = boleto.pagamento_previsto
     fatos['data_prevista_pagamento_contrato'] = (
         previsto.strftime('%d/%m/%Y') if previsto else 'não cadastrada')
     fatos['vencimento_do_boleto'] = (
         boleto.vencimento.strftime('%d/%m/%Y') if boleto.vencimento
         else 'não identificado')
+    # O motivo é o que o financeiro escreveu; sem observação, o único motivo
+    # que o sistema conhece é o vencimento antes da data prevista (quando é
+    # o caso). 10/11/2026: a Milena recusou por outro motivo (banco) e o
+    # texto saiu "fora da data" — a recusa NÃO é só por data.
+    fatos['boleto_vence_antes_da_data_prevista'] = \
+        bool(boleto.vence_antes_do_previsto)
     if observacao:
-        fatos['observacao_do_financeiro'] = observacao
+        fatos['motivo_informado_pelo_financeiro'] = observacao
     return fatos
 
 
@@ -1182,8 +1188,9 @@ def texto_recusa_financeiro(boleto, observacao=''):
 
 
 def recusar_pelo_financeiro(boleto, texto, quem):
-    """Botão "Recusar boleto" do painel do financeiro (10/11/2026): o
-    boleto está fora da data prevista de pagamento do contrato. Sai da fila
+    """Botão "Recusar boleto" do painel do financeiro (10/11/2026), por
+    QUALQUER motivo — o motivo é o texto que o financeiro escreveu (banco
+    recusou, vencimento, dados errados…), nunca um rótulo fixo. Sai da fila
     (DEVOLVIDO — o posto volta a "sem boleto"), fica no histórico com o
     PDF; o prestador recebe o texto que o financeiro escreveu/gerou + o
     bloco de dados; o admin é avisado. Não manda CANCELAMENTO à equipe@:
@@ -1194,9 +1201,7 @@ def recusar_pelo_financeiro(boleto, texto, quem):
         return False
     boleto.status = Boleto.Status.DEVOLVIDO
     boleto.devolvido_em = timezone.now()
-    boleto.devolvido_motivo = (
-        'recusado pelo financeiro — fora da data prevista de pagamento — '
-        + texto)[:500]
+    boleto.devolvido_motivo = ('recusado pelo financeiro — ' + texto)[:500]
     boleto.pagamento_enviado_em = None
     boleto.pagamento_enviado_valor = None
     boleto.save(update_fields=['status', 'devolvido_em', 'devolvido_motivo',
@@ -1205,8 +1210,8 @@ def recusar_pelo_financeiro(boleto, texto, quem):
     fatos = _fatos(boleto)
     emails.enviar(
         destinatarios_pj(boleto),
-        f'Boleto recusado — fora da data prevista de pagamento — emitir '
-        f'outro — {fatos["alvo"]} — {fatos["competencia"]}',
+        f'Boleto recusado pelo setor financeiro — emitir outro — '
+        f'{fatos["alvo"]} — {fatos["competencia"]}',
         texto + dados_pj(boleto, fatos),
         boleto=boleto, cc=cc_gerente(boleto))
     emails.enviar(
@@ -1215,16 +1220,15 @@ def recusar_pelo_financeiro(boleto, texto, quem):
         f'{fatos["competencia"]}',
         f'Cristiano,\n\n{quem} recusou o boleto #{boleto.pk} '
         f'({fatos["prestador"]} — {fatos["alvo"]} — {fatos["competencia"]}) '
-        'no painel do financeiro: fora da data prevista de pagamento. O '
-        'prestador foi avisado com o texto abaixo e o posto voltou a "sem '
-        f'boleto".\n\n---\n{texto}\n---\n\n'
+        'no painel do financeiro. O boleto foi cancelado no controle e o '
+        'posto voltou a "sem boleto". O prestador recebeu o texto abaixo '
+        f'(o motivo é o que está nele):\n\n---\n{texto}\n---\n\n'
         'Painel: https://pj.camim.com.br/painel/\n\n— Controle dos PJs',
         boleto=boleto)
     AuditLog.registrar(
         AuditLog.Evento.STATUS, ator=quem,
-        detalhe=f'Boleto #{boleto.pk}: recusado pelo financeiro (fora da '
-                'data prevista de pagamento) — prestador avisado, posto '
-                f'volta a "sem boleto" — texto: {texto[:300]}')
+        detalhe=f'Boleto #{boleto.pk}: recusado pelo financeiro — prestador '
+                f'avisado, posto volta a "sem boleto" — texto: {texto[:300]}')
     return True
 
 

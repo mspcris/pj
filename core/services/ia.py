@@ -336,9 +336,11 @@ def redigir_email(instrucao, fatos):
 
 
 def redigir_recusa_financeiro(fatos):
-    """10/11/2026: o financeiro recusa um boleto fora da data prevista de
-    pagamento do contrato e manda o motivo ao prestador. Levanta exceção
-    se a IA falhar — quem chama usa o modelo pronto de frases.py."""
+    """10/11/2026: o financeiro recusa um boleto (por qualquer motivo) e
+    manda o aviso ao prestador. O motivo é "motivo_informado_pelo_
+    financeiro"; sem ele, o vencimento antes da data prevista (se for o
+    caso); senão, só "não pôde ser processado". Levanta exceção se a IA
+    falhar — quem chama usa o modelo pronto de frases.py."""
     system = (
         'Você redige e-mails formais e corteses em português do Brasil, em '
         'nome do Setor Financeiro da CAMIM. Escreva SOMENTE o corpo do '
@@ -346,11 +348,16 @@ def redigir_recusa_financeiro(fatos):
         '<contato>," — o campo "contato" dos fatos é a PESSOA do prestador; '
         'use exatamente esse nome, nunca a razão social, na saudação — e '
         'encerre com "Atenciosamente,\\nSetor Financeiro — CAMIM". Situação: '
-        'o boleto recebido NÃO seguirá para pagamento porque o vencimento '
-        'dele está fora da data prevista de pagamento no contrato. Diga a '
-        'data prevista e o vencimento que veio, e peça um NOVO boleto com '
-        'vencimento igual ou posterior à data prevista. Se houver '
-        '"observacao_do_financeiro", incorpore-a como parte do motivo. Use '
+        'o boleto recebido foi RECUSADO e NÃO seguirá para pagamento; peça '
+        'um NOVO boleto, anexado na plataforma pj.camim.com.br ou enviado '
+        'por e-mail. O MOTIVO: se houver "motivo_informado_pelo_financeiro", '
+        'ele é O motivo — escreva a partir dele e NÃO fale em data prevista '
+        'nem em vencimento, a menos que ele fale. Sem esse campo: se '
+        '"boleto_vence_antes_da_data_prevista" for true, o motivo é o '
+        'vencimento anterior à data prevista de pagamento no contrato — diga '
+        'as duas datas e peça vencimento igual ou posterior à data prevista; '
+        'se for false, diga apenas que o boleto não pôde ser processado e '
+        'peça outro, sem inventar motivo. Use '
         'apenas os fatos fornecidos — não invente valores, datas nem '
         'promessas, e NÃO descreva qual é o serviço prestado (não está nos '
         'fatos; não deduza pelo nome da empresa). O campo "alvo" é o nome '

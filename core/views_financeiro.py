@@ -176,8 +176,8 @@ def acao(request, up, pk, acao):
         else:
             messages.info(request, f'{boleto}: já estava registrado.')
     elif acao == 'recusar':
-        # 10/11/2026: boleto fora da data prevista de pagamento — o
-        # financeiro recusa e o prestador recebe o texto (IA ou à mão).
+        # 10/11/2026: o financeiro recusa por QUALQUER motivo — o motivo é
+        # o texto (IA ou à mão) que vai ao prestador.
         from .services.verificacao import recusar_pelo_financeiro
         texto = (request.POST.get('texto') or '').strip()
         if len(texto) < 20:

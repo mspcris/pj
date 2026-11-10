@@ -4671,14 +4671,15 @@ class PainelFinanceiroTest(BaseSetup):
         self.b.refresh_from_db()
         self.assertEqual(self.b.status, Boleto.Status.DEVOLVIDO)
         self.assertIsNotNone(self.b.devolvido_em)
-        self.assertIn('fora da data prevista', self.b.devolvido_motivo)
+        self.assertIn('recusado pelo financeiro', self.b.devolvido_motivo)
+        self.assertNotIn('fora da data', self.b.devolvido_motivo)
         self.assertIsNone(self.b.pagamento_enviado_em)
         self.assertTrue(self.b.arquivo)  # o PDF fica no histórico
         pj = [c for c in m_mail.call_args_list
               if 'pj@empresa.com.br' in c.args[0]]
         self.assertEqual(len(pj), 1)
         self.assertIn('recusado', pj[0].args[1].lower())
-        self.assertIn('fora da data prevista', pj[0].args[1].lower())
+        self.assertNotIn('fora da data', pj[0].args[1].lower())  # motivo é o texto
         self.assertIn(texto, pj[0].args[2])
         self.assertIn('Pagamento previsto: dia 10', pj[0].args[2])
         adm = [c for c in m_mail.call_args_list
@@ -4724,6 +4725,18 @@ class PainelFinanceiroTest(BaseSetup):
         self.assertIn('10/11/2026', d['texto'])
         self.assertIn('05/11/2026', d['texto'])
         self.assertIn('Setor Financeiro', d['texto'])
+        # motivo informado manda: nada de data prevista (Milena, 10/11/2026:
+        # "o Bradesco recusou o pagamento")
+        d = self.client.post(url, {'observacao': 'o Bradesco recusou o '
+                                                  'pagamento'}).json()
+        self.assertIn('o Bradesco recusou o pagamento', d['texto'])
+        self.assertNotIn('data prevista', d['texto'])
+        # sem motivo e vencimento no dia: texto genérico, sem inventar
+        self.b.vencimento = date(2026, 11, 10)
+        self.b.save()
+        d = self.client.post(url, {}).json()
+        self.assertIn('não pôde ser processado', d['texto'])
+        self.assertNotIn('data prevista', d['texto'])
         self.client.logout()
         self.login_pj()
         self.assertEqual(self.client.post(url, {}).status_code, 302)

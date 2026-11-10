@@ -117,7 +117,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
                 onsubmit="return confirm('Registrar que este boleto foi enviado para pagamento? Em 24h ele será marcado como PAGO.')">
             {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
             <button class="btn mini" type="submit">💸 Enviei p/ pagamento</button></form>
-          <button class="btn mini vermelho" style="display:block;margin-top:6px" type="button" onclick="abrirRecusa({{ b.pk }}, this)" title="Boleto fora da data prevista de pagamento: devolve ao prestador para emitir outro">⛔ Recusar boleto</button>
+          <button class="btn mini vermelho" style="display:block;margin-top:6px" type="button" onclick="abrirRecusa({{ b.pk }}, this)" title="Recusa o boleto por qualquer motivo: o prestador recebe o texto e precisa emitir outro">⛔ Recusar boleto</button>
           {% endif %}
         </td>
       </tr>

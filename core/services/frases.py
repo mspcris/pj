@@ -125,32 +125,42 @@ _DEVOLVIDO = [
 ]
 
 
-# Financeiro recusou o boleto por estar fora da data prevista de pagamento
-# (10/11/2026). Modelo pronto de reserva — a IA redige quando está no ar.
-_RECUSA_FINANCEIRO = [
+# Financeiro recusou o boleto (10/11/2026) — por QUALQUER motivo. Modelo
+# pronto de reserva (a IA redige quando está no ar): com motivo informado,
+# ele é o motivo; sem motivo, vencimento antes da data prevista (se for o
+# caso); senão, só "não pôde ser processado".
+_RECUSA_FIN_MOTIVO = [
+    ('Prezado(a) {contato},\n\nInformamos que o boleto de {competencia} '
+     '({prestador} — {alvo}) foi recusado pelo setor financeiro e não '
+     'seguirá para pagamento. Motivo: {motivo_informado_pelo_financeiro}. '
+     'Pedimos a gentileza de emitir um novo boleto e anexá-lo na '
+     'plataforma (pj.camim.com.br) ou enviá-lo por e-mail.\n\n'
+     'Atenciosamente,\nSetor Financeiro — CAMIM'),
+]
+_RECUSA_FIN_DATA = [
     ('Prezado(a) {contato},\n\nRecebemos o boleto de {competencia} '
      '({prestador} — {alvo}), mas o vencimento dele '
-     '({vencimento_do_boleto}) está fora da data prevista de pagamento no '
+     '({vencimento_do_boleto}) é anterior à data prevista de pagamento no '
      'contrato ({data_prevista_pagamento_contrato}). Por isso este boleto '
      'não seguirá para pagamento. Pedimos a gentileza de emitir um novo '
      'boleto com vencimento igual ou posterior à data prevista.\n\n'
      'Atenciosamente,\nSetor Financeiro — CAMIM'),
-    ('Prezado(a) {contato},\n\nO boleto de {competencia} ({alvo}) vence '
-     'em {vencimento_do_boleto}, e a data prevista de pagamento pelo '
-     'contrato é {data_prevista_pagamento_contrato}. Como está fora da '
-     'data prevista, o documento foi desconsiderado e não será pago. Por '
-     'favor, emita outro boleto com vencimento a partir da data '
-     'prevista.\n\nAtenciosamente,\nSetor Financeiro — CAMIM'),
+]
+_RECUSA_FIN_GENERICA = [
+    ('Prezado(a) {contato},\n\nInformamos que o boleto de {competencia} '
+     '({prestador} — {alvo}) não pôde ser processado pelo setor financeiro '
+     'e não seguirá para pagamento. Pedimos a gentileza de emitir um novo '
+     'boleto e anexá-lo na plataforma (pj.camim.com.br) ou enviá-lo por '
+     'e-mail.\n\nAtenciosamente,\nSetor Financeiro — CAMIM'),
 ]
 
 
 def recusa_financeiro(fatos):
-    texto = _fallback(_RECUSA_FINANCEIRO, fatos)
-    obs = fatos.get('observacao_do_financeiro')
-    if obs:
-        cabeca, sep, assinatura = texto.rpartition('\n\n')
-        texto = f'{cabeca}\n\nObservação do financeiro: {obs}{sep}{assinatura}'
-    return texto
+    if fatos.get('motivo_informado_pelo_financeiro'):
+        return _fallback(_RECUSA_FIN_MOTIVO, fatos)
+    if fatos.get('boleto_vence_antes_da_data_prevista'):
+        return _fallback(_RECUSA_FIN_DATA, fatos)
+    return _fallback(_RECUSA_FIN_GENERICA, fatos)
 
 
 # Boleto que chegou SEM dizer de qual unidade (empresa pagadora) é — o
