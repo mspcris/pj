@@ -46,6 +46,8 @@ urlpatterns = [
     path('painel/ver-como-financeiro/', views_painel.ver_como_financeiro,
          name='painel_ver_como_financeiro'),
     path('financeiro/', views_financeiro.painel, name='financeiro_painel'),
+    path('financeiro/rejeitados/', views_financeiro.rejeitados,
+         name='financeiro_rejeitados'),
     path('financeiro/boleto/<int:pk>/texto-recusa/',
          views_financeiro.texto_recusa, name='financeiro_texto_recusa'),  # antes da genérica
     path('financeiro/boleto/<int:pk>/<slug:acao>/', views_financeiro.acao,

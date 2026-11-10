@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}Financeiro · boletos rejeitados{% endblock %}
+{% block conteudo %}
+<style>
+.abas{display:flex;gap:6px;margin-bottom:14px;border-bottom:2px solid var(--linha)}
+.abas a{padding:10px 16px;border-radius:10px 10px 0 0;font-weight:700;color:var(--cinza);text-decoration:none;border:1.5px solid transparent;border-bottom:0;margin-bottom:-2px}
+.abas a.ativa{background:var(--branco);color:var(--verde-esc);border-color:var(--linha);border-bottom:2px solid var(--branco)}
+.abas a:hover{color:var(--verde-esc)}
+.rej table{width:100%;border-collapse:collapse;font-size:.9rem}
+.rej td,.rej th{padding:9px 6px;border-bottom:1px solid var(--linha);vertical-align:top;text-align:left}
+.rej .motivo{white-space:pre-line;max-width:420px}
+.rej details summary{cursor:pointer;color:var(--verde-esc);font-weight:600}
+.carimbo{font-size:.78rem;color:var(--cinza)}
+.chip.DEVOLVIDO,.chip.NAO_RECONHECIDO{background:#fdeceb;color:var(--erro)}
+</style>
+<div class="abas">
+  <a href="{% url 'financeiro_painel' %}?m={{ mes|date:'Y-m' }}" class="">📋 Boletos</a>
+  <a href="{% url 'financeiro_rejeitados' %}" class="ativa">⛔ Boletos rejeitados ({{ total }})</a>
+</div>
+
+<h1 style="font-size:1.2rem">⛔ Boletos rejeitados</h1>
+<p class="sub">Todos os boletos recusados pelo financeiro ou cancelados pelo admin, de todos os meses, do mais recente ao mais antigo. Um posto pode ter vários: o prestador anexa outro e ele pode ser recusado de novo — a coluna "O que veio depois" mostra a sequência.</p>
+
+<div class="card rej">
+  {% if lista %}
+  <table>
+    <tr><th>Quando</th><th>Prestador · posto</th><th>Mês</th><th>Valor · vencimento</th><th>Quem</th><th>Motivo / texto enviado</th><th>PDF</th><th>O que veio depois</th></tr>
+    {% for b in lista %}
+    <tr>
+      <td style="white-space:nowrap">{{ b.rejeitado_em|date:"d/m/Y H:i"|default:"—" }}<div class="carimbo">boleto #{{ b.pk }}</div></td>
+      <td><strong>{{ b.prestador.nome }}</strong><div class="carimbo">{{ b.posto_efetivo|default:"boleto único" }}</div></td>
+      <td style="white-space:nowrap">{{ b.competencia|date:"m/Y" }}</td>
+      <td style="white-space:nowrap">R$ {{ b.valor_extraido|default:b.valor_esperado|default:"—" }}<div class="carimbo">{% if b.vencimento %}venc. {{ b.vencimento|date:"d/m/Y" }}{% else %}sem vencimento{% endif %}</div></td>
+      <td style="white-space:nowrap"><span class="chip {{ b.status }}">{% if b.status == 'DEVOLVIDO' %}Recusado{% else %}Não reconhecido{% endif %}</span><div class="carimbo">{{ b.quem|default:"—" }}</div></td>
+      <td class="motivo">{% if b.motivo|length > 160 %}<details><summary>{{ b.motivo|truncatechars:160 }}</summary>{{ b.motivo }}</details>{% else %}{{ b.motivo|default:"—" }}{% endif %}</td>
+      <td style="white-space:nowrap">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}{% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" target="_blank">🧾 nota</a>{% endif %}</td>
+      <td>{% if b.depois %}{% for x in b.depois %}<div style="white-space:nowrap">#{{ x.pk }} · {{ x.criado_em|date:"d/m H:i" }} · <span class="chip {{ x.status }}" style="font-size:.72rem">{{ x.get_status_display|truncatechars:34 }}</span></div>{% endfor %}{% else %}<span class="carimbo">aguardando novo boleto</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="sub">Nenhum boleto rejeitado até agora.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -5050,6 +5050,47 @@ class PainelFinanceiroTest(BaseSetup):
                       '(5º dia útil — contrato)', linhas_competencia(b))
 
     @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_aba_boletos_rejeitados_mostra_todos_e_a_sequencia(self, m_mail):
+        """10/11/2026: aba "Boletos rejeitados" — todos os recusados, de
+        todos os meses, com motivo, quem, PDF e o que veio depois (novo
+        boleto do mesmo posto/mês, que pode ser recusado de novo)."""
+        self.client.force_login(self.fin)
+        texto = ('Prezados,\n\nO Bradesco recusou o pagamento deste boleto. '
+                 'Pedimos um novo.\n\nAtenciosamente,\nSetor Financeiro — CAMIM')
+        self.client.post(f'/financeiro/boleto/{self.b.pk}/recusar/',
+                         {'m': '2026-11', 'texto': texto})
+        novo = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 11, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('1500.00'),
+            valor_esperado=Decimal('1500.00'),
+            pagamento_enviado_em=timezone.now())
+        self.client.post(f'/financeiro/boleto/{novo.pk}/recusar/',
+                         {'m': '2026-11', 'texto': texto})
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'Boletos rejeitados (2)')
+        resp = self.client.get('/financeiro/rejeitados/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Limpeza Total LTDA', count=2)
+        self.assertContains(resp, 'O Bradesco recusou o pagamento')
+        self.assertContains(resp, 'fin@camim.com.br')
+        self.assertContains(resp, f'#{novo.pk}')          # o que veio depois
+        self.assertContains(resp, 'aguardando novo boleto')
+        self.assertContains(resp, f'/arquivo/boleto/{self.b.pk}/')
+        # mês antigo também aparece (todos)
+        velho = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto2,
+            competencia=date(2026, 3, 1), status=Boleto.Status.DEVOLVIDO,
+            devolvido_em=timezone.now(), devolvido_motivo='valor errado')
+        resp = self.client.get('/financeiro/rejeitados/')
+        self.assertContains(resp, '03/2026')
+        self.assertContains(resp, 'valor errado')
+        self.client.logout()
+        self.login_pj()
+        self.assertEqual(self.client.get('/financeiro/rejeitados/').status_code,
+                         302)
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):
         from core.services.verificacao import pagar_automatico
         self.client.force_login(self.fin)

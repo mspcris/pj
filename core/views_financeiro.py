@@ -153,7 +153,57 @@ def painel(request, up):
         'abrir': request.GET.get('abrir', ''),
         'total_abertos': sum(g['abertos'] for g in grupos),
         'total_a_receber': sum(g['a_receber'] for g in grupos),
+        'n_rejeitados': Boleto.objects.filter(status__in=REJEITADOS).count(),
     })
+
+
+REJEITADOS = (Boleto.Status.DEVOLVIDO, Boleto.Status.NAO_RECONHECIDO)
+
+
+def _quem_rejeitou(boleto):
+    """Quem cancelou: o ator da última entrada de auditoria do boleto que
+    não seja o sistema (financeiro ou admin)."""
+    a = (AuditLog.objects
+         .filter(detalhe__regex=rf'^Boleto #{boleto.pk}(\D|$)')
+         .exclude(ator_email='sistema').order_by('-pk').first())
+    return a.ator_email if a else ''
+
+
+@financeiro_required
+def rejeitados(request, up):
+    """Aba "Boletos rejeitados" (10/11/2026): TODOS os boletos recusados —
+    pelo financeiro (qualquer motivo) ou pelo admin (valor errado, dívida
+    não reconhecida) — de todos os meses, do mais recente ao mais antigo,
+    com motivo, PDF e o que veio depois (novo boleto do mesmo posto e
+    mês, que pode ter sido recusado de novo). Auditoria: quando houver
+    dúvida, olhar aqui."""
+    lista = list(Boleto.objects
+                 .filter(status__in=REJEITADOS)
+                 .select_related('prestador', 'posto',
+                                 'prestador__posto_cobranca')
+                 .order_by('-devolvido_em', '-nao_reconhecido_em', '-pk'))
+    for b in lista:
+        b.rejeitado_em = b.devolvido_em or b.nao_reconhecido_em
+        b.motivo = b.devolvido_motivo or b.nao_reconhecido_motivo
+        b.quem = _quem_rejeitou(b)
+        posto = b.posto_efetivo
+        depois = [x for x in Boleto.objects
+                  .filter(prestador=b.prestador, competencia=b.competencia,
+                          pk__gt=b.pk)
+                  .exclude(status__in=[Boleto.Status.DESCARTADO,
+                                       Boleto.Status.SUBSTITUIDO,
+                                       Boleto.Status.DUPLICADO])
+                  .select_related('posto', 'prestador__posto_cobranca')
+                  .order_by('pk')
+                  if (x.posto_efetivo.pk if x.posto_efetivo else None)
+                  == (posto.pk if posto else None)]
+        b.depois = depois
+        b.ultimo = depois[-1] if depois else None
+    lista.sort(key=lambda b: (b.rejeitado_em or timezone.make_aware(
+        __import__('datetime').datetime.min)), reverse=True)
+    return render(request, 'financeiro/rejeitados.html', {
+        'up': up, 'lista': lista, 'total': len(lista),
+        'mes': timezone.localdate().replace(day=1)})
 
 
 def _voltar(request, boleto=None, prestador_pk=None):
