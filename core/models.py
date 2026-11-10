@@ -168,6 +168,18 @@ class Prestador(models.Model):
         ultimo = calendar.monthrange(mes.year, mes.month)[1]
         return mes.replace(day=max(1, min(dia, ultimo) - 1))
 
+    def pagamento_previsto_em(self, mes):
+        """Data prevista de pagamento no `mes` (mês de competência), pelo
+        dia do contrato, limitada ao último dia do mês (dia 31 em novembro
+        → 30/11). None = sem dia cadastrado. 10/11/2026: o financeiro vai
+        desligar o e-mail de pagamento, então a data que ia nele precisa
+        aparecer no painel."""
+        if not self.dia_pagamento:
+            return None
+        import calendar
+        ultimo = calendar.monthrange(mes.year, mes.month)[1]
+        return mes.replace(day=min(self.dia_pagamento, ultimo))
+
     def mes_servico(self, competencia):
         """Mês em que o serviço foi prestado, dado o mês do pagamento."""
         if self.regime_pagamento == self.Regime.POSTERIOR:

@@ -43,6 +43,7 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
   <div>
     <div class="nome">{{ g.prestador.nome }}{% if g.abertos %} — R$ {{ g.total_aberto }}{% endif %}</div>
     <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% endif %}</div>
+    <div class="sub">📅 {% if g.pagamento_previsto %}Pagamento previsto: <strong>{{ g.pagamento_previsto|date:"d/m/Y" }}</strong> (dia {{ g.prestador.dia_pagamento }} do contrato){% else %}<span class="carimbo">sem data prevista no contrato</span>{% endif %}</div>
   </div>
   <div class="kanban" aria-label="Etapas do processo">
     {% for p in g.pontos %}{% if not forloop.first %}<span class="tr{% if p.feitos == p.total %} ok{% endif %}"></span>{% endif %}<span class="pt {{ p.classe }}" data-hint="{{ p.rotulo }} — {{ p.feitos }}/{{ p.total }}"></span>{% endfor %}
@@ -52,7 +53,7 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
 <dialog class="fin" id="fin{{ g.prestador.pk }}">
   <div class="topo">
     <div><strong>{{ g.prestador.nome }}</strong>{% if g.prestador.cnpj %} <span style="opacity:.85;font-size:.85rem">· CNPJ {{ g.prestador.cnpj }}</span>{% endif %}<br>
-      <span style="font-size:.82rem;opacity:.9">{{ mes|date:"F/Y"|capfirst }} · {{ g.abertos }} em aberto · {{ g.pagos }} pago(s)</span></div>
+      <span style="font-size:.82rem;opacity:.9">{{ mes|date:"F/Y"|capfirst }} · {{ g.abertos }} em aberto · {{ g.pagos }} pago(s) · 📅 {% if g.pagamento_previsto %}Pagamento previsto: <strong>{{ g.pagamento_previsto|date:"d/m/Y" }}</strong> (dia {{ g.prestador.dia_pagamento }} do contrato){% else %}sem data prevista no contrato{% endif %}</span></div>
     <div style="display:flex;gap:8px;align-items:center">
       <a class="btn mini dourado" href="{% url 'financeiro_zip' g.prestador.pk %}?m={{ mes|date:'Y-m' }}" title="ZIP com os PDFs: primeiro nome do prestador + posto (ex.: caio_realengo.pdf)">⬇️ Baixar todos os boletos</a>
       <form method="dialog" style="margin:0"><button class="btn mini claro" type="submit">Fechar ✕</button></form>

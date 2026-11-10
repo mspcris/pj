@@ -98,7 +98,10 @@ def painel(request, up):
         g = grupos.setdefault(b.prestador_id, {
             'prestador': b.prestador, 'boletos': [], 'abertos': 0,
             'pagos': 0, 'total_aberto': Decimal('0'),
-            'a_receber': 0})
+            'a_receber': 0,
+            # Data prevista de pagamento do contrato, neste mês (10/11/2026:
+            # ia só no e-mail; o financeiro passa a ver aqui).
+            'pagamento_previsto': b.prestador.pagamento_previsto_em(mes)})
         g['boletos'].append(b)
         if b.status == Boleto.Status.PAGO:
             g['pagos'] += 1

@@ -4614,6 +4614,26 @@ class PainelFinanceiroTest(BaseSetup):
         resp = self.client.get('/financeiro/')
         self.assertEqual(resp.status_code, 302)
 
+    def test_painel_mostra_data_prevista_de_pagamento_do_contrato(self):
+        """10/11/2026: 'a data prevista só aparecia no e-mail; como o
+        financeiro vai desligar o e-mail, precisa aparecer no painel'. O dia
+        do contrato vira data do mês visto; dia 31 em novembro cai no 30;
+        sem dia cadastrado, o painel diz que falta."""
+        self.client.force_login(self.fin)
+        self.prestador.dia_pagamento = 10
+        self.prestador.save()
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'Pagamento previsto')
+        self.assertContains(resp, '10/11/2026')
+        self.prestador.dia_pagamento = 31
+        self.prestador.save()
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, '30/11/2026')
+        self.prestador.dia_pagamento = None
+        self.prestador.save()
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'sem data prevista no contrato')
+
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):
         from core.services.verificacao import pagar_automatico
