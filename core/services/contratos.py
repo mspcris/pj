@@ -24,7 +24,7 @@ def aplicar_dados(contrato):
     digitou nunca é sobrescrito. Nunca levanta exceção."""
     prestador = contrato.prestador
     faltam = [c for c in CAMPOS if _em_branco(prestador, c)]
-    if not faltam:
+    if not faltam and contrato.prazos_lidos_em is not None:
         return {}
     try:
         texto = pdf.extrair_texto(contrato.arquivo.path)
@@ -34,6 +34,16 @@ def aplicar_dados(contrato):
     except Exception as e:
         log.warning('leitura do contrato #%s falhou: %s', contrato.pk, e)
         return {}
+    # 10/11/2026: o prazo fica também NO CONTRATO (dia + cláusula + trecho):
+    # contratos de postos diferentes podem fixar dias diferentes, e o
+    # financeiro vê "conforme contrato, cláusula tal".
+    from django.utils import timezone
+    contrato.dia_pagamento = dados.get('dia_pagamento')
+    contrato.clausula_pagamento = (dados.get('clausula') or '')[:200]
+    contrato.trecho_pagamento = (dados.get('trecho') or '')[:300]
+    contrato.prazos_lidos_em = timezone.now()
+    contrato.save(update_fields=['dia_pagamento', 'clausula_pagamento',
+                                 'trecho_pagamento', 'prazos_lidos_em'])
     if prestador.representante_nome_social and 'representante' in faltam:
         pass  # nome social continua mandando na saudação; só completa
     aplicados = {}

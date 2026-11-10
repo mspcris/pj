@@ -209,7 +209,10 @@ def extrair_dados_contrato(texto_contrato):
         '"cep": "00000-000" ou null, '
         '"representante": "nome da pessoa que representa a CONTRATADA" ou '
         'null, "representante_cpf": "000.000.000-00" ou null, '
-        '"trecho": "frase do contrato que embasa os prazos"}. '
+        '"trecho": "frase do contrato que embasa os prazos", '
+        '"clausula_pagamento": "referência EXATA de onde está o prazo de '
+        'pagamento no contrato, como aparece nele (ex.: \\"Cláusula 5ª, '
+        'Parágrafo 2º, alínea b\\")" ou null}. '
         '"dia_pagamento" = dia do mês em que o contratante paga (ex.: "até '
         'o dia 10 de cada mês" → 10). "dia_vencimento" = dia de vencimento '
         'do boleto/nota, se o contrato fixar. "regime": VIGENTE se o '
@@ -247,6 +250,7 @@ def extrair_dados_contrato(texto_contrato):
         'representante': txt('representante', 120),
         'representante_cpf': txt('representante_cpf', 14),
         'trecho': txt('trecho', 300) or '',
+        'clausula': txt('clausula_pagamento', 200) or '',
     }
 
 

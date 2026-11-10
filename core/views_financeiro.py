@@ -125,9 +125,10 @@ def painel(request, up):
             'prestador': b.prestador, 'boletos': [], 'abertos': 0,
             'pagos': 0, 'total_aberto': Decimal('0'),
             'a_receber': 0,
-            # Data prevista de pagamento do contrato, neste mês (10/11/2026:
-            # ia só no e-mail; o financeiro passa a ver aqui).
-            'pagamento_previsto': b.prestador.pagamento_previsto_em(mes)})
+            # Data prevista de pagamento (10/11/2026): por posto, pelo
+            # contrato de cada um — com a cláusula; "distintos" quando os
+            # contratos fixam dias diferentes (aí o modal ganha a coluna).
+            'previsao': b.prestador.previsao_pagamento(mes)})
         g['boletos'].append(b)
         if b.status == Boleto.Status.PAGO:
             g['pagos'] += 1

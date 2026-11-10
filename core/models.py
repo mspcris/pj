@@ -168,17 +168,71 @@ class Prestador(models.Model):
         ultimo = calendar.monthrange(mes.year, mes.month)[1]
         return mes.replace(day=max(1, min(dia, ultimo) - 1))
 
-    def pagamento_previsto_em(self, mes):
-        """Data prevista de pagamento no `mes` (mês de competência), pelo
-        dia do contrato, limitada ao último dia do mês (dia 31 em novembro
-        → 30/11). None = sem dia cadastrado. 10/11/2026: o financeiro vai
-        desligar o e-mail de pagamento, então a data que ia nele precisa
-        aparecer no painel."""
-        if not self.dia_pagamento:
+    def contrato_vigente_para(self, posto):
+        """Contrato ativo e vigente do posto (o mais recente); sem contrato
+        do posto, o contrato geral (sem posto). None se não há."""
+        ativos = [c for c in self.contratos.filter(desativado_em__isnull=True)
+                  if c.vigente]
+        alvo = posto.pk if posto is not None else None
+        do_posto = [c for c in ativos if c.posto_id == alvo]
+        if not do_posto and alvo is not None:
+            do_posto = [c for c in ativos if c.posto_id is None]
+        return do_posto[0] if do_posto else None
+
+    def dia_pagamento_para(self, posto):
+        """(dia, contrato): o dia lido do contrato vigente do posto (com a
+        cláusula), senão o dia do cadastro (contrato None). 10/11/2026:
+        contratos de postos diferentes podem fixar dias diferentes."""
+        c = self.contrato_vigente_para(posto)
+        if c is not None and c.dia_pagamento:
+            return c.dia_pagamento, c
+        return self.dia_pagamento, None
+
+    @staticmethod
+    def _data_do_dia(mes, dia):
+        if not dia:
             return None
         import calendar
         ultimo = calendar.monthrange(mes.year, mes.month)[1]
-        return mes.replace(day=min(self.dia_pagamento, ultimo))
+        return mes.replace(day=min(dia, ultimo))
+
+    def pagamento_previsto_em(self, mes, posto=None):
+        """Data prevista de pagamento no `mes` (mês de competência), pelo
+        dia do contrato do posto (ou do cadastro), limitada ao último dia
+        do mês (dia 31 em novembro → 30/11). None = sem dia. 10/11/2026: o
+        financeiro vai desligar o e-mail de pagamento, então a data que ia
+        nele precisa aparecer no painel."""
+        dia = (self.dia_pagamento_para(posto)[0] if posto is not None
+               else self.dia_pagamento)
+        return self._data_do_dia(mes, dia)
+
+    def previsao_pagamento(self, mes):
+        """Resumo para o painel do financeiro (10/11/2026): por posto
+        (vínculos do mês) a data e a cláusula do contrato. `data`/`clausula`
+        só quando todos os postos têm o MESMO dia (cláusula só se todas
+        iguais); `distintos` quando os contratos fixam dias diferentes —
+        aí o painel mostra a coluna por posto."""
+        itens = []
+        for v in self.vinculos_em(mes).select_related('posto') \
+                .order_by('posto__nome'):
+            dia, c = self.dia_pagamento_para(v.posto)
+            itens.append({'posto': v.posto, 'dia': dia,
+                          'data': self._data_do_dia(mes, dia),
+                          'clausula': c.clausula_pagamento if c else ''})
+        if not itens:
+            dia, c = self.dia_pagamento_para(None)
+            itens.append({'posto': None, 'dia': dia,
+                          'data': self._data_do_dia(mes, dia),
+                          'clausula': c.clausula_pagamento if c else ''})
+        distintos = len({i['dia'] for i in itens}) > 1
+        clausulas = {i['clausula'] for i in itens if i['clausula']}
+        return {
+            'itens': itens, 'distintos': distintos,
+            'data': None if distintos else itens[0]['data'],
+            'dia': None if distintos else itens[0]['dia'],
+            'clausula': (clausulas.pop() if len(clausulas) == 1
+                         and not distintos else ''),
+        }
 
     def mes_servico(self, competencia):
         """Mês em que o serviço foi prestado, dado o mês do pagamento."""
@@ -566,6 +620,14 @@ class Contrato(models.Model):
     # não conta como vigente nem entra na régua de assinaturas. Reversível.
     desativado_em = models.DateTimeField(null=True, blank=True)
     desativado_por = models.EmailField(blank=True)
+    # 10/11/2026: prazo de pagamento LIDO DESTE contrato (a IA lê ao
+    # anexar; comando ler_prazos_contratos relê os antigos): dia, a
+    # referência da cláusula ("Cláusula 5ª, Parágrafo 2º, alínea b") e o
+    # trecho. Contratos de postos diferentes podem fixar dias diferentes.
+    dia_pagamento = models.PositiveSmallIntegerField(null=True, blank=True)
+    clausula_pagamento = models.CharField(max_length=200, blank=True)
+    trecho_pagamento = models.CharField(max_length=300, blank=True)
+    prazos_lidos_em = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-vigencia_inicio']
@@ -726,10 +788,22 @@ class Boleto(models.Model):
     devolvido_motivo = models.CharField(max_length=500, blank=True)
 
     @property
+    def pagamento_previsto(self):
+        """Data prevista de pagamento deste boleto: contrato do posto (ou
+        cadastro do prestador), no mês de competência."""
+        return self.prestador.pagamento_previsto_em(self.competencia,
+                                                    self.posto_efetivo)
+
+    @property
+    def clausula_pagamento(self):
+        c = self.prestador.dia_pagamento_para(self.posto_efetivo)[1]
+        return c.clausula_pagamento if c else ''
+
+    @property
     def vence_antes_do_previsto(self):
         """Boleto fora da data prevista: vence ANTES do dia em que a CAMIM
         paga pelo contrato (10/11/2026 — o financeiro recusa e pede outro)."""
-        previsto = self.prestador.pagamento_previsto_em(self.competencia)
+        previsto = self.pagamento_previsto
         return bool(self.vencimento and previsto
                     and self.vencimento < previsto)
     # Quando o PJ foi avisado de que o boleto chegou sem dizer de qual

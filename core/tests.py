@@ -934,6 +934,7 @@ class RegimePagamentoTest(BaseSetup):
                                     nome_original='contrato.pdf')
         lido = {'dia_pagamento': 10, 'dia_vencimento': 5,
                 'regime': 'POSTERIOR', 'trecho': 'até o dia 10',
+                'clausula': 'Cláusula 3ª, alínea a',
                 'cnpj': '31.603.189/0001-30',
                 'endereco': 'Avenida das Américas nº 4200 Bloco 1 Sala 305',
                 'bairro': 'Barra da Tijuca', 'cidade': 'Rio de Janeiro',
@@ -958,6 +959,12 @@ class RegimePagamentoTest(BaseSetup):
         self.assertEqual(p.representante, 'Vinícius Correa Albuquerque')
         self.assertEqual(p.representante_cpf, '134.595.677-08')
         self.assertEqual(lidos['regime_sugerido'], 'POSTERIOR')
+        # 10/11/2026: o prazo fica também NO CONTRATO (dia + cláusula)
+        c.refresh_from_db()
+        self.assertEqual(c.dia_pagamento, 10)
+        self.assertEqual(c.clausula_pagamento, 'Cláusula 3ª, alínea a')
+        self.assertEqual(c.trecho_pagamento, 'até o dia 10')
+        self.assertIsNotNone(c.prazos_lidos_em)
         self.assertIn('Barra da Tijuca', p.endereco_completo)
         # IA fora do ar: nada quebra, nada muda
         p.cidade = ''
@@ -4901,6 +4908,54 @@ class PainelFinanceiroTest(BaseSetup):
         enviar_para_pagamento(b4)
         self.assertEqual(enviar_email_agrupado(), [])
         self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+
+    def test_data_prevista_cita_a_clausula_e_trata_dias_distintos(self):
+        """10/11/2026: "Pagamento previsto 10/11/2026 — conforme contrato,
+        cláusula tal". Se os contratos dos postos tiverem dias diferentes,
+        sem cláusula: "dias distintos por posto — clique para ver", e a
+        coluna por posto aparece só nesse caso. Quem exige nota fiscal
+        aparece."""
+        self.client.force_login(self.fin)
+        self.prestador.dia_pagamento = 10
+        self.prestador.exige_nf = True
+        self.prestador.save()
+        cl = 'Cláusula 5ª, Parágrafo 2º, alínea b'
+        Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto1, arquivo=_pdf('a.pdf'),
+            nome_original='a.pdf', vigencia_inicio=date(2026, 1, 1),
+            dia_pagamento=10, clausula_pagamento=cl)
+        c2 = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto2, arquivo=_pdf('b.pdf'),
+            nome_original='b.pdf', vigencia_inicio=date(2026, 1, 1),
+            dia_pagamento=10, clausula_pagamento=cl)
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, '10/11/2026')
+        self.assertContains(resp, f'conforme contrato, {cl}')
+        self.assertNotContains(resp, 'dias distintos')
+        self.assertNotContains(resp, 'Pagto previsto')
+        self.assertContains(resp, 'exige nota fiscal')
+        self.assertContains(resp, 'falta a nota fiscal')  # boleto sem NF
+        # Bangu paga dia 20 pelo contrato dele: dias distintos
+        c2.dia_pagamento = 20
+        c2.save()
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'dias distintos por posto')
+        self.assertContains(resp, 'Pagto previsto')
+        self.assertNotContains(resp, 'conforme contrato')
+        b_bangu = Boleto(prestador=self.prestador, posto=self.posto2,
+                         competencia=date(2026, 11, 1),
+                         vencimento=date(2026, 11, 15))
+        self.assertEqual(b_bangu.pagamento_previsto, date(2026, 11, 20))
+        self.assertTrue(b_bangu.vence_antes_do_previsto)
+        b_anch = Boleto(prestador=self.prestador, posto=self.posto1,
+                        competencia=date(2026, 11, 1),
+                        vencimento=date(2026, 11, 15))
+        self.assertEqual(b_anch.pagamento_previsto, date(2026, 11, 10))
+        self.assertFalse(b_anch.vence_antes_do_previsto)
+        # contrato sem dia lido: vale o dia do cadastro do prestador
+        c2.dia_pagamento = None
+        c2.save()
+        self.assertEqual(b_bangu.pagamento_previsto, date(2026, 11, 10))
 
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):

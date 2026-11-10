@@ -50,8 +50,8 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
 <button class="fin-card{% if g.abertos == 0 %} ok{% endif %}" type="button" onclick="document.getElementById('fin{{ g.prestador.pk }}').showModal()">
   <div>
     <div class="nome">{{ g.prestador.nome }}{% if g.abertos %} — R$ {{ g.total_aberto }}{% endif %}</div>
-    <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% elif g.prestador.fin_email_agrupado %} · 📦 e-mail agrupado{% endif %}</div>
-    <div class="sub">📅 {% if g.pagamento_previsto %}Pagamento previsto: <strong>{{ g.pagamento_previsto|date:"d/m/Y" }}</strong> (dia {{ g.prestador.dia_pagamento }} do contrato){% else %}<span class="carimbo">sem data prevista no contrato</span>{% endif %}</div>
+    <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% elif g.prestador.fin_email_agrupado %} · 📦 e-mail agrupado{% endif %}{% if g.prestador.exige_nf %} · 🧾 exige nota fiscal{% endif %}</div>
+    <div class="sub">📅 {% if g.previsao.distintos %}Pagamento previsto: <strong>dias distintos por posto</strong> — clique para ver a data de cada um{% elif g.previsao.data %}Pagamento previsto: <strong>{{ g.previsao.data|date:"d/m/Y" }}</strong>{% if g.previsao.clausula %} · conforme contrato, {{ g.previsao.clausula }}{% else %} (dia {{ g.previsao.dia }} do contrato){% endif %}{% else %}<span class="carimbo">sem data prevista no contrato</span>{% endif %}</div>
   </div>
   <div class="kanban" aria-label="Etapas do processo">
     {% for p in g.pontos %}{% if not forloop.first %}<span class="tr{% if p.feitos == p.total %} ok{% endif %}"></span>{% endif %}<span class="pt {{ p.classe }}" data-hint="{{ p.rotulo }} — {{ p.feitos }}/{{ p.total }}"></span>{% endfor %}
@@ -61,7 +61,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
 <dialog class="fin" id="fin{{ g.prestador.pk }}">
   <div class="topo">
     <div><strong>{{ g.prestador.nome }}</strong>{% if g.prestador.cnpj %} <span style="opacity:.85;font-size:.85rem">· CNPJ {{ g.prestador.cnpj }}</span>{% endif %}<br>
-      <span style="font-size:.82rem;opacity:.9">{{ mes|date:"F/Y"|capfirst }} · {{ g.abertos }} em aberto · {{ g.pagos }} pago(s) · 📅 {% if g.pagamento_previsto %}Pagamento previsto: <strong>{{ g.pagamento_previsto|date:"d/m/Y" }}</strong> (dia {{ g.prestador.dia_pagamento }} do contrato){% else %}sem data prevista no contrato{% endif %}</span></div>
+      <span style="font-size:.82rem;opacity:.9">{{ mes|date:"F/Y"|capfirst }} · {{ g.abertos }} em aberto · {{ g.pagos }} pago(s){% if g.prestador.exige_nf %} · 🧾 exige nota fiscal{% endif %} · 📅 {% if g.previsao.distintos %}Pagamento previsto: <strong>dias distintos por posto</strong> — veja a coluna "Pagto previsto"{% elif g.previsao.data %}Pagamento previsto: <strong>{{ g.previsao.data|date:"d/m/Y" }}</strong>{% if g.previsao.clausula %} · conforme contrato, {{ g.previsao.clausula }}{% else %} (dia {{ g.previsao.dia }} do contrato){% endif %}{% else %}sem data prevista no contrato{% endif %}</span></div>
     <div style="display:flex;gap:8px;align-items:center">
       <button class="btn mini claro" type="button" onclick="document.getElementById('ctr{{ g.prestador.pk }}').showModal()" title="Todos os postos e contratos deste prestador">📄 Contratos{% if g.n_contratos %} ({{ g.n_contratos }}){% endif %}</button>
       <a class="btn mini dourado" href="{% url 'financeiro_zip' g.prestador.pk %}?m={{ mes|date:'Y-m' }}" title="ZIP com os PDFs: primeiro nome do prestador + posto (ex.: caio_realengo.pdf)">⬇️ Baixar todos os boletos</a>
@@ -82,7 +82,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
       </div>
     </form>
     <table>
-      <tr><th>Posto</th><th>Etapas</th><th>Valor</th><th>Vencimento</th><th>Arquivos</th><th>Situação</th><th></th></tr>
+      <tr><th>Posto</th><th>Etapas</th><th>Valor</th><th>Vencimento</th>{% if g.previsao.distintos %}<th>Pagto previsto</th>{% endif %}<th>Arquivos</th><th>Situação</th><th></th></tr>
       {% for b in g.boletos %}
       <tr>
         <td><strong>{{ b.posto_efetivo|default:"boleto único" }}</strong>
@@ -91,9 +91,10 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
         <td style="white-space:nowrap"><span class="kanban mini">{% for e in b.etapas %}{% if not forloop.first %}<span class="tr{% if e.ok %} ok{% endif %}"></span>{% endif %}<span class="pt {% if e.ok %}ok{% else %}nao{% endif %}" data-hint="{{ e.rotulo }}{% if e.ok %} ✓{% else %} — pendente{% endif %}"></span>{% endfor %}</span></td>
         <td style="white-space:nowrap">R$ {{ b.valor_extraido|default:b.valor_esperado }}</td>
         <td style="white-space:nowrap">{% if b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}
-          {% if b.vence_antes_do_previsto %}<div class="carimbo fora-data">⚠️ vence antes do pagamento previsto ({{ g.pagamento_previsto|date:"d/m" }})</div>{% endif %}</td>
+          {% if b.vence_antes_do_previsto %}<div class="carimbo fora-data">⚠️ vence antes do pagamento previsto ({{ b.pagamento_previsto|date:"d/m" }})</div>{% endif %}</td>
+        {% if g.previsao.distintos %}<td style="white-space:nowrap">{% if b.pagamento_previsto %}{{ b.pagamento_previsto|date:"d/m/Y" }}{% if b.clausula_pagamento %}<div class="carimbo" style="white-space:normal">{{ b.clausula_pagamento }}</div>{% endif %}{% else %}<span class="carimbo">sem dia no contrato</span>{% endif %}</td>{% endif %}
         <td style="white-space:nowrap">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}
-          {% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" target="_blank">🧾 nota</a>{% endif %}</td>
+          {% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" target="_blank">🧾 nota</a>{% elif g.prestador.exige_nf %}<div class="carimbo fora-data">⚠️ falta a nota fiscal</div>{% endif %}</td>
         <td>
           {% if b.status == 'PAGO' %}<span class="chip PAGO">Pago</span><div class="carimbo">{{ b.pago_em|date:"d/m/Y H:i" }}</div>
           {% elif b.fin_pagamento_em %}<span class="chip FIN_RECEBIDO">Enviado p/ pagamento</span>
@@ -122,7 +123,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
       </tr>
       {% if b.status != 'PAGO' and not b.fin_pagamento_em %}
       <tr class="recusa-row" id="recusa{{ b.pk }}">
-        <td colspan="7">
+        <td colspan="{% if g.previsao.distintos %}8{% else %}7{% endif %}">
           <form method="post" action="{% url 'financeiro_acao' b.pk 'recusar' %}" class="recusa-box"
                 onsubmit="if(this.texto.value.trim().length<20){alert('Escreva ou gere o texto do aviso ao prestador.');return false}return confirm('Recusar este boleto? O prestador recebe o texto por e-mail e precisará emitir outro boleto; o posto volta a SEM BOLETO.')">
             {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
