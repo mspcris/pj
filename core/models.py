@@ -225,13 +225,19 @@ class Prestador(models.Model):
                           'data': self._data_do_dia(mes, dia),
                           'clausula': c.clausula_pagamento if c else ''})
         distintos = len({i['dia'] for i in itens}) > 1
-        clausulas = {i['clausula'] for i in itens if i['clausula']}
+        # A IA grafa a mesma cláusula de jeitos diferentes ("CLÁUSULA 3ª,
+        # item 3.2" × "Cláusula 3ª, item 3.2" — Caio, 10/11/2026): maiúscula
+        # e minúscula são a mesma, e vale a grafia mais frequente.
+        from collections import Counter
+        clausulas = Counter(i['clausula'].replace('CLÁUSULA', 'Cláusula')
+                            .replace('PARÁGRAFO', 'Parágrafo').strip()
+                            for i in itens if i['clausula'])
         return {
             'itens': itens, 'distintos': distintos,
             'data': None if distintos else itens[0]['data'],
             'dia': None if distintos else itens[0]['dia'],
-            'clausula': (clausulas.pop() if len(clausulas) == 1
-                         and not distintos else ''),
+            'clausula': (clausulas.most_common(1)[0][0]
+                         if clausulas and not distintos else ''),
         }
 
     def mes_servico(self, competencia):
