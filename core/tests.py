@@ -5069,22 +5069,43 @@ class PainelFinanceiroTest(BaseSetup):
                          {'m': '2026-11', 'texto': texto})
         resp = self.client.get('/financeiro/?m=2026-11')
         self.assertContains(resp, 'Boletos rejeitados (2)')
-        resp = self.client.get('/financeiro/rejeitados/')
+        resp = self.client.get('/financeiro/rejeitados/?m=2026-11')
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Limpeza Total LTDA', count=2)
         self.assertContains(resp, 'O Bradesco recusou o pagamento')
-        self.assertContains(resp, 'fin@camim.com.br')
-        self.assertContains(resp, f'#{novo.pk}')          # o que veio depois
-        self.assertContains(resp, 'aguardando novo boleto')
+        self.assertContains(resp, 'Texto enviado ao prestador')
+        self.assertContains(resp, 'por <strong>fin@camim.com.br')
+        self.assertContains(resp, f'Boleto #{novo.pk}')   # o que veio depois
+        self.assertContains(resp, 'também foi rejeitado')  # 1º: novo rejeitado
+        self.assertContains(resp, 'Nenhum novo boleto anexado')  # 2º: nada
+        self.assertContains(resp, 'rej vermelho', count=2)
         self.assertContains(resp, f'/arquivo/boleto/{self.b.pk}/')
-        # mês antigo também aparece (todos)
-        velho = Boleto.objects.create(
+        # novo boleto ainda não pago → amarelo; pago → azul
+        terceiro = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 11, 1), arquivo=_pdf(),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('1500.00'),
+            valor_esperado=Decimal('1500.00'))
+        resp = self.client.get('/financeiro/rejeitados/?m=2026-11')
+        self.assertContains(resp, 'rej amarelo', count=2)
+        self.assertContains(resp, 'ainda não pago')
+        terceiro.status = Boleto.Status.PAGO
+        terceiro.pago_em = timezone.now()
+        terceiro.save()
+        resp = self.client.get('/financeiro/rejeitados/?m=2026-11')
+        self.assertContains(resp, 'rej azul', count=2)
+        self.assertContains(resp, 'anexado e pago')
+        # só o mês escolhido no topo
+        Boleto.objects.create(
             prestador=self.prestador, posto=self.posto2,
             competencia=date(2026, 3, 1), status=Boleto.Status.DEVOLVIDO,
             devolvido_em=timezone.now(), devolvido_motivo='valor errado')
-        resp = self.client.get('/financeiro/rejeitados/')
-        self.assertContains(resp, '03/2026')
+        resp = self.client.get('/financeiro/rejeitados/?m=2026-11')
+        self.assertNotContains(resp, 'valor errado')
+        resp = self.client.get('/financeiro/rejeitados/?m=2026-03')
         self.assertContains(resp, 'valor errado')
+        self.assertContains(resp, 'Devolvido pelo admin')
+        self.assertContains(resp, 'Boletos rejeitados (1)')
         self.client.logout()
         self.login_pj()
         self.assertEqual(self.client.get('/financeiro/rejeitados/').status_code,

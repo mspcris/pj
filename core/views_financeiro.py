@@ -153,7 +153,8 @@ def painel(request, up):
         'abrir': request.GET.get('abrir', ''),
         'total_abertos': sum(g['abertos'] for g in grupos),
         'total_a_receber': sum(g['a_receber'] for g in grupos),
-        'n_rejeitados': Boleto.objects.filter(status__in=REJEITADOS).count(),
+        'n_rejeitados': Boleto.objects.filter(status__in=REJEITADOS,
+                                              competencia=mes).count(),
     })
 
 
@@ -169,41 +170,59 @@ def _quem_rejeitou(boleto):
     return a.ator_email if a else ''
 
 
+PREFIXO_FIN = 'recusado pelo financeiro — '
+
+
 @financeiro_required
 def rejeitados(request, up):
-    """Aba "Boletos rejeitados" (10/11/2026): TODOS os boletos recusados —
-    pelo financeiro (qualquer motivo) ou pelo admin (valor errado, dívida
-    não reconhecida) — de todos os meses, do mais recente ao mais antigo,
-    com motivo, PDF e o que veio depois (novo boleto do mesmo posto e
-    mês, que pode ter sido recusado de novo). Auditoria: quando houver
-    dúvida, olhar aqui."""
+    """Aba "Boletos rejeitados" (10/11/2026): os boletos do MÊS escolhido
+    no topo recusados pelo financeiro (qualquer motivo) ou cancelados pelo
+    admin (valor errado, dívida não reconhecida), do mais recente ao mais
+    antigo: quem, o texto enviado ao prestador, PDF e o que veio depois
+    (novo boleto do mesmo posto e mês, com dados e situação — pode ter
+    sido recusado de novo). Cor: novo boleto PAGO = azul; novo boleto
+    ainda não pago = amarelo; sem novo boleto (ou o novo também
+    rejeitado) = vermelho."""
+    mes = _mes(request)
+    ant = (mes - timedelta(days=1)).replace(day=1)
+    prox = (mes.replace(day=28) + timedelta(days=6)).replace(day=1)
     lista = list(Boleto.objects
-                 .filter(status__in=REJEITADOS)
+                 .filter(status__in=REJEITADOS, competencia=mes)
                  .select_related('prestador', 'posto',
                                  'prestador__posto_cobranca')
-                 .order_by('-devolvido_em', '-nao_reconhecido_em', '-pk'))
+                 .order_by('-pk'))
     for b in lista:
         b.rejeitado_em = b.devolvido_em or b.nao_reconhecido_em
-        b.motivo = b.devolvido_motivo or b.nao_reconhecido_motivo
+        motivo = b.devolvido_motivo or b.nao_reconhecido_motivo or ''
+        b.pelo_financeiro = motivo.startswith(PREFIXO_FIN)
+        b.texto = motivo[len(PREFIXO_FIN):] if b.pelo_financeiro else motivo
         b.quem = _quem_rejeitou(b)
         posto = b.posto_efetivo
-        depois = [x for x in Boleto.objects
-                  .filter(prestador=b.prestador, competencia=b.competencia,
-                          pk__gt=b.pk)
-                  .exclude(status__in=[Boleto.Status.DESCARTADO,
-                                       Boleto.Status.SUBSTITUIDO,
-                                       Boleto.Status.DUPLICADO])
-                  .select_related('posto', 'prestador__posto_cobranca')
-                  .order_by('pk')
-                  if (x.posto_efetivo.pk if x.posto_efetivo else None)
-                  == (posto.pk if posto else None)]
-        b.depois = depois
-        b.ultimo = depois[-1] if depois else None
+        b.depois = [x for x in Boleto.objects
+                    .filter(prestador=b.prestador, competencia=b.competencia,
+                            pk__gt=b.pk)
+                    .exclude(status__in=[Boleto.Status.DESCARTADO,
+                                         Boleto.Status.SUBSTITUIDO,
+                                         Boleto.Status.DUPLICADO])
+                    .select_related('posto', 'prestador__posto_cobranca')
+                    .order_by('pk')
+                    if (x.posto_efetivo.pk if x.posto_efetivo else None)
+                    == (posto.pk if posto else None)]
+        b.novo = b.depois[-1] if b.depois else None
+        if b.novo is None or b.novo.status in REJEITADOS:
+            b.cor, b.situacao = 'vermelho', (
+                'nenhum novo boleto anexado' if b.novo is None
+                else 'o novo boleto também foi rejeitado')
+        elif b.novo.status == Boleto.Status.PAGO:
+            b.cor, b.situacao = 'azul', 'novo boleto anexado e pago'
+        else:
+            b.cor, b.situacao = 'amarelo', 'novo boleto anexado, ainda não pago'
     lista.sort(key=lambda b: (b.rejeitado_em or timezone.make_aware(
         __import__('datetime').datetime.min)), reverse=True)
     return render(request, 'financeiro/rejeitados.html', {
-        'up': up, 'lista': lista, 'total': len(lista),
-        'mes': timezone.localdate().replace(day=1)})
+        'up': up, 'lista': lista, 'total': len(lista), 'mes': mes,
+        'ant': ant, 'prox': prox, 'aba': 'rejeitados',
+        'n_rejeitados': len(lista)})
 
 
 def _voltar(request, boleto=None, prestador_pk=None):

@@ -51,7 +51,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
 </style>
 <div class="abas">
   <a href="{% url 'financeiro_painel' %}?m={{ mes|date:'Y-m' }}" class="{% if aba != 'rejeitados' %}ativa{% endif %}">📋 Boletos</a>
-  <a href="{% url 'financeiro_rejeitados' %}" class="{% if aba == 'rejeitados' %}ativa{% endif %}">⛔ Boletos rejeitados{% if n_rejeitados %} ({{ n_rejeitados }}){% endif %}</a>
+  <a href="{% url 'financeiro_rejeitados' %}?m={{ mes|date:'Y-m' }}" class="{% if aba == 'rejeitados' %}ativa{% endif %}">⛔ Boletos rejeitados{% if n_rejeitados %} ({{ n_rejeitados }}){% endif %}</a>
 </div>
 <div class="mesnav">
   <a href="?m={{ ant|date:'Y-m' }}">‹</a>
