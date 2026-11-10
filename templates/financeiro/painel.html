@@ -28,9 +28,11 @@ dialog.fin .corpo{padding:16px 20px 22px}
 dialog.fin table{width:100%;border-collapse:collapse;font-size:.92rem}
 dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha);vertical-align:top;text-align:left}
 .carimbo{font-size:.78rem;color:var(--cinza)}
-.recusa summary{list-style:none;display:inline-block}
-.recusa summary::-webkit-details-marker{display:none}
-.recusa-box{white-space:normal;width:min(440px,80vw);margin-top:8px;background:#fdf1ef;border:1.5px solid #f1c6bf;border-radius:12px;padding:12px}
+tr.recusa-row{display:none}
+tr.recusa-row.aberta{display:table-row}
+tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
+.recusa-box{background:#fdf1ef;border:1.5px solid #f1c6bf;border-radius:12px;padding:12px 14px;margin:0}
+.recusa-box textarea{width:100%;box-sizing:border-box}
 .recusa-box label{font-size:.78rem;font-weight:700;color:var(--erro);display:block;margin-bottom:4px}
 .recusa-box textarea{font-size:.85rem;line-height:1.4;padding:8px 10px;margin:0}
 .fora-data{color:var(--erro);font-weight:700;white-space:normal}
@@ -107,23 +109,28 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
                 onsubmit="return confirm('Registrar que este boleto foi enviado para pagamento? Em 24h ele será marcado como PAGO.')">
             {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
             <button class="btn mini" type="submit">💸 Enviei p/ pagamento</button></form>
-          <details class="recusa">
-            <summary class="btn mini vermelho" title="Boleto fora da data prevista de pagamento: devolve ao prestador para emitir outro">⛔ Recusar boleto</summary>
-            <form method="post" action="{% url 'financeiro_acao' b.pk 'recusar' %}" class="recusa-box"
-                  onsubmit="if(this.texto.value.trim().length<20){alert('Escreva ou gere o texto do aviso ao prestador.');return false}return confirm('Recusar este boleto? O prestador recebe o texto por e-mail e precisará emitir outro boleto; o posto volta a SEM BOLETO.')">
-              {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
-              <label>Motivo / texto do aviso que vai ao prestador</label>
-              <textarea name="texto" rows="7" maxlength="3000" placeholder="Escreva o motivo, ou clique em “Gerar texto por IA” — o texto fica aqui para você ler e ajustar antes de enviar."></textarea>
-              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
-                <button class="btn mini claro" type="button" data-url="{% url 'financeiro_texto_recusa' b.pk %}" onclick="gerarRecusa(this)">✨ Gerar texto por IA</button>
-                <button class="btn mini vermelho" type="submit">⛔ Recusar e avisar o prestador</button>
-              </div>
-              <div class="carimbo" style="margin-top:6px">O boleto sai da fila (fica no histórico, com o PDF) e o posto volta a "sem boleto" até chegar outro. Cristiano é avisado.</div>
-            </form>
-          </details>
+          <button class="btn mini vermelho" type="button" onclick="abrirRecusa({{ b.pk }}, this)" title="Boleto fora da data prevista de pagamento: devolve ao prestador para emitir outro">⛔ Recusar boleto</button>
           {% endif %}
         </td>
       </tr>
+      {% if b.status != 'PAGO' and not b.fin_pagamento_em %}
+      <tr class="recusa-row" id="recusa{{ b.pk }}">
+        <td colspan="7">
+          <form method="post" action="{% url 'financeiro_acao' b.pk 'recusar' %}" class="recusa-box"
+                onsubmit="if(this.texto.value.trim().length<20){alert('Escreva ou gere o texto do aviso ao prestador.');return false}return confirm('Recusar este boleto? O prestador recebe o texto por e-mail e precisará emitir outro boleto; o posto volta a SEM BOLETO.')">
+            {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
+            <label style="font-size:.78rem;font-weight:700;color:var(--erro);display:block;margin-bottom:4px">⛔ Recusar o boleto de <strong>{{ b.posto_efetivo|default:"boleto único" }}</strong> — motivo / texto do aviso que vai ao prestador</label>
+            <textarea name="texto" rows="7" maxlength="3000" placeholder="Escreva o motivo, ou clique em “Gerar texto por IA” — o texto fica aqui para você ler e ajustar antes de enviar."></textarea>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center">
+              <button class="btn mini claro" type="button" data-url="{% url 'financeiro_texto_recusa' b.pk %}" onclick="gerarRecusa(this)">✨ Gerar texto por IA</button>
+              <button class="btn mini vermelho" type="submit">⛔ Recusar e avisar o prestador</button>
+              <button class="btn mini claro" type="button" onclick="abrirRecusa({{ b.pk }}, null)">Cancelar</button>
+            </div>
+            <div class="carimbo" style="margin-top:6px">O boleto sai da fila (fica no histórico, com o PDF) e o posto volta a "sem boleto" até chegar outro. Cristiano é avisado.</div>
+          </form>
+        </td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </table>
   </div>
@@ -132,6 +139,12 @@ dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha)
 <div class="card sub">Nenhum boleto aprovado para pagamento em {{ mes|date:"m/Y" }}.</div>
 {% endfor %}
 <script>
+function abrirRecusa(pk, btn){
+  var tr = document.getElementById('recusa' + pk);
+  var abre = !tr.classList.contains('aberta');
+  tr.classList.toggle('aberta', abre);
+  if (abre) { var ta = tr.querySelector('textarea'); ta.focus(); tr.scrollIntoView({block: 'nearest'}); }
+}
 async function gerarRecusa(btn){
   var form = btn.form, ta = form.texto, rotulo = btn.textContent;
   var csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
