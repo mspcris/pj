@@ -153,7 +153,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
         {% for c in grp.contratos %}
         <tr>
           <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}?inline=1" target="_blank">📎 {{ c.nome_original|default:"contrato.pdf"|truncatechars:40 }}</a></td>
-          <td style="white-space:nowrap">{{ c.vigencia_inicio|date:"d/m/Y"|default:"—" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td>
+          <td style="white-space:nowrap">{% if c.vigencia_inicio %}{{ c.vigencia_inicio|date:"d/m/Y" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}{% elif c.vigencia_fim %}até {{ c.vigencia_fim|date:"d/m/Y" }}{% else %}indeterminada{% endif %}</td>
           <td>{% if c.vigente %}<span class="chip APROVADO">Vigente</span>{% else %}<span class="chip SUBSTITUIDO">Fora de vigência</span>{% endif %}</td>
           <td>{% if c.assinatura_govbr %}{% if c.assinaturas_completas %}<span class="chip APROVADO">✅ prestador e gestor</span>{% else %}<span class="chip MANUAL">⏳ {{ c.situacao_assinatura }}</span>{% endif %}{% else %}<span class="carimbo">—</span>{% endif %}</td>
           <td style="white-space:nowrap"><a class="btn mini claro" href="{% url 'baixar_arquivo' 'contrato' c.pk %}">⬇️ Baixar</a></td>
