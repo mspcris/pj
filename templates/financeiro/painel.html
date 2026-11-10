@@ -50,7 +50,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
 <button class="fin-card{% if g.abertos == 0 %} ok{% endif %}" type="button" onclick="document.getElementById('fin{{ g.prestador.pk }}').showModal()">
   <div>
     <div class="nome">{{ g.prestador.nome }}{% if g.abertos %} — R$ {{ g.total_aberto }}{% endif %}</div>
-    <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% endif %}</div>
+    <div class="sub">{% if g.abertos %}{{ g.abertos }} boleto(s) em aberto{% if g.a_receber %} · {{ g.a_receber }} aguardando ciência{% endif %}{% else %}✅ tudo pago{% endif %}{% if g.pagos %} · {{ g.pagos }} pago(s){% endif %}{% if g.prestador.fin_sem_email %} · 📵 sem e-mail{% elif g.prestador.fin_email_agrupado %} · 📦 e-mail agrupado{% endif %}</div>
     <div class="sub">📅 {% if g.pagamento_previsto %}Pagamento previsto: <strong>{{ g.pagamento_previsto|date:"d/m/Y" }}</strong> (dia {{ g.prestador.dia_pagamento }} do contrato){% else %}<span class="carimbo">sem data prevista no contrato</span>{% endif %}</div>
   </div>
   <div class="kanban" aria-label="Etapas do processo">
@@ -71,10 +71,15 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
   <div class="corpo">
     <form method="post" action="{% url 'financeiro_email' g.prestador.pk %}" class="chave">
       {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
+      <div style="display:flex;flex-direction:column;gap:8px;width:100%">
       <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer">
         <input type="checkbox" name="sem_email" {% if g.prestador.fin_sem_email %}checked{% endif %} onchange="this.form.submit()">
         <span><strong>Não me envie mais e-mail de pagamento deste prestador</strong> — acompanho por aqui.</span></label>
-      <span class="carimbo">Cancelamentos e correções continuam chegando por e-mail.</span>
+      <label style="margin:0;display:flex;align-items:center;gap:8px;cursor:pointer{% if g.prestador.fin_sem_email %};opacity:.55{% endif %}">
+        <input type="checkbox" name="agrupado" {% if g.prestador.fin_email_agrupado %}checked{% endif %} onchange="this.form.submit()">
+        <span><strong>Enviar e-mail agrupado</strong> — em vez de um e-mail por boleto, um único e-mail a cada 2 horas com todos os boletos aprovados anexos (de todos os prestadores com esta opção).{% if g.prestador.fin_sem_email %} <em>Só vale com a opção de cima desmarcada.</em>{% endif %}</span></label>
+      <span class="carimbo">Cancelamentos e correções continuam chegando por e-mail, na hora.</span>
+      </div>
     </form>
     <table>
       <tr><th>Posto</th><th>Etapas</th><th>Valor</th><th>Vencimento</th><th>Arquivos</th><th>Situação</th><th></th></tr>
@@ -98,6 +103,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
             <div class="carimbo">{{ b.fin_recebido_em|date:"d/m/Y H:i" }}{% if b.fin_recebido_por %} · {{ b.fin_recebido_por }}{% endif %}</div>
           {% else %}<span class="chip APROVADO">Aprovado — aguardando ciência</span>
             <div class="carimbo">liberado em {{ b.pagamento_enviado_em|date:"d/m/Y H:i" }}</div>{% endif %}
+          {% if b.fin_agrupar and not b.fin_agrupado_em %}<div class="carimbo">📦 aguardando o e-mail agrupado (sai a cada 2h)</div>{% elif b.fin_agrupado_em %}<div class="carimbo">📦 no e-mail agrupado de {{ b.fin_agrupado_em|date:"d/m/Y H:i" }}</div>{% endif %}
         </td>
         <td style="white-space:nowrap">
           {% if b.status == 'APROVADO' %}

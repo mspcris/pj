@@ -4818,6 +4818,91 @@ class PainelFinanceiroTest(BaseSetup):
                           if 'vencimento' in c.args[1].lower()])
 
     @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_email_agrupado_junta_os_boletos_num_envio_a_cada_rotina(
+            self, m_mail):
+        """10/11/2026: "Enviar e-mail agrupado" — com a opção marcada (e
+        "não me envie" desmarcada), o boleto aprovado NÃO gera e-mail à
+        equipe na hora; a rotina (cron de 2 em 2 horas) manda UM e-mail
+        com todos os boletos pendentes anexos, de todos os prestadores
+        nessa opção. Quem não tem a opção segue como antes."""
+        from core.services.verificacao import (enviar_email_agrupado,
+                                               enviar_para_pagamento)
+        self.client.force_login(self.fin)
+        self.client.post(f'/financeiro/prestador/{self.prestador.pk}/email/',
+                         {'agrupado': 'on', 'm': '2026-11'})
+        self.prestador.refresh_from_db()
+        self.assertTrue(self.prestador.fin_email_agrupado)
+        self.assertFalse(self.prestador.fin_sem_email)
+        outro = Prestador.objects.create(nome='Sem Agrupar LTDA')
+        PrestadorPosto.objects.create(prestador=outro, posto=self.posto1,
+                                      valor_mensal=Decimal('300.00'))
+        b1 = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 11, 1), arquivo=_pdf('a.pdf'),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('1500.00'),
+            valor_esperado=Decimal('1500.00'))
+        b2 = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto2,
+            competencia=date(2026, 11, 1), arquivo=_pdf('b.pdf'),
+            nota_fiscal=_pdf('nf.pdf'), nota_fiscal_nome='nf.pdf',
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('2000.00'),
+            valor_esperado=Decimal('2000.00'))
+        b3 = Boleto.objects.create(
+            prestador=outro, posto=self.posto1,
+            competencia=date(2026, 11, 1), arquivo=_pdf('c.pdf'),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('300.00'),
+            valor_esperado=Decimal('300.00'))
+        for b in (b1, b2, b3):
+            enviar_para_pagamento(b)
+        equipe = [c for c in m_mail.call_args_list
+                  if c.args[0] == 'equipe@camim.com.br']
+        self.assertEqual(len(equipe), 1)            # só o do "outro"
+        self.assertIn('Sem Agrupar', equipe[0].args[1])
+        self.assertEqual(
+            len([c for c in m_mail.call_args_list
+                 if 'pj@empresa.com.br' in c.args[0]]), 2)  # PJ avisado
+        b1.refresh_from_db(); b2.refresh_from_db(); b3.refresh_from_db()
+        self.assertTrue(b1.fin_agrupar and b2.fin_agrupar)
+        self.assertFalse(b3.fin_agrupar)
+        self.assertIsNotNone(b1.pagamento_enviado_em)  # já no painel
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'e-mail agrupado')
+        self.assertContains(resp, 'aguardando o e-mail agrupado')
+        # a rotina junta tudo num e-mail só, com os PDFs
+        m_mail.reset_mock()
+        pks = enviar_email_agrupado()
+        self.assertEqual(sorted(pks), sorted([b1.pk, b2.pk]))
+        self.assertEqual(m_mail.call_count, 1)
+        c = m_mail.call_args
+        self.assertEqual(c.args[0], 'equipe@camim.com.br')
+        self.assertIn('2 boleto', c.args[1])
+        self.assertIn('Anchieta', c.args[2])
+        self.assertIn('Bangu', c.args[2])
+        self.assertIn('3.500,00', c.args[2])
+        nomes = [n for _, n in c.kwargs['anexos']]
+        self.assertEqual(nomes, ['limpeza_anchieta.pdf', 'limpeza_bangu.pdf',
+                                 'limpeza_bangu_nota.pdf'])
+        self.assertIsNone(c.kwargs.get('cc'))      # vários postos: sem cc
+        b1.refresh_from_db()
+        self.assertIsNotNone(b1.fin_agrupado_em)
+        # nada pendente: rotina não manda nada
+        m_mail.reset_mock()
+        self.assertEqual(enviar_email_agrupado(), [])
+        self.assertEqual(m_mail.call_count, 0)
+        # "não me envie" marcada vence a agrupada: nem na hora, nem na rotina
+        self.client.post(f'/financeiro/prestador/{self.prestador.pk}/email/',
+                         {'sem_email': 'on', 'agrupado': 'on', 'm': '2026-11'})
+        b4 = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 12, 1), arquivo=_pdf('d.pdf'),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('1500.00'),
+            valor_esperado=Decimal('1500.00'))
+        m_mail.reset_mock()
+        enviar_para_pagamento(b4)
+        self.assertEqual(enviar_email_agrupado(), [])
+        self.assertNotIn('equipe@camim.com.br', _destinos(m_mail))
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):
         from core.services.verificacao import pagar_automatico
         self.client.force_login(self.fin)

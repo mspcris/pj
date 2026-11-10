@@ -448,6 +448,8 @@ def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
     # Quem lê este e-mail é o FINANCEIRO — a saudação é para a equipe,
     # nunca para o prestador (que é o assunto do e-mail, não o leitor).
     fatos_eq = dict(fatos, contato='equipe do setor financeiro')
+    agrupar = (boleto.prestador.fin_email_agrupado
+               and not correcao and not (reenviar and ja))
     if boleto.prestador.fin_sem_email:
         # Financeiro acompanha este prestador pelo painel /financeiro/:
         # nada de e-mail à equipe@ (a chave fica no próprio painel deles).
@@ -456,6 +458,16 @@ def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
             detalhe=f'Boleto #{boleto.pk} liberado ao financeiro pelo PAINEL '
                     '(prestador marcado "sem e-mail de pagamento")'
                     + (' — correção' if correcao else ''))
+    elif agrupar:
+        # "Enviar e-mail agrupado" (10/11/2026): fica na fila; o cron
+        # email_agrupado (2 em 2 h) manda um e-mail só com todos os PDFs.
+        # Correção e reenvio continuam saindo na hora.
+        boleto.fin_agrupar = True
+        boleto.save(update_fields=['fin_agrupar'])
+        AuditLog.registrar(
+            AuditLog.Evento.STATUS, ator='sistema',
+            detalhe=f'Boleto #{boleto.pk} liberado ao financeiro — aguardando '
+                    'o E-MAIL AGRUPADO (prestador na opção "e-mail agrupado")')
     else:
         emails.enviar(
             settings.EMAIL_PAGADOR, assunto,
@@ -561,6 +573,75 @@ def avisar_vencimento_antes_do_previsto(boleto, fatos=None):
                 f'antes da data prevista de pagamento ({prev}); pode ser '
                 'negado pelo financeiro')
     return True
+
+
+def nome_anexo_boleto(boleto, usados):
+    """primeiro-nome_posto.pdf (mesma regra do ZIP do financeiro), sem
+    repetir nome dentro do mesmo e-mail."""
+    from ..views_financeiro import nome_arquivo_boleto
+    nome = nome_arquivo_boleto(boleto)
+    n = usados.get(nome, 0) + 1
+    usados[nome] = n
+    return nome if n == 1 else nome[:-4] + f'_{n}.pdf'
+
+
+def enviar_email_agrupado():
+    """Cron de 2 em 2 horas (10/11/2026): UM e-mail à equipe@ com TODOS os
+    boletos aprovados que ficaram na fila do "e-mail agrupado" — de todos
+    os prestadores com a opção — com os PDFs (boleto e nota) anexos e os
+    dados de pagamento de cada um. Sem cópia a gerente: são vários postos
+    num e-mail só (trava do sigilo por posto). Devolve os pks enviados."""
+    pendentes = list(
+        Boleto.objects
+        .filter(fin_agrupar=True, fin_agrupado_em__isnull=True,
+                pagamento_enviado_em__isnull=False,
+                prestador__fin_email_agrupado=True,
+                prestador__fin_sem_email=False,
+                status__in=[Boleto.Status.APROVADO,
+                            Boleto.Status.FIN_RECEBIDO, Boleto.Status.PAGO])
+        .select_related('prestador', 'posto', 'prestador__posto_cobranca')
+        .order_by('prestador__nome', 'posto__nome', 'pk'))
+    if not pendentes:
+        return []
+    anexos, blocos, usados = [], [], {}
+    total = Decimal('0')
+    for b in pendentes:
+        fatos = _fatos(b)
+        valor = b.valor_extraido or b.valor_esperado or Decimal('0')
+        fatos['valor'] = _moeda(valor)
+        total += valor
+        nome = nome_anexo_boleto(b, usados)
+        if b.arquivo:
+            anexos.append((b.arquivo, nome))
+        if b.nota_fiscal:
+            anexos.append((b.nota_fiscal, nome[:-4] + '_nota.pdf'))
+        blocos.append(f'📎 {nome}' + dados_pagamento(b, fatos))
+    n_prest = len({b.prestador_id for b in pendentes})
+    corpo = (
+        'Prezada equipe do setor financeiro,\n\n'
+        f'Seguem, num único e-mail, os {len(pendentes)} boleto(s) de '
+        f'{n_prest} prestador(es) conferidos e aprovados para pagamento '
+        f'desde o último envio, no total de R$ {_moeda(total)}. Os PDFs '
+        'estão anexos, nomeados por prestador e posto; os dados de cada '
+        'pagamento seguem abaixo da assinatura.\n\n'
+        'Atenciosamente,\nCristiano — CAMIM\n'
+        + '\n'.join(blocos))
+    ok = emails.enviar(
+        settings.EMAIL_PAGADOR,
+        f'Pagamento (agrupado) — {len(pendentes)} boleto(s) — '
+        f'{n_prest} prestador(es) — R$ {_moeda(total)}',
+        corpo, anexos=anexos, de=settings.EMAIL_FROM_PAGADOR)
+    if not ok:
+        log.error('E-mail agrupado ao financeiro falhou; fica para a próxima')
+        return []
+    agora = timezone.now()
+    pks = [b.pk for b in pendentes]
+    Boleto.objects.filter(pk__in=pks).update(fin_agrupado_em=agora)
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator='sistema',
+        detalhe=f'E-mail AGRUPADO ao financeiro: {len(pks)} boleto(s) '
+                f'({", ".join(f"#{p}" for p in pks)}) — R$ {_moeda(total)}')
+    return pks
 
 
 def _alertar_discrepancia(boleto, fatos, correcao=False, quando=''):

@@ -15,3 +15,7 @@
 # Lembrete diário 8h: quem falta mandar boleto, o que precisa de ação,
 # o que foi p/ pagamento e ainda não está marcado como PAGO
 0 8 * * * cd /opt/pj && .venv/bin/python manage.py lembrete_diario >> /var/log/pj/cron.log 2>&1
+
+# E-mail agrupado ao financeiro (10/11/2026): prestadores na opção "Enviar
+# e-mail agrupado" — um e-mail só, de 2 em 2 horas, com todos os PDFs
+0 */2 * * * cd /opt/pj && .venv/bin/python manage.py email_agrupado >> /var/log/pj/cron.log 2>&1

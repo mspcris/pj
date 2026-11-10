@@ -264,16 +264,22 @@ def baixar_todos(request, up, pk):
 def email_toggle(request, up, pk):
     prestador = get_object_or_404(Prestador, pk=pk)
     prestador.fin_sem_email = request.POST.get('sem_email') == 'on'
-    prestador.save(update_fields=['fin_sem_email'])
+    prestador.fin_email_agrupado = request.POST.get('agrupado') == 'on'
+    prestador.save(update_fields=['fin_sem_email', 'fin_email_agrupado'])
+    if prestador.fin_sem_email:
+        modo = 'sem e-mail de pagamento — controle pelo painel'
+        msg = ('você não receberá mais e-mail de pagamento deste '
+               'prestador — acompanhe por aqui.')
+    elif prestador.fin_email_agrupado:
+        modo = 'E-MAIL AGRUPADO (um e-mail a cada 2h com todos os boletos)'
+        msg = ('os boletos deste prestador virão num e-mail agrupado, a '
+               'cada 2 horas, junto com os dos outros prestadores nessa '
+               'opção.')
+    else:
+        modo = 'um e-mail por boleto (padrão)'
+        msg = 'e-mails de pagamento religados, um por boleto.'
     AuditLog.registrar(
         AuditLog.Evento.CRUD, request, ator=up.email,
-        detalhe=f'Financeiro: e-mail de pagamento de {prestador} '
-                + ('DESLIGADO — controle pelo painel' if prestador.fin_sem_email
-                   else 'religado'))
-    messages.success(
-        request,
-        f'{prestador}: ' + ('você não receberá mais e-mail de pagamento '
-                            'deste prestador — acompanhe por aqui.'
-                            if prestador.fin_sem_email else
-                            'e-mails de pagamento religados.'))
+        detalhe=f'Financeiro: e-mail de pagamento de {prestador}: {modo}')
+    messages.success(request, f'{prestador}: {msg}')
     return _voltar(request, prestador_pk=prestador.pk)

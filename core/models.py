@@ -198,6 +198,14 @@ class Prestador(models.Model):
         default=False,
         verbose_name='Financeiro acompanha pelo painel (sem e-mail de '
                      'pagamento)')
+    # 10/11/2026: em vez de um e-mail por boleto, a equipe@ recebe UM
+    # e-mail a cada 2 horas (cron email_agrupado) com todos os boletos
+    # aprovados anexos — de todos os prestadores com esta opção. Só vale
+    # com fin_sem_email desmarcado.
+    fin_email_agrupado = models.BooleanField(
+        default=False,
+        verbose_name='Financeiro recebe e-mail agrupado (um e-mail a cada '
+                     '2h com todos os boletos)')
     # E-mails do prestador SEM login (sem idCamim): recebem os avisos E o
     # robô aceita boleto vindo deles (Rosana, Guido). Vírgula separa.
     # Somam-se aos usuários ativos.
@@ -768,6 +776,11 @@ class Boleto(models.Model):
     # 10/11/2026: aviso ao prestador de que o boleto vence ANTES da data
     # prevista de pagamento do contrato (pode ser negado). Uma vez só.
     aviso_vencimento_em = models.DateTimeField(null=True, blank=True)
+    # E-mail agrupado ao financeiro (10/11/2026): marcado na aprovação
+    # quando o prestador está na opção; fin_agrupado_em = quando a rotina
+    # o incluiu no e-mail. Pendente = fin_agrupar e sem fin_agrupado_em.
+    fin_agrupar = models.BooleanField(default=False)
+    fin_agrupado_em = models.DateTimeField(null=True, blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
     verificado_em = models.DateTimeField(null=True, blank=True)
     pago_em = models.DateTimeField(null=True, blank=True)
@@ -856,6 +869,11 @@ class Boleto(models.Model):
                                          '(PAGO automático em 24h)',
                 'quando': self.fin_pagamento_em,
                 'detalhe': self.fin_pagamento_por})
+        if self.fin_agrupado_em:
+            ev.append({
+                'icone': '📦',
+                'titulo': 'Enviado ao financeiro no e-mail agrupado',
+                'quando': self.fin_agrupado_em, 'detalhe': ''})
         if self.aviso_vencimento_em:
             ev.append({
                 'icone': '📅',
