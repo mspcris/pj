@@ -382,8 +382,10 @@ def contratos_lote(request, up):
 # PJ só baixa o que é do próprio prestador; admin baixa tudo.
 # ---------------------------------------------------------------------------
 def _pode_ver(up, prestador_id, tipo=''):
-    # Financeiro baixa boleto e nota fiscal (é o que ele paga); contratos não.
-    if up.is_financeiro and tipo in ('boleto', 'nf'):
+    # Financeiro baixa boleto, nota fiscal e contrato (10/11/2026: "o
+    # financeiro deveria ter acesso aos contratos"). Contrato desativado e
+    # versões anteriores continuam só do admin.
+    if up.is_financeiro and tipo in ('boleto', 'nf', 'contrato'):
         return True
     return up.is_admin or (up.prestador_id == prestador_id)
 

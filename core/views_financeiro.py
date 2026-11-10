@@ -20,7 +20,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .models import AuditLog, Boleto, Prestador
+from .models import AuditLog, Boleto, Contrato, Prestador
 from .views import com_usuario
 
 
@@ -63,6 +63,32 @@ def etapas_do_boleto(b):
     return [True,
             b.status in (*ABERTOS, Boleto.Status.PAGO),
             recebido, enviado]
+
+
+def contratos_por_posto(prestador):
+    """Modal "Contratos" do financeiro (10/11/2026): TODOS os postos do
+    prestador (vínculos ativos) + postos que só têm contrato + o contrato
+    geral (sem posto), cada um com seus contratos ativos (desativado é só
+    do admin). Posto sem contrato aparece mesmo assim, avisando."""
+    contratos = (Contrato.objects
+                 .filter(prestador=prestador, desativado_em__isnull=True)
+                 .select_related('posto')
+                 .order_by('-vigencia_inicio', '-pk'))
+    por_posto = {}
+    for v in prestador.vinculos.filter(ativo=True).select_related('posto'):
+        por_posto.setdefault(v.posto_id, {'posto': v.posto, 'contratos': []})
+    geral = []
+    for c in contratos:
+        if c.posto_id is None:
+            geral.append(c)
+        else:
+            por_posto.setdefault(c.posto_id,
+                                 {'posto': c.posto, 'contratos': []})
+            por_posto[c.posto_id]['contratos'].append(c)
+    grupos = sorted(por_posto.values(), key=lambda g: g['posto'].nome)
+    if geral:
+        grupos.append({'posto': None, 'contratos': geral})
+    return grupos
 
 
 def pontos(feitos_por_boleto):
@@ -112,6 +138,8 @@ def painel(request, up):
                 g['a_receber'] += 1
     for g in grupos.values():
         g['pontos'] = pontos([etapas_do_boleto(b) for b in g['boletos']])
+        g['contratos'] = contratos_por_posto(g['prestador'])
+        g['n_contratos'] = sum(len(x['contratos']) for x in g['contratos'])
     grupos = sorted(grupos.values(),
                     key=lambda g: (g['abertos'] == 0, g['prestador'].nome))
     return render(request, 'financeiro/painel.html', {

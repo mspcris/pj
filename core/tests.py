@@ -4721,6 +4721,40 @@ class PainelFinanceiroTest(BaseSetup):
         self.login_pj()
         self.assertEqual(self.client.post(url, {}).status_code, 302)
 
+    def test_financeiro_ve_e_baixa_os_contratos_do_prestador(self):
+        """10/11/2026: "o financeiro deveria ter acesso aos contratos" —
+        botão Contratos no modal do prestador: todos os postos (com ou sem
+        contrato) e os contratos; baixa o PDF. Desativado continua só do
+        admin."""
+        self.client.force_login(self.fin)
+        c1 = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            arquivo=_pdf('anchieta.pdf'), nome_original='anchieta.pdf',
+            vigencia_inicio=date(2026, 1, 1))
+        geral = Contrato.objects.create(
+            prestador=self.prestador, posto=None,
+            arquivo=_pdf('geral.pdf'), nome_original='geral.pdf')
+        desat = Contrato.objects.create(
+            prestador=self.prestador, posto=self.posto2,
+            arquivo=_pdf('velho.pdf'), nome_original='velho.pdf',
+            desativado_em=timezone.now())
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'Contratos')
+        self.assertContains(resp, 'anchieta.pdf')
+        self.assertContains(resp, 'geral.pdf')
+        self.assertNotContains(resp, 'velho.pdf')
+        self.assertContains(resp, 'Bangu')          # posto sem contrato
+        self.assertContains(resp, 'sem contrato anexado')
+        self.assertContains(resp, f'/arquivo/contrato/{c1.pk}/')
+        self.assertEqual(
+            self.client.get(f'/arquivo/contrato/{c1.pk}/').status_code, 200)
+        self.assertEqual(
+            self.client.get(f'/arquivo/contrato/{geral.pk}/').status_code,
+            200)
+        self.assertEqual(
+            self.client.get(f'/arquivo/contrato/{desat.pk}/').status_code,
+            404)
+
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):
         from core.services.verificacao import pagar_automatico

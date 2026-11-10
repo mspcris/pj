@@ -63,6 +63,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
     <div><strong>{{ g.prestador.nome }}</strong>{% if g.prestador.cnpj %} <span style="opacity:.85;font-size:.85rem">· CNPJ {{ g.prestador.cnpj }}</span>{% endif %}<br>
       <span style="font-size:.82rem;opacity:.9">{{ mes|date:"F/Y"|capfirst }} · {{ g.abertos }} em aberto · {{ g.pagos }} pago(s) · 📅 {% if g.pagamento_previsto %}Pagamento previsto: <strong>{{ g.pagamento_previsto|date:"d/m/Y" }}</strong> (dia {{ g.prestador.dia_pagamento }} do contrato){% else %}sem data prevista no contrato{% endif %}</span></div>
     <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn mini claro" type="button" onclick="document.getElementById('ctr{{ g.prestador.pk }}').showModal()" title="Todos os postos e contratos deste prestador">📄 Contratos{% if g.n_contratos %} ({{ g.n_contratos }}){% endif %}</button>
       <a class="btn mini dourado" href="{% url 'financeiro_zip' g.prestador.pk %}?m={{ mes|date:'Y-m' }}" title="ZIP com os PDFs: primeiro nome do prestador + posto (ex.: caio_realengo.pdf)">⬇️ Baixar todos os boletos</a>
       <form method="dialog" style="margin:0"><button class="btn mini claro" type="submit">Fechar ✕</button></form>
     </div>
@@ -133,6 +134,39 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
       {% endif %}
       {% endfor %}
     </table>
+  </div>
+</dialog>
+
+<dialog class="fin" id="ctr{{ g.prestador.pk }}">
+  <div class="topo">
+    <div><strong>📄 Contratos — {{ g.prestador.nome }}</strong><br>
+      <span style="font-size:.82rem;opacity:.9">{{ g.n_contratos }} contrato(s) · todos os postos do prestador</span></div>
+    <form method="dialog" style="margin:0"><button class="btn mini claro" type="submit">Fechar ✕</button></form>
+  </div>
+  <div class="corpo">
+    {% for grp in g.contratos %}
+    <div class="card" style="margin-bottom:12px">
+      <h2 style="font-size:1rem;margin:0 0 8px">{% if grp.posto %}{{ grp.posto.nome }}{% if grp.posto.razao_social %} <span class="carimbo">· {{ grp.posto.razao_social }}{% if grp.posto.cnpj %} — CNPJ {{ grp.posto.cnpj }}{% endif %}</span>{% endif %}{% else %}Contrato geral <span class="carimbo">· sem posto específico</span>{% endif %}</h2>
+      {% if grp.contratos %}
+      <table>
+        <tr><th>Arquivo</th><th>Vigência</th><th>Situação</th><th>Assinaturas gov.br</th><th></th></tr>
+        {% for c in grp.contratos %}
+        <tr>
+          <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}?inline=1" target="_blank">📎 {{ c.nome_original|default:"contrato.pdf"|truncatechars:40 }}</a></td>
+          <td style="white-space:nowrap">{{ c.vigencia_inicio|date:"d/m/Y"|default:"—" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}</td>
+          <td>{% if c.vigente %}<span class="chip APROVADO">Vigente</span>{% else %}<span class="chip SUBSTITUIDO">Fora de vigência</span>{% endif %}</td>
+          <td>{% if c.assinatura_govbr %}{% if c.assinaturas_completas %}<span class="chip APROVADO">✅ prestador e gestor</span>{% else %}<span class="chip MANUAL">⏳ {{ c.situacao_assinatura }}</span>{% endif %}{% else %}<span class="carimbo">—</span>{% endif %}</td>
+          <td style="white-space:nowrap"><a class="btn mini claro" href="{% url 'baixar_arquivo' 'contrato' c.pk %}">⬇️ Baixar</a></td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}
+      <p class="carimbo" style="margin:0">⚠️ sem contrato anexado para este posto</p>
+      {% endif %}
+    </div>
+    {% empty %}
+    <p class="sub">Este prestador não tem posto vinculado nem contrato anexado.</p>
+    {% endfor %}
   </div>
 </dialog>
 {% empty %}
