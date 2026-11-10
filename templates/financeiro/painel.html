@@ -28,6 +28,23 @@
 .kanban.mini .tr{width:10px}
 dialog.fin{border:0;border-radius:16px;padding:0;width:min(960px,96vw);max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);position:fixed;inset:0;margin:auto}
 dialog.fin::backdrop{background:rgba(10,30,20,.55)}
+@media (max-width:760px){
+  dialog.fin{width:100vw;max-width:100vw;max-height:100vh;border-radius:0}
+  dialog.fin .topo{flex-wrap:wrap;padding:12px 14px}
+  dialog.fin .corpo{padding:12px 12px 20px}
+  dialog.fin table,dialog.fin tbody,dialog.fin tr,dialog.fin td{display:block;width:100%;box-sizing:border-box}
+  dialog.fin tr.cab{display:none}
+  dialog.fin tr{border:1.5px solid var(--linha);border-radius:12px;padding:10px 12px;margin-bottom:10px;background:#fff}
+  dialog.fin tr.recusa-row{display:none;border-color:#f1c6bf}
+  dialog.fin tr.recusa-row.aberta{display:block}
+  dialog.fin td{border:0;padding:5px 0;white-space:normal!important}
+  dialog.fin td[data-rot]::before{content:attr(data-rot);display:block;font-size:.7rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--cinza);margin-bottom:2px}
+  dialog.fin td .btn{margin:4px 6px 4px 0}
+  .recusa-box{width:100%}
+  .fin-card{padding:14px 14px}
+  .kanban{width:100%;justify-content:flex-start}
+  .abas a{padding:9px 12px;font-size:.92rem}
+}
 dialog.fin .topo{background:var(--verde);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;top:0}
 dialog.fin .corpo{padding:16px 20px 22px}
 dialog.fin table{width:100%;border-collapse:collapse;font-size:.92rem}
@@ -97,20 +114,20 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
       </div>
     </form>
     <table>
-      <tr><th>Posto</th><th>Etapas</th><th>Valor</th><th>Vencimento</th>{% if g.previsao.distintos %}<th>Pagto previsto</th>{% endif %}<th>Arquivos</th><th>Situação</th><th></th></tr>
+      <tr class="cab"><th>Posto</th><th>Etapas</th><th>Valor</th><th>Vencimento</th>{% if g.previsao.distintos %}<th>Pagto previsto</th>{% endif %}<th>Arquivos</th><th>Situação</th><th></th></tr>
       {% for b in g.boletos %}
       <tr>
-        <td><strong>{{ b.posto_efetivo|default:"boleto único" }}</strong>
+        <td data-rot="Posto"><strong>{{ b.posto_efetivo|default:"boleto único" }}</strong>
           {% if b.linha_digitavel %}<div class="carimbo" style="font-family:monospace;word-break:break-all">{{ b.linha_digitavel }}</div>{% endif %}
           {% if b.chave_pix %}<div class="carimbo">PIX: {{ b.chave_pix }}</div>{% endif %}</td>
-        <td style="white-space:nowrap"><span class="kanban mini">{% for e in b.etapas %}{% if not forloop.first %}<span class="tr{% if e.ok %} ok{% endif %}"></span>{% endif %}<span class="pt {% if e.ok %}ok{% else %}nao{% endif %}" data-hint="{{ e.rotulo }}{% if e.ok %} ✓{% else %} — pendente{% endif %}"></span>{% endfor %}</span></td>
-        <td style="white-space:nowrap">R$ {{ b.valor_extraido|default:b.valor_esperado }}</td>
-        <td style="white-space:nowrap">{% if b.semaforo and b.vencimento %}<span class="chip" style="background:{{ b.semaforo.cor }};color:#fff" title="{{ b.semaforo.texto|capfirst }}">{{ b.vencimento|date:"d/m/Y" }}</span><div class="carimbo" style="color:{{ b.semaforo.cor }}">{{ b.semaforo.texto }}</div>{% elif b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}
+        <td style="white-space:nowrap" data-rot="Etapas"><span class="kanban mini">{% for e in b.etapas %}{% if not forloop.first %}<span class="tr{% if e.ok %} ok{% endif %}"></span>{% endif %}<span class="pt {% if e.ok %}ok{% else %}nao{% endif %}" data-hint="{{ e.rotulo }}{% if e.ok %} ✓{% else %} — pendente{% endif %}"></span>{% endfor %}</span></td>
+        <td style="white-space:nowrap" data-rot="Valor">R$ {{ b.valor_extraido|default:b.valor_esperado }}</td>
+        <td style="white-space:nowrap" data-rot="Vencimento">{% if b.semaforo and b.vencimento %}<span class="chip" style="background:{{ b.semaforo.cor }};color:#fff" title="{{ b.semaforo.texto|capfirst }}">{{ b.vencimento|date:"d/m/Y" }}</span><div class="carimbo" style="color:{{ b.semaforo.cor }}">{{ b.semaforo.texto }}</div>{% elif b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}
           {% if b.vence_antes_do_previsto %}<div class="carimbo fora-data">⚠️ vence antes do pagamento previsto ({{ b.pagamento_previsto|date:"d/m" }})</div>{% endif %}</td>
-        {% if g.previsao.distintos %}<td style="white-space:nowrap">{% if b.pagamento_previsto %}{{ b.pagamento_previsto|date:"d/m/Y" }}<div class="carimbo">{{ b.regra_pagamento }}</div>{% if b.clausula_pagamento %}<div class="carimbo" style="white-space:normal">{{ b.clausula_pagamento }}</div>{% endif %}{% else %}<span class="carimbo">sem dia no contrato</span>{% endif %}</td>{% endif %}
-        <td style="white-space:nowrap">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}
+        {% if g.previsao.distintos %}<td style="white-space:nowrap" data-rot="Pagto previsto">{% if b.pagamento_previsto %}{{ b.pagamento_previsto|date:"d/m/Y" }}<div class="carimbo">{{ b.regra_pagamento }}</div>{% if b.clausula_pagamento %}<div class="carimbo" style="white-space:normal">{{ b.clausula_pagamento }}</div>{% endif %}{% else %}<span class="carimbo">sem dia no contrato</span>{% endif %}</td>{% endif %}
+        <td style="white-space:nowrap" data-rot="Arquivos">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}
           {% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" target="_blank">🧾 nota</a>{% elif g.prestador.exige_nf %}<div class="carimbo fora-data">⚠️ falta a nota fiscal</div>{% endif %}</td>
-        <td>
+        <td data-rot="Situação">
           {% if b.status == 'PAGO' %}<span class="chip PAGO">Pago</span><div class="carimbo">{{ b.pago_em|date:"d/m/Y H:i" }}</div>
           {% elif b.fin_pagamento_em %}<span class="chip FIN_RECEBIDO">Enviado p/ pagamento</span>
             <div class="carimbo">{{ b.fin_pagamento_em|date:"d/m/Y H:i" }} · {{ b.fin_pagamento_por }}</div>
@@ -121,7 +138,7 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
             <div class="carimbo">liberado em {{ b.pagamento_enviado_em|date:"d/m/Y H:i" }}</div>{% endif %}
           {% if b.fin_agrupar and not b.fin_agrupado_em %}<div class="carimbo">📦 aguardando o e-mail agrupado (sai a cada 2h)</div>{% elif b.fin_agrupado_em %}<div class="carimbo">📦 no e-mail agrupado de {{ b.fin_agrupado_em|date:"d/m/Y H:i" }}</div>{% endif %}
         </td>
-        <td style="white-space:nowrap">
+        <td style="white-space:nowrap" data-rot="Ações">
           {% if b.status == 'APROVADO' %}
           <form method="post" action="{% url 'financeiro_acao' b.pk 'recebi' %}" style="display:inline">
             {% csrf_token %}<input type="hidden" name="m" value="{{ mes|date:'Y-m' }}">
@@ -171,13 +188,13 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
       <h2 style="font-size:1rem;margin:0 0 8px">{% if grp.posto %}{{ grp.posto.nome }}{% if grp.posto.razao_social %} <span class="carimbo">· {{ grp.posto.razao_social }}{% if grp.posto.cnpj %} — CNPJ {{ grp.posto.cnpj }}{% endif %}</span>{% endif %}{% else %}Contrato geral <span class="carimbo">· sem posto específico</span>{% endif %}</h2>
       {% if grp.contratos %}
       <table>
-        <tr><th>Arquivo</th><th>Vigência</th><th>Situação</th><th>Assinaturas gov.br</th><th></th></tr>
+        <tr class="cab"><th>Arquivo</th><th>Vigência</th><th>Situação</th><th>Assinaturas gov.br</th><th></th></tr>
         {% for c in grp.contratos %}
         <tr>
-          <td><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}?inline=1" target="_blank">📎 {{ c.nome_original|default:"contrato.pdf"|truncatechars:40 }}</a></td>
-          <td style="white-space:nowrap">{% if c.vigencia_inicio %}{{ c.vigencia_inicio|date:"d/m/Y" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}{% elif c.vigencia_fim %}até {{ c.vigencia_fim|date:"d/m/Y" }}{% else %}indeterminada{% endif %}</td>
-          <td>{% if c.vigente %}<span class="chip APROVADO">Vigente</span>{% else %}<span class="chip SUBSTITUIDO">Fora de vigência</span>{% endif %}</td>
-          <td>{% if c.assinatura_govbr %}{% if c.assinaturas_completas %}<span class="chip APROVADO">✅ prestador e gestor</span>{% else %}<span class="chip MANUAL">⏳ {{ c.situacao_assinatura }}</span>{% endif %}{% else %}<span class="carimbo">—</span>{% endif %}</td>
+          <td data-rot="Arquivo"><a href="{% url 'baixar_arquivo' 'contrato' c.pk %}?inline=1" target="_blank">📎 {{ c.nome_original|default:"contrato.pdf"|truncatechars:40 }}</a></td>
+          <td style="white-space:nowrap" data-rot="Vigência">{% if c.vigencia_inicio %}{{ c.vigencia_inicio|date:"d/m/Y" }} — {{ c.vigencia_fim|date:"d/m/Y"|default:"indeterminado" }}{% elif c.vigencia_fim %}até {{ c.vigencia_fim|date:"d/m/Y" }}{% else %}indeterminada{% endif %}</td>
+          <td data-rot="Situação">{% if c.vigente %}<span class="chip APROVADO">Vigente</span>{% else %}<span class="chip SUBSTITUIDO">Fora de vigência</span>{% endif %}</td>
+          <td data-rot="Assinaturas gov.br">{% if c.assinatura_govbr %}{% if c.assinaturas_completas %}<span class="chip APROVADO">✅ prestador e gestor</span>{% else %}<span class="chip MANUAL">⏳ {{ c.situacao_assinatura }}</span>{% endif %}{% else %}<span class="carimbo">—</span>{% endif %}</td>
           <td style="white-space:nowrap"><a class="btn mini claro" href="{% url 'baixar_arquivo' 'contrato' c.pk %}">⬇️ Baixar</a></td>
         </tr>
         {% endfor %}
