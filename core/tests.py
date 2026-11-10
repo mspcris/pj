@@ -4946,7 +4946,7 @@ class PainelFinanceiroTest(BaseSetup):
         self.assertContains(resp, f'conforme contrato, {cl}')
         self.assertNotContains(resp, 'dias distintos')
         self.assertNotContains(resp, 'Pagto previsto')
-        self.assertContains(resp, 'exige nota fiscal')
+        self.assertContains(resp, 'EXIGE NOTA FISCAL')
         self.assertContains(resp, 'falta a nota fiscal')  # boleto sem NF
         # Bangu paga dia 20 pelo contrato dele: dias distintos
         c2.dia_pagamento = 20
