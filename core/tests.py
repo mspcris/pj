@@ -4957,6 +4957,46 @@ class PainelFinanceiroTest(BaseSetup):
         c2.save()
         self.assertEqual(b_bangu.pagamento_previsto, date(2026, 11, 10))
 
+    def test_semaforo_de_vencimento_do_financeiro(self):
+        """10/11/2026: verde faltando 2+ dias úteis, amarelo faltando 1,
+        vermelho no dia ou vencido (1% mais escuro por dia vencido); se
+        vence no fim de semana, a sexta já é o dia (vermelho)."""
+        from core.services.semaforo import semaforo_vencimento
+        ter = date(2026, 11, 10)                     # terça
+        self.assertEqual(semaforo_vencimento(date(2026, 11, 12), ter)['classe'],
+                         'verde')                    # quinta: 2 úteis
+        self.assertEqual(semaforo_vencimento(date(2026, 11, 11), ter)['classe'],
+                         'amarelo')                  # quarta: 1 útil
+        hoje = semaforo_vencimento(ter, ter)
+        self.assertEqual(hoje['classe'], 'vermelho')
+        self.assertEqual(hoje['dias_vencido'], 0)
+        self.assertEqual(hoje['cor'], 'hsl(4, 78%, 48%)')
+        venc = semaforo_vencimento(date(2026, 11, 5), ter)
+        self.assertEqual(venc['classe'], 'vermelho')
+        self.assertEqual(venc['dias_vencido'], 5)
+        self.assertEqual(venc['cor'], 'hsl(4, 78%, 43%)')  # 1% por dia
+        # domingo 15/11: a sexta 13/11 já é o dia
+        self.assertEqual(semaforo_vencimento(date(2026, 11, 15), ter)['classe'],
+                         'verde')                    # ter→sex: 3 úteis
+        self.assertEqual(semaforo_vencimento(date(2026, 11, 15),
+                                             date(2026, 11, 12))['classe'],
+                         'amarelo')                  # quinta: falta 1
+        self.assertEqual(semaforo_vencimento(date(2026, 11, 15),
+                                             date(2026, 11, 13))['classe'],
+                         'vermelho')                 # sexta: é o dia
+        self.assertIsNone(semaforo_vencimento(None, ter))
+        # sábado e domingo não contam como dias que faltam
+        self.assertEqual(semaforo_vencimento(date(2026, 11, 16),
+                                             date(2026, 11, 13))['classe'],
+                         'amarelo')                  # sex→seg: 1 útil
+        # no painel: card com a pior cor, data colorida no modal
+        self.client.force_login(self.fin)
+        self.b.vencimento = date(2026, 11, 5)
+        self.b.save()
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'vencido há')
+        self.assertContains(resp, 'hsl(4, 78%')
+
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):
         from core.services.verificacao import pagar_automatico
