@@ -8,7 +8,8 @@
 .abas a:hover{color:var(--verde-esc)}
 .rej table{width:100%;border-collapse:collapse;font-size:.9rem}
 .rej td,.rej th{padding:9px 6px;border-bottom:1px solid var(--linha);vertical-align:top;text-align:left}
-.rej .motivo{white-space:pre-line;max-width:420px}
+.rej .motivo{white-space:pre-line;min-width:340px;width:40%}
+.rej td.ap{white-space:nowrap}
 .rej details summary{cursor:pointer;color:var(--verde-esc);font-weight:600}
 .carimbo{font-size:.78rem;color:var(--cinza)}
 .chip.DEVOLVIDO,.chip.NAO_RECONHECIDO{background:#fdeceb;color:var(--erro)}
@@ -28,10 +29,10 @@
     {% for b in lista %}
     <tr>
       <td style="white-space:nowrap">{{ b.rejeitado_em|date:"d/m/Y H:i"|default:"—" }}<div class="carimbo">boleto #{{ b.pk }}</div></td>
-      <td><strong>{{ b.prestador.nome }}</strong><div class="carimbo">{{ b.posto_efetivo|default:"boleto único" }}</div></td>
+      <td class="ap"><strong>{{ b.prestador.nome|truncatechars:28 }}</strong><div class="carimbo">{{ b.posto_efetivo|default:"boleto único" }}</div></td>
       <td style="white-space:nowrap">{{ b.competencia|date:"m/Y" }}</td>
       <td style="white-space:nowrap">R$ {{ b.valor_extraido|default:b.valor_esperado|default:"—" }}<div class="carimbo">{% if b.vencimento %}venc. {{ b.vencimento|date:"d/m/Y" }}{% else %}sem vencimento{% endif %}</div></td>
-      <td style="white-space:nowrap"><span class="chip {{ b.status }}">{% if b.status == 'DEVOLVIDO' %}Recusado{% else %}Não reconhecido{% endif %}</span><div class="carimbo">{{ b.quem|default:"—" }}</div></td>
+      <td class="ap"><span class="chip {{ b.status }}">{% if b.status == 'DEVOLVIDO' %}Recusado{% else %}Não reconhecido{% endif %}</span><div class="carimbo" title="{{ b.quem }}">{{ b.quem|truncatechars:22|default:"—" }}</div></td>
       <td class="motivo">{% if b.motivo|length > 160 %}<details><summary>{{ b.motivo|truncatechars:160 }}</summary>{{ b.motivo }}</details>{% else %}{{ b.motivo|default:"—" }}{% endif %}</td>
       <td style="white-space:nowrap">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}{% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" target="_blank">🧾 nota</a>{% endif %}</td>
       <td>{% if b.depois %}{% for x in b.depois %}<div style="white-space:nowrap">#{{ x.pk }} · {{ x.criado_em|date:"d/m H:i" }} · <span class="chip {{ x.status }}" style="font-size:.72rem">{{ x.get_status_display|truncatechars:34 }}</span></div>{% endfor %}{% else %}<span class="carimbo">aguardando novo boleto</span>{% endif %}</td>
