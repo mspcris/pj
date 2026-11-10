@@ -5003,6 +5003,39 @@ class PainelFinanceiroTest(BaseSetup):
         self.assertContains(resp, 'hsl(205, 72%, 56%)')
         self.assertNotContains(resp, 'vencido há')
 
+    def test_contrato_com_enesimo_dia_util(self):
+        """10/11/2026, Victoria: "até o quinto dia útil do mês subsequente"
+        — o painel escreve isso e calcula a data (5º dia útil de nov/2026 =
+        06/11); não cai no dia 10 do cadastro."""
+        self.client.force_login(self.fin)
+        self.prestador.dia_pagamento = 10
+        self.prestador.save()
+        for posto in (self.posto1, self.posto2):
+            Contrato.objects.create(
+                prestador=self.prestador, posto=posto, arquivo=_pdf('c.pdf'),
+                nome_original='c.pdf', vigencia_inicio=date(2026, 1, 1),
+                dia_util_pagamento=5,
+                clausula_pagamento='Cláusula 5ª, item 5.2')
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, '06/11/2026')
+        self.assertContains(resp, '5º dia útil')
+        self.assertContains(resp, 'conforme contrato, Cláusula 5ª, item 5.2')
+        self.assertNotContains(resp, 'dia 10 do contrato')
+        self.assertNotContains(resp, 'dias distintos')
+        b = Boleto(prestador=self.prestador, posto=self.posto1,
+                   competencia=date(2026, 11, 1), vencimento=date(2026, 11, 5))
+        self.assertEqual(b.pagamento_previsto, date(2026, 11, 6))
+        self.assertTrue(b.vence_antes_do_previsto)
+        self.assertEqual(b.regra_pagamento, '5º dia útil')
+        # dezembro/2026 começa na terça: 1,2,3,4 e 7
+        self.assertEqual(
+            self.prestador.pagamento_previsto_em(date(2026, 12, 1),
+                                                 self.posto1),
+            date(2026, 12, 7))
+        from core.services.verificacao import linhas_competencia
+        self.assertIn('Pagamento previsto: dia 6 de novembro/2026 '
+                      '(5º dia útil — contrato)', linhas_competencia(b))
+
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):
         from core.services.verificacao import pagar_automatico

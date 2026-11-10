@@ -179,14 +179,22 @@ class Prestador(models.Model):
             do_posto = [c for c in ativos if c.posto_id is None]
         return do_posto[0] if do_posto else None
 
-    def dia_pagamento_para(self, posto):
-        """(dia, contrato): o dia lido do contrato vigente do posto (com a
-        cláusula), senão o dia do cadastro (contrato None). 10/11/2026:
-        contratos de postos diferentes podem fixar dias diferentes."""
+    def regra_pagamento_para(self, posto):
+        """(dia, dia_util, contrato): a regra do contrato vigente do posto —
+        dia fixo ("até o dia 10") OU N-ésimo dia útil ("até o quinto dia
+        útil", Victoria, 10/11/2026) — senão o dia do cadastro (contrato
+        None). Contratos de postos diferentes podem fixar regras
+        diferentes."""
         c = self.contrato_vigente_para(posto)
+        if c is not None and c.dia_util_pagamento:
+            return None, c.dia_util_pagamento, c
         if c is not None and c.dia_pagamento:
-            return c.dia_pagamento, c
-        return self.dia_pagamento, None
+            return c.dia_pagamento, None, c
+        return self.dia_pagamento, None, None
+
+    def dia_pagamento_para(self, posto):
+        dia, _, c = self.regra_pagamento_para(posto)
+        return dia, c
 
     @staticmethod
     def _data_do_dia(mes, dia):
@@ -196,15 +204,45 @@ class Prestador(models.Model):
         ultimo = calendar.monthrange(mes.year, mes.month)[1]
         return mes.replace(day=min(dia, ultimo))
 
+    @staticmethod
+    def _enesimo_dia_util(mes, n):
+        """N-ésimo dia útil do mês (segunda a sexta; feriados não entram —
+        o painel avisa). Passou do mês: último dia útil."""
+        import calendar
+        from datetime import timedelta
+        ultimo = calendar.monthrange(mes.year, mes.month)[1]
+        d, conta, achado = mes.replace(day=1), 0, None
+        while d.day <= ultimo:
+            if d.weekday() < 5:
+                conta += 1
+                achado = d
+                if conta == n:
+                    return d
+            if d.day == ultimo:
+                break
+            d += timedelta(days=1)
+        return achado
+
+    @staticmethod
+    def _data_da_regra(mes, dia, dia_util):
+        if dia_util:
+            return Prestador._enesimo_dia_util(mes, dia_util)
+        return Prestador._data_do_dia(mes, dia)
+
+    @staticmethod
+    def texto_da_regra(dia, dia_util):
+        if dia_util:
+            return f'{dia_util}º dia útil'
+        return f'dia {dia}' if dia else ''
+
     def pagamento_previsto_em(self, mes, posto=None):
-        """Data prevista de pagamento no `mes` (mês de competência), pelo
-        dia do contrato do posto (ou do cadastro), limitada ao último dia
-        do mês (dia 31 em novembro → 30/11). None = sem dia. 10/11/2026: o
-        financeiro vai desligar o e-mail de pagamento, então a data que ia
-        nele precisa aparecer no painel."""
-        dia = (self.dia_pagamento_para(posto)[0] if posto is not None
-               else self.dia_pagamento)
-        return self._data_do_dia(mes, dia)
+        """Data prevista de pagamento no `mes` (mês de competência), pela
+        regra do contrato do posto (dia fixo, limitado ao último dia do
+        mês, ou N-ésimo dia útil) ou pelo dia do cadastro. None = sem dia.
+        10/11/2026: o financeiro vai desligar o e-mail de pagamento, então
+        a data que ia nele precisa aparecer no painel."""
+        dia, dia_util, _ = self.regra_pagamento_para(posto)
+        return self._data_da_regra(mes, dia, dia_util)
 
     def previsao_pagamento(self, mes):
         """Resumo para o painel do financeiro (10/11/2026): por posto
@@ -213,18 +251,15 @@ class Prestador(models.Model):
         iguais); `distintos` quando os contratos fixam dias diferentes —
         aí o painel mostra a coluna por posto."""
         itens = []
-        for v in self.vinculos_em(mes).select_related('posto') \
-                .order_by('posto__nome'):
-            dia, c = self.dia_pagamento_para(v.posto)
-            itens.append({'posto': v.posto, 'dia': dia,
-                          'data': self._data_do_dia(mes, dia),
+        postos = [v.posto for v in self.vinculos_em(mes)
+                  .select_related('posto').order_by('posto__nome')] or [None]
+        for posto in postos:
+            dia, dia_util, c = self.regra_pagamento_para(posto)
+            itens.append({'posto': posto, 'dia': dia, 'dia_util': dia_util,
+                          'data': self._data_da_regra(mes, dia, dia_util),
+                          'regra': self.texto_da_regra(dia, dia_util),
                           'clausula': c.clausula_pagamento if c else ''})
-        if not itens:
-            dia, c = self.dia_pagamento_para(None)
-            itens.append({'posto': None, 'dia': dia,
-                          'data': self._data_do_dia(mes, dia),
-                          'clausula': c.clausula_pagamento if c else ''})
-        distintos = len({i['dia'] for i in itens}) > 1
+        distintos = len({(i['dia'], i['dia_util']) for i in itens}) > 1
         # A IA grafa a mesma cláusula de jeitos diferentes ("CLÁUSULA 3ª,
         # item 3.2" × "Cláusula 3ª, item 3.2" — Caio, 10/11/2026): maiúscula
         # e minúscula são a mesma, e vale a grafia mais frequente.
@@ -236,6 +271,8 @@ class Prestador(models.Model):
             'itens': itens, 'distintos': distintos,
             'data': None if distintos else itens[0]['data'],
             'dia': None if distintos else itens[0]['dia'],
+            'dia_util': None if distintos else itens[0]['dia_util'],
+            'regra': '' if distintos else itens[0]['regra'],
             'clausula': (clausulas.most_common(1)[0][0]
                          if clausulas and not distintos else ''),
         }
@@ -631,6 +668,10 @@ class Contrato(models.Model):
     # referência da cláusula ("Cláusula 5ª, Parágrafo 2º, alínea b") e o
     # trecho. Contratos de postos diferentes podem fixar dias diferentes.
     dia_pagamento = models.PositiveSmallIntegerField(null=True, blank=True)
+    # "até o quinto dia útil do mês subsequente" (Victoria): N-ésimo dia
+    # útil — exclui dia_pagamento.
+    dia_util_pagamento = models.PositiveSmallIntegerField(null=True,
+                                                          blank=True)
     clausula_pagamento = models.CharField(max_length=200, blank=True)
     trecho_pagamento = models.CharField(max_length=300, blank=True)
     prazos_lidos_em = models.DateTimeField(null=True, blank=True)
@@ -804,6 +845,17 @@ class Boleto(models.Model):
     def clausula_pagamento(self):
         c = self.prestador.dia_pagamento_para(self.posto_efetivo)[1]
         return c.clausula_pagamento if c else ''
+
+    @property
+    def regra_pagamento(self):
+        """'dia 10' ou '5º dia útil' — o que o contrato do posto fixa."""
+        dia, dia_util, _ = self.prestador.regra_pagamento_para(
+            self.posto_efetivo)
+        return Prestador.texto_da_regra(dia, dia_util)
+
+    @property
+    def regra_dia_util(self):
+        return bool(self.prestador.regra_pagamento_para(self.posto_efetivo)[1])
 
     @property
     def vence_antes_do_previsto(self):

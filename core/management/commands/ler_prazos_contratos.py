@@ -15,24 +15,30 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--todos', action='store_true')
+        parser.add_argument('--sem-dia', action='store_true',
+                            help='relê só os já lidos que ficaram sem dia')
         parser.add_argument('--prestador', type=int)
 
     def handle(self, *args, **opts):
         qs = Contrato.objects.filter(desativado_em__isnull=True) \
             .exclude(arquivo='').select_related('prestador', 'posto')
-        if not opts['todos']:
+        if opts['sem_dia']:
+            qs = qs.filter(dia_pagamento__isnull=True,
+                           dia_util_pagamento__isnull=True)
+        elif not opts['todos']:
             qs = qs.filter(prazos_lidos_em__isnull=True)
         if opts['prestador']:
             qs = qs.filter(prestador_id=opts['prestador'])
         n = 0
         for c in qs.order_by('prestador__nome', 'posto__nome', 'pk'):
-            if opts['todos']:
+            if opts['todos'] or opts['sem_dia']:
                 c.prazos_lidos_em = None
             aplicar_dados(c)
             c.refresh_from_db()
             n += 1
             self.stdout.write(
                 f'#{c.pk} {c.prestador.nome[:30]} @ {c.posto or "geral"}: '
-                f'dia={c.dia_pagamento} | {c.clausula_pagamento or "-"} | '
+                f'dia={c.dia_pagamento} util={c.dia_util_pagamento} | '
+                f'{c.clausula_pagamento or "-"} | '
                 f'{(c.trecho_pagamento or "")[:70]}')
         self.stdout.write(self.style.SUCCESS(f'{n} contrato(s) lido(s).'))

@@ -38,12 +38,17 @@ def aplicar_dados(contrato):
     # contratos de postos diferentes podem fixar dias diferentes, e o
     # financeiro vê "conforme contrato, cláusula tal".
     from django.utils import timezone
-    contrato.dia_pagamento = dados.get('dia_pagamento')
+    contrato.dia_util_pagamento = dados.get('dia_util')
+    contrato.dia_pagamento = (None if contrato.dia_util_pagamento
+                              else dados.get('dia_pagamento'))
     contrato.clausula_pagamento = (dados.get('clausula') or '')[:200]
     contrato.trecho_pagamento = (dados.get('trecho') or '')[:300]
     contrato.prazos_lidos_em = timezone.now()
-    contrato.save(update_fields=['dia_pagamento', 'clausula_pagamento',
-                                 'trecho_pagamento', 'prazos_lidos_em'])
+    contrato.save(update_fields=['dia_pagamento', 'dia_util_pagamento',
+                                 'clausula_pagamento', 'trecho_pagamento',
+                                 'prazos_lidos_em'])
+    if contrato.dia_util_pagamento:
+        dados['dia_pagamento'] = None  # cadastro não ganha dia fixo
     if prestador.representante_nome_social and 'representante' in faltam:
         pass  # nome social continua mandando na saudação; só completa
     aplicados = {}

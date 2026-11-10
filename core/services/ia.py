@@ -201,7 +201,8 @@ def extrair_dados_contrato(texto_contrato):
         'Você lê contratos de prestação de serviço (PJ) em português e '
         'extrai dados da CONTRATADA (a empresa prestadora — NUNCA da '
         'CONTRATANTE/CAMIM). Responda SOMENTE JSON: '
-        '{"dia_pagamento": 1-31 ou null, "dia_vencimento": 1-31 ou null, '
+        '{"dia_pagamento": 1-31 ou null, "dia_util_pagamento": 1-23 ou '
+        'null, "dia_vencimento": 1-31 ou null, '
         '"regime": "VIGENTE" | "POSTERIOR" | null, '
         '"cnpj": "00.000.000/0000-00" ou null, '
         '"endereco": "logradouro, número e complemento" ou null, '
@@ -214,7 +215,10 @@ def extrair_dados_contrato(texto_contrato):
         'pagamento no contrato, como aparece nele (ex.: \\"Cláusula 5ª, '
         'Parágrafo 2º, alínea b\\")" ou null}. '
         '"dia_pagamento" = dia do mês em que o contratante paga (ex.: "até '
-        'o dia 10 de cada mês" → 10). "dia_vencimento" = dia de vencimento '
+        'o dia 10 de cada mês" → 10). "dia_util_pagamento" = quando o '
+        'contrato fixa o N-ésimo DIA ÚTIL (ex.: "até o quinto dia útil do '
+        'mês subsequente" → 5; nesse caso dia_pagamento = null). '
+        '"dia_vencimento" = dia de vencimento '
         'do boleto/nota, se o contrato fixar. "regime": VIGENTE se o '
         'pagamento ocorre no mesmo mês do serviço; POSTERIOR se no mês '
         'seguinte ("mês subsequente"); null se não diz. Não invente: na '
@@ -242,6 +246,7 @@ def extrair_dados_contrato(texto_contrato):
     uf = (txt('uf', 2) or '').upper() or None
     return {
         'dia_pagamento': dia(dados.get('dia_pagamento')),
+        'dia_util': dia(dados.get('dia_util_pagamento')),
         'dia_vencimento': dia(dados.get('dia_vencimento')),
         'regime': regime if regime in ('VIGENTE', 'POSTERIOR') else None,
         'cnpj': txt('cnpj', 20), 'endereco': txt('endereco'),

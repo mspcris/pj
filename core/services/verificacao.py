@@ -147,9 +147,12 @@ def linhas_competencia(boleto):
     linhas = [f'Serviço prestado em: {servico}', f'Competência: {servico}']
     if prest.regime_pagamento == prest.Regime.POSTERIOR:
         linhas.append(f'Pagamento em: {pagamento}')
-    if prest.dia_pagamento:
-        linhas.append(f'Pagamento previsto: dia {prest.dia_pagamento} '
-                      f'de {pagamento} (contrato)')
+    prev = boleto.pagamento_previsto
+    if prev:
+        regra = (f'{boleto.regra_pagamento} — ' if boleto.regra_dia_util
+                 else '')
+        linhas.append(f'Pagamento previsto: dia {prev.day} de {pagamento} '
+                      f'({regra}contrato)')
     return linhas
 
 
