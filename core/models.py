@@ -765,6 +765,9 @@ class Boleto(models.Model):
     # admin que aprovou no olho. Vai escrito no e-mail ao financeiro.
     aprovado_por = models.CharField(max_length=120, blank=True)
 
+    # 10/11/2026: aviso ao prestador de que o boleto vence ANTES da data
+    # prevista de pagamento do contrato (pode ser negado). Uma vez só.
+    aviso_vencimento_em = models.DateTimeField(null=True, blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
     verificado_em = models.DateTimeField(null=True, blank=True)
     pago_em = models.DateTimeField(null=True, blank=True)
@@ -853,6 +856,12 @@ class Boleto(models.Model):
                                          '(PAGO automático em 24h)',
                 'quando': self.fin_pagamento_em,
                 'detalhe': self.fin_pagamento_por})
+        if self.aviso_vencimento_em:
+            ev.append({
+                'icone': '📅',
+                'titulo': 'Prestador avisado: boleto vence antes da data '
+                          'prevista de pagamento (pode ser negado)',
+                'quando': self.aviso_vencimento_em, 'detalhe': ''})
         if self.pago_em:
             ev.append({'icone': '✅', 'titulo': 'Pago',
                        'quando': self.pago_em, 'detalhe': ''})

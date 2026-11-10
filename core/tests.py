@@ -4756,6 +4756,68 @@ class PainelFinanceiroTest(BaseSetup):
             404)
 
     @mock.patch('core.services.emails.enviar', return_value=True)
+    def test_boleto_que_vence_antes_do_previsto_avisa_o_prestador(
+            self, m_mail):
+        """10/11/2026: boleto aprovado com vencimento ANTES da data prevista
+        de pagamento do contrato → e-mail padronizado ao prestador: já foi
+        ao financeiro, mas pode ser negado pelo vencimento. Uma vez só; sem
+        dia no contrato (Salliseg), nada."""
+        from core.services.verificacao import enviar_para_pagamento
+        self.prestador.dia_pagamento = 10
+        self.prestador.save()
+        b = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto2,
+            competencia=date(2026, 11, 1), arquivo=_pdf(),
+            vencimento=date(2026, 11, 5),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('2000.00'),
+            valor_esperado=Decimal('2000.00'))
+        enviar_para_pagamento(b)
+        avisos = [c for c in m_mail.call_args_list
+                  if 'pj@empresa.com.br' in c.args[0]
+                  and 'vencimento' in c.args[1].lower()]
+        self.assertEqual(len(avisos), 1)
+        corpo = avisos[0].args[2]
+        self.assertIn('05/11/2026', corpo)
+        self.assertIn('10/11/2026', corpo)
+        self.assertIn('setor financeiro', corpo.lower())
+        self.assertIn('negado', corpo.lower())
+        self.assertIn('Cristiano', corpo)
+        b.refresh_from_db()
+        self.assertIsNotNone(b.aviso_vencimento_em)
+        self.assertTrue(any('vence antes' in ev['titulo']
+                            for ev in b.linha_do_tempo))
+        # reenvio não repete o aviso
+        enviar_para_pagamento(b, reenviar=True)
+        avisos = [c for c in m_mail.call_args_list
+                  if 'pj@empresa.com.br' in c.args[0]
+                  and 'vencimento' in c.args[1].lower()]
+        self.assertEqual(len(avisos), 1)
+        # vencimento no dia previsto: nada
+        m_mail.reset_mock()
+        b2 = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2026, 12, 1), arquivo=_pdf(),
+            vencimento=date(2026, 12, 10),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('1500.00'),
+            valor_esperado=Decimal('1500.00'))
+        enviar_para_pagamento(b2)
+        self.assertFalse([c for c in m_mail.call_args_list
+                          if 'vencimento' in c.args[1].lower()])
+        # contrato sem dia previsto (Salliseg): nada
+        self.prestador.dia_pagamento = None
+        self.prestador.save()
+        m_mail.reset_mock()
+        b3 = Boleto.objects.create(
+            prestador=self.prestador, posto=self.posto1,
+            competencia=date(2027, 1, 1), arquivo=_pdf(),
+            vencimento=date(2027, 1, 2),
+            status=Boleto.Status.APROVADO, valor_extraido=Decimal('1500.00'),
+            valor_esperado=Decimal('1500.00'))
+        enviar_para_pagamento(b3)
+        self.assertFalse([c for c in m_mail.call_args_list
+                          if 'vencimento' in c.args[1].lower()])
+
+    @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):
         from core.services.verificacao import pagar_automatico
         self.client.force_login(self.fin)

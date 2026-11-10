@@ -505,6 +505,9 @@ def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
             + dados_pj(boleto, fatos),
             boleto=boleto, cc=cc_gerente(boleto))
 
+    if not (reenviar and ja) and not correcao:
+        avisar_vencimento_antes_do_previsto(boleto, fatos)
+
     _alertar_discrepancia(boleto, fatos, correcao, quando)
     if correcao:
         return (f'CORREÇÃO enviada ao financeiro (o valor mudou: antes '
@@ -513,6 +516,51 @@ def enviar_para_pagamento(boleto, fatos=None, reenviar=False):
     if reenviar and ja:
         return 'e-mail de pagamento REENVIADO à equipe (marcado como reenvio).'
     return 'enviado p/ pagamento (equipe e prestador avisados).'
+
+
+def avisar_vencimento_antes_do_previsto(boleto, fatos=None):
+    """10/11/2026: boleto aprovado cujo vencimento é ANTERIOR à data
+    prevista de pagamento do contrato (só quando há dia cadastrado — o
+    contrato da Salliseg não diz o dia). E-mail PADRONIZADO, formal e
+    direto, ao prestador: já foi ao financeiro, mas pode ser negado pelo
+    vencimento. Uma vez por boleto. Texto fixo, sem IA."""
+    if boleto.aviso_vencimento_em or not boleto.vence_antes_do_previsto:
+        return False
+    fatos = fatos or _fatos(boleto)
+    previsto = boleto.prestador.pagamento_previsto_em(boleto.competencia)
+    venc = boleto.vencimento.strftime('%d/%m/%Y')
+    prev = previsto.strftime('%d/%m/%Y')
+    contato = fatos.get('contato') or fatos['prestador']
+    corpo = (
+        f'Prezado(a) {contato},\n\n'
+        f'Recebemos o boleto referente a {fatos["competencia"]} '
+        f'({fatos["prestador"]} — unidade {fatos["alvo"]}). Ele foi '
+        'conferido e já está com o setor financeiro para pagamento.\n\n'
+        'Pedimos a sua atenção a um ponto importante: o boleto vence em '
+        f'{venc}, e a data prevista de pagamento no contrato é {prev}. '
+        'Como o pagamento é feito na data prevista em contrato, o setor '
+        'financeiro pode não aceitar um boleto que vença antes dela. Nesse '
+        'caso, o boleto será negado e será necessário emitir um novo, com '
+        f'vencimento igual ou posterior a {prev}.\n\n'
+        'Para os próximos meses, pedimos que o boleto seja emitido com '
+        'vencimento a partir da data prevista de pagamento. Assim evitamos '
+        'devoluções e o pagamento segue sem contratempos.\n\n'
+        'Qualquer dúvida, é só responder a este e-mail.\n\n'
+        'Atenciosamente,\nCristiano — CAMIM')
+    emails.enviar(
+        destinatarios_pj(boleto),
+        f'Atenção ao vencimento do boleto — {fatos["alvo"]} — '
+        f'{fatos["competencia"]}',
+        corpo + dados_pj(boleto, fatos),
+        boleto=boleto, cc=cc_gerente(boleto))
+    boleto.aviso_vencimento_em = timezone.now()
+    boleto.save(update_fields=['aviso_vencimento_em'])
+    AuditLog.registrar(
+        AuditLog.Evento.STATUS, ator='sistema',
+        detalhe=f'Boleto #{boleto.pk}: prestador avisado — vence em {venc}, '
+                f'antes da data prevista de pagamento ({prev}); pode ser '
+                'negado pelo financeiro')
+    return True
 
 
 def _alertar_discrepancia(boleto, fatos, correcao=False, quando=''):
