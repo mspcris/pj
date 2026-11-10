@@ -4996,6 +4996,12 @@ class PainelFinanceiroTest(BaseSetup):
         resp = self.client.get('/financeiro/?m=2026-11')
         self.assertContains(resp, 'vencido há')
         self.assertContains(resp, 'hsl(4, 78%')
+        # tudo pago: azul, sem texto de vencimento no card
+        self.b.status = Boleto.Status.PAGO
+        self.b.save()
+        resp = self.client.get('/financeiro/?m=2026-11')
+        self.assertContains(resp, 'hsl(205, 72%, 56%)')
+        self.assertNotContains(resp, 'vencido há')
 
     @mock.patch('core.services.emails.enviar', return_value=True)
     def test_recebi_enviei_e_pago_automatico(self, m_mail):

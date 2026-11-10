@@ -7,7 +7,10 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-CORES = {'verde': 'hsl(158, 76%, 36%)', 'amarelo': 'hsl(42, 90%, 46%)'}
+CORES = {'verde': 'hsl(158, 76%, 36%)', 'amarelo': 'hsl(42, 90%, 46%)',
+         'pago': 'hsl(205, 72%, 56%)'}
+PAGO = {'classe': 'pago', 'cor': CORES['pago'], 'dias_vencido': -1,
+        'dias_uteis': 0, 'texto': 'pago'}   # azul (10/11/2026)
 _LUZ_VERMELHO, _LUZ_MIN = 48, 18
 
 
@@ -51,7 +54,7 @@ def semaforo_vencimento(vencimento, hoje=None):
                      f'{"is" if uteis > 1 else "l"}'}
 
 
-PESO = {'verde': 0, 'amarelo': 1, 'vermelho': 2}
+PESO = {'pago': -1, 'verde': 0, 'amarelo': 1, 'vermelho': 2}
 
 
 def pior(semaforos):

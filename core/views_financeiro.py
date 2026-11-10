@@ -22,7 +22,7 @@ from django.views.decorators.http import require_POST
 
 from .models import AuditLog, Boleto, Contrato, Prestador
 from .views import com_usuario
-from .services.semaforo import pior, semaforo_vencimento
+from .services.semaforo import PAGO, pior, semaforo_vencimento
 
 
 def financeiro_required(view):
@@ -122,9 +122,9 @@ def painel(request, up):
                            if b.fin_pagamento_em else None)
         b.etapas = [{'rotulo': r, 'ok': ok} for (_, r), ok
                     in zip(ETAPAS, etapas_do_boleto(b))]
-        # Cor por vencimento (10/11/2026) — só boleto ainda não pago.
-        b.semaforo = (semaforo_vencimento(b.vencimento)
-                      if b.status != Boleto.Status.PAGO else None)
+        # Cor por vencimento (10/11/2026); pago = azul.
+        b.semaforo = (PAGO if b.status == Boleto.Status.PAGO
+                      else semaforo_vencimento(b.vencimento))
         g = grupos.setdefault(b.prestador_id, {
             'prestador': b.prestador, 'boletos': [], 'abertos': 0,
             'pagos': 0, 'total_aberto': Decimal('0'),
