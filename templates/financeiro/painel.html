@@ -26,10 +26,16 @@
 .kanban .tr.ok{background:#0b7a5e}
 .kanban.mini .pt{width:11px;height:11px}
 .kanban.mini .tr{width:10px}
-dialog.fin{border:0;border-radius:16px;padding:0;width:min(960px,96vw);max-height:92vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);position:fixed;inset:0;margin:auto}
+dialog.fin{border:0;border-radius:16px;padding:0;width:min(960px,96vw);max-height:92vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.3);position:fixed;inset:0;margin:auto}
+/* rola só o corpo: a barra de rolagem não passa pelo cabeçalho verde */
+dialog.fin[open]{display:flex;flex-direction:column}
+dialog.fin .corpo{flex:1 1 auto;min-height:0;overflow:auto}
+dialog.pdf{width:min(940px,96vw);height:min(92vh,960px)}
+dialog.pdf iframe{border:0;flex:1 1 auto;width:100%;min-height:0}
 dialog.fin::backdrop{background:rgba(10,30,20,.55)}
 @media (max-width:760px){
   dialog.fin{width:100vw;max-width:100vw;max-height:100vh;border-radius:0}
+  dialog.pdf{height:100vh}
   dialog.fin .topo{flex-wrap:wrap;padding:12px 14px}
   dialog.fin .corpo{padding:12px 12px 20px}
   dialog.fin table,dialog.fin tbody,dialog.fin tr,dialog.fin td{display:block;width:100%;box-sizing:border-box}
@@ -45,7 +51,7 @@ dialog.fin::backdrop{background:rgba(10,30,20,.55)}
   .kanban{width:100%;justify-content:flex-start}
   .abas a{padding:9px 12px;font-size:.92rem}
 }
-dialog.fin .topo{background:var(--verde);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;top:0}
+dialog.fin .topo{background:var(--verde);color:#fff;padding:14px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-shrink:0}
 dialog.fin .corpo{padding:16px 20px 22px}
 dialog.fin table{width:100%;border-collapse:collapse;font-size:.92rem}
 dialog.fin td,dialog.fin th{padding:8px 6px;border-bottom:1px solid var(--linha);vertical-align:top;text-align:left}
@@ -125,8 +131,8 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
         <td style="white-space:nowrap" data-rot="Vencimento">{% if b.semaforo and b.vencimento %}<span class="chip" style="background:{{ b.semaforo.cor }};color:#fff" title="{{ b.semaforo.texto|capfirst }}">{{ b.vencimento|date:"d/m/Y" }}</span><div class="carimbo" style="color:{{ b.semaforo.cor }}">{{ b.semaforo.texto }}</div>{% elif b.vencimento %}{{ b.vencimento|date:"d/m/Y" }}{% else %}—{% endif %}
           {% if b.vence_antes_do_previsto %}<div class="carimbo fora-data">⚠️ vence antes do pagamento previsto ({{ b.pagamento_previsto|date:"d/m" }})</div>{% endif %}</td>
         {% if g.previsao.distintos %}<td style="white-space:nowrap" data-rot="Pagto previsto">{% if b.pagamento_previsto %}{{ b.pagamento_previsto|date:"d/m/Y" }}<div class="carimbo">{{ b.regra_pagamento }}</div>{% if b.clausula_pagamento %}<div class="carimbo" style="white-space:normal">{{ b.clausula_pagamento }}</div>{% endif %}{% else %}<span class="carimbo">sem dia no contrato</span>{% endif %}</td>{% endif %}
-        <td style="white-space:nowrap" data-rot="Arquivos">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" target="_blank">📎 boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}
-          {% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" target="_blank">🧾 nota</a>{% elif g.prestador.exige_nf %}<div class="carimbo fora-data">⚠️ falta a nota fiscal</div>{% endif %}</td>
+        <td style="white-space:nowrap" data-rot="Arquivos">{% if b.arquivo %}<a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" title="Baixar o PDF do boleto">📎</a> <a href="{% url 'baixar_arquivo' 'boleto' b.pk %}" title="Ver o boleto aqui" onclick="return verPdf(this.href, 'Boleto — {{ g.prestador.nome|escapejs }} · {{ b.posto_efetivo|default:"boleto único"|escapejs }}')">boleto</a>{% else %}<span class="carimbo">sem PDF</span>{% endif %}
+          {% if b.nota_fiscal %}<br><a href="{% url 'baixar_arquivo' 'nf' b.pk %}" title="Baixar a nota fiscal">🧾</a> <a href="{% url 'baixar_arquivo' 'nf' b.pk %}" title="Ver a nota fiscal aqui" onclick="return verPdf(this.href, 'Nota fiscal — {{ g.prestador.nome|escapejs }} · {{ b.posto_efetivo|default:"boleto único"|escapejs }}')">nota</a>{% elif g.prestador.exige_nf %}<div class="carimbo fora-data">⚠️ falta a nota fiscal</div>{% endif %}</td>
         <td data-rot="Situação">
           {% if b.status == 'PAGO' %}<span class="chip PAGO">Pago</span><div class="carimbo">{{ b.pago_em|date:"d/m/Y H:i" }}</div>
           {% elif b.fin_pagamento_em %}<span class="chip FIN_RECEBIDO">Enviado p/ pagamento</span>
@@ -211,7 +217,27 @@ tr.recusa-row>td{padding:0 6px 14px;white-space:normal}
 {% empty %}
 <div class="card sub">Nenhum boleto aprovado para pagamento em {{ mes|date:"m/Y" }}.</div>
 {% endfor %}
+<dialog class="fin pdf" id="pdfFin" onclose="document.getElementById('pdfFinFrame').src='about:blank'">
+  <div class="topo">
+    <strong id="pdfFinTitulo" style="font-size:.95rem"></strong>
+    <div style="display:flex;gap:8px;align-items:center">
+      <a id="pdfFinBaixar" class="btn mini dourado" href="#">⬇️ Baixar</a>
+      <form method="dialog" style="margin:0"><button class="btn mini claro" type="submit">Fechar ✕</button></form>
+    </div>
+  </div>
+  <iframe id="pdfFinFrame" title="Documento"></iframe>
+</dialog>
 <script>
+// Abre o PDF num modal por cima do modal do prestador (top layer);
+// o Esc fecha só o PDF e volta para a lista.
+function verPdf(url, titulo){
+  var d = document.getElementById('pdfFin');
+  document.getElementById('pdfFinFrame').src = url + '?inline=1#navpanes=0&zoom=page-width';
+  document.getElementById('pdfFinBaixar').href = url;
+  document.getElementById('pdfFinTitulo').textContent = titulo || 'Documento';
+  d.showModal();
+  return false;
+}
 function abrirRecusa(pk, btn){
   var tr = document.getElementById('recusa' + pk);
   var abre = !tr.classList.contains('aberta');
